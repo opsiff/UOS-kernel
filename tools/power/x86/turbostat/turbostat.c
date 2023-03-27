@@ -5664,9 +5664,6 @@ void decode_misc_pwr_mgmt_msr(void)
 {
 	unsigned long long msr;
 
-	if (!platform->has_nhm_msrs)
-		return;
-
 	if (!platform->has_msr_misc_pwr_mgmt)
 		return;
 
