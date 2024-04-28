@@ -37,6 +37,7 @@ config RTW89_8851BE
 	select RTW89_CORE
 	select RTW89_PCI
 	select RTW89_8851B
+	default m
 	help
 	  Select this option will enable support for 8851BE chipset
 
