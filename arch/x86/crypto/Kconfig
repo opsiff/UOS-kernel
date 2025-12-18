@@ -219,7 +219,6 @@ config CRYPTO_SM4_ZHAOXIN_GMI
 	tristate "Ciphers: SM4 with modes: ECB, CBC, CTR, CFB, OFB (Zhaoxin GMI)"
 	depends on X86 && CRYPTO
 	select CRYPTO_SKCIPHER
-	select CRYPTO_SIMD
 	select CRYPTO_ALGAPI
 	select CRYPTO_SM4
 	help

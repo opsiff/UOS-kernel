@@ -9,20 +9,13 @@
  * published by the Free Software Foundation.
  */
 
-#include <linux/types.h>
+#include <asm/fpu/api.h>
 #include <linux/module.h>
-#include <linux/err.h>
-#include <crypto/cryptd.h>
-#include <crypto/scatterwalk.h>
-#include <crypto/algapi.h>
-#include <crypto/internal/simd.h>
-#include <crypto/internal/skcipher.h>
-#include <linux/workqueue.h>
-#include <crypto/sm4.h>
-#include <linux/unaligned.h>
-#include <linux/processor.h>
-#include <linux/cpufeature.h>
 #include <asm/cpu_device_id.h>
+#include <crypto/internal/skcipher.h>
+#include <crypto/sm4.h>
+#include <linux/kernel.h>
+#include <linux/cpufeature.h>
 
 #define SM4_ECB (1 << 6)
 #define SM4_CBC (1 << 7)
@@ -233,7 +226,8 @@ static int sm4_cipher_ctr(struct skcipher_request *req, struct sm4_cipher_data *
 	struct skcipher_walk walk;
 	unsigned int blocks, nbytes;
 	int err;
-	u8 *dst, *src;
+	u8 *dst;
+	const u8 *src;
 	u8 keystream[SM4_BLOCK_SIZE];
 	u32 i;
 
@@ -314,7 +308,8 @@ static int sm4_cipher_ofb(struct skcipher_request *req, struct sm4_cipher_data *
 	struct skcipher_walk walk;
 	unsigned int blocks, nbytes;
 	int err;
-	u8 *dst, *src;
+	u8 *dst;
+	const u8 *src;
 
 	err = skcipher_walk_virt(&walk, req, true);
 
@@ -389,7 +384,8 @@ static int sm4_cipher_cfb(struct skcipher_request *req, struct sm4_cipher_data *
 	struct skcipher_walk walk;
 	unsigned int blocks, nbytes;
 	int err;
-	u8 *dst, *src;
+	u8 *dst;
+	const u8 *src;
 
 	err = skcipher_walk_virt(&walk, req, true);
 
@@ -468,10 +464,9 @@ static int cfb_decrypt(struct skcipher_request *req)
 static struct skcipher_alg sm4_algs[] = {
 	{
 		.base = {
-			.cra_name = "__ecb(sm4)",
-			.cra_driver_name = "__ecb-sm4-gmi",
+			.cra_name = "ecb(sm4)",
+			.cra_driver_name = "ecb-sm4-gmi",
 			.cra_priority = GMI_SM4_CRA_PRIORITY,
-			.cra_flags = CRYPTO_ALG_INTERNAL,
 			.cra_blocksize = SM4_BLOCK_SIZE,
 			.cra_ctxsize = sizeof(struct sm4_ctx),
 			.cra_module = THIS_MODULE,
@@ -486,10 +481,9 @@ static struct skcipher_alg sm4_algs[] = {
 
 	{
 		.base = {
-			.cra_name = "__cbc(sm4)",
-			.cra_driver_name = "__cbc-sm4-gmi",
+			.cra_name = "cbc(sm4)",
+			.cra_driver_name = "cbc-sm4-gmi",
 			.cra_priority = GMI_SM4_CRA_PRIORITY,
-			.cra_flags = CRYPTO_ALG_INTERNAL,
 			.cra_blocksize = SM4_BLOCK_SIZE,
 			.cra_ctxsize = sizeof(struct sm4_ctx),
 			.cra_module = THIS_MODULE,
@@ -505,10 +499,9 @@ static struct skcipher_alg sm4_algs[] = {
 
 	{
 		.base = {
-			.cra_name = "__ctr(sm4)",
-			.cra_driver_name = "__ctr-sm4-gmi",
+			.cra_name = "ctr(sm4)",
+			.cra_driver_name = "ctr-sm4-gmi",
 			.cra_priority = GMI_SM4_CRA_PRIORITY,
-			.cra_flags = CRYPTO_ALG_INTERNAL,
 			.cra_blocksize = 1, //SM4_BLOCK_SIZE,
 			.cra_ctxsize = sizeof(struct sm4_ctx),
 			.cra_module = THIS_MODULE,
@@ -525,10 +518,9 @@ static struct skcipher_alg sm4_algs[] = {
 
 	{
 		.base = {
-			.cra_name = "__ofb(sm4)",
-			.cra_driver_name = "__ofb-sm4-gmi",
+			.cra_name = "ofb(sm4)",
+			.cra_driver_name = "ofb-sm4-gmi",
 			.cra_priority = GMI_SM4_CRA_PRIORITY,
-			.cra_flags = CRYPTO_ALG_INTERNAL,
 			.cra_blocksize = 1,
 			.cra_ctxsize = sizeof(struct sm4_ctx),
 			.cra_module = THIS_MODULE,
@@ -545,10 +537,9 @@ static struct skcipher_alg sm4_algs[] = {
 
 	{
 		.base = {
-			.cra_name = "__cfb(sm4)",
-			.cra_driver_name = "__cfb-sm4-gmi",
+			.cra_name = "cfb(sm4)",
+			.cra_driver_name = "cfb-sm4-gmi",
 			.cra_priority = GMI_SM4_CRA_PRIORITY,
-			.cra_flags = CRYPTO_ALG_INTERNAL,
 			.cra_blocksize = 1,
 			.cra_ctxsize = sizeof(struct sm4_ctx),
 			.cra_module = THIS_MODULE,
@@ -564,15 +555,8 @@ static struct skcipher_alg sm4_algs[] = {
 	}
 };
 
-static struct simd_skcipher_alg *sm4_simd_algs[ARRAY_SIZE(sm4_algs)];
-
 static void gmi_sm4_exit(void)
 {
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(sm4_simd_algs) && sm4_simd_algs[i]; i++)
-		simd_skcipher_free(sm4_simd_algs[i]);
-
 	crypto_unregister_skciphers(sm4_algs, ARRAY_SIZE(sm4_algs));
 }
 
@@ -585,37 +569,10 @@ MODULE_DEVICE_TABLE(x86cpu, zhaoxin_ccs_cpu_ids);
 
 static int __init gmi_sm4_init(void)
 {
-	struct simd_skcipher_alg *simd;
-	const char *basename;
-	const char *algname;
-	const char *drvname;
-	int err;
-	int i;
-
 	if (!x86_match_cpu(zhaoxin_ccs_cpu_ids) || !boot_cpu_has(X86_FEATURE_CCS_EN))
 		return -ENODEV;
 
-	err = crypto_register_skciphers(sm4_algs, ARRAY_SIZE(sm4_algs));
-	if (err)
-		return err;
-
-	for (i = 0; i < ARRAY_SIZE(sm4_algs); i++) {
-		algname = sm4_algs[i].base.cra_name + 2;
-		drvname = sm4_algs[i].base.cra_driver_name + 2;
-		basename = sm4_algs[i].base.cra_driver_name;
-		simd = simd_skcipher_create_compat(algname, drvname, basename);
-		err = PTR_ERR(simd);
-		if (IS_ERR(simd))
-			goto unregister_simds;
-
-		sm4_simd_algs[i] = simd;
-	}
-
-	return 0;
-
-unregister_simds:
-	gmi_sm4_exit();
-	return err;
+	return crypto_register_skciphers(sm4_algs, ARRAY_SIZE(sm4_algs));
 }
 
 late_initcall(gmi_sm4_init);
