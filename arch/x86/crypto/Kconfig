@@ -399,7 +399,7 @@ config CRYPTO_SM3_ZHAOXIN_GMI
 	tristate "Hash functions: SM3 (Zhaoxin GMI)"
 	depends on X86 && CRYPTO
 	select CRYPTO_HASH
-	select CRYPTO_SM3
+	select CRYPTO_LIB_SM3
 	help
 	  SM3 cipher algorithms (Zhaoxin GMI Instruction).
 

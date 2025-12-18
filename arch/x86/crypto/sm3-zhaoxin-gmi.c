@@ -10,17 +10,12 @@
  */
 
 #include <crypto/internal/hash.h>
-#include <linux/init.h>
-#include <linux/module.h>
-#include <linux/mm.h>
-#include <linux/types.h>
 #include <crypto/sm3.h>
 #include <crypto/sm3_base.h>
-#include <linux/bitops.h>
-#include <asm/byteorder.h>
-#include <linux/unaligned.h>
 #include <linux/cpufeature.h>
-#include <linux/processor.h>
+#include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
 
 /*
  * Load supported features of the CPU to see if the SM3/SM4 is available.
@@ -93,47 +88,30 @@ static inline int zx_sm3_init(struct shash_desc *desc)
 	return 0;
 }
 
-static inline int zx_sm3_base_finish(struct shash_desc *desc, u8 *out)
-{
-	struct sm3_state *sctx = shash_desc_ctx(desc);
-	__be32 *digest = (__be32 *)out;
-
-	memcpy(digest, sctx->state, SM3_DIGEST_SIZE);
-
-	*sctx = (struct sm3_state){};
-	return 0;
-}
-
 static int zx_sm3_update(struct shash_desc *desc, const u8 *data, unsigned int len)
 {
-	return sm3_base_do_update(desc, data, len, sm3_generic_block_fn);
+	return sm3_base_do_update_blocks(desc, data, len, sm3_generic_block_fn);
 }
 
-static int zx_sm3_final(struct shash_desc *desc, u8 *out)
+static int zx_sm3_finup(struct shash_desc *desc, const u8 *data, unsigned int len, u8 *out)
 {
-	sm3_base_do_finalize(desc, sm3_generic_block_fn);
+	sm3_base_do_finup(desc, data, len, sm3_generic_block_fn);
 
-	return zx_sm3_base_finish(desc, out);
-}
-
-static int zx_sm3_finup(struct shash_desc *desc, const u8 *data, unsigned int len, u8 *hash)
-{
-	sm3_base_do_update(desc, data, len, sm3_generic_block_fn);
-
-	return zx_sm3_final(desc, hash);
+	return sm3_base_finish(desc, out);
 }
 
 static struct shash_alg zx_sm3_alg = {
 	.digestsize = SM3_DIGEST_SIZE,
 	.init = zx_sm3_init,
 	.update = zx_sm3_update,
-	.final = zx_sm3_final,
 	.finup = zx_sm3_finup,
-	.descsize = sizeof(struct sm3_state),
+	.descsize = SM3_STATE_SIZE,
 	.base = {
 		.cra_name = "sm3",
 		.cra_driver_name = "sm3-zhaoxin-gmi",
 		.cra_priority = 300,
+		.cra_flags = CRYPTO_AHASH_ALG_BLOCK_ONLY |
+			     CRYPTO_AHASH_ALG_FINUP_MAX,
 		.cra_blocksize = SM3_BLOCK_SIZE,
 		.cra_module = THIS_MODULE,
 	}
