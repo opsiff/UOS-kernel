@@ -153,6 +153,7 @@ obj-$(CONFIG_BLK_DEV_SR)	+= sr_mod.o
 obj-$(CONFIG_CHR_DEV_SG)	+= sg.o
 obj-$(CONFIG_CHR_DEV_SCH)	+= ch.o
 obj-$(CONFIG_SCSI_ENCLOSURE)	+= ses.o
+obj-$(CONFIG_CCORE_RAID_DRIVER) += ccore/
 
 obj-$(CONFIG_SCSI_HISI_SAS) += hisi_sas/
 
