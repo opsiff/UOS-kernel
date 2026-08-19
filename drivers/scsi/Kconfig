@@ -1529,6 +1529,8 @@ config CCORE_RAID_DRIVER
     depends on SCSI && PCI
     help
       This is your ccore RAID card driver, build as independent ko module.
+	For CCUSR6004 CCUSR6104 CCUSR8016 CCUSR8116 CCUSR8216.
+	Current version 2602.
       To compile this driver as a module, choose M here.
 
 source "drivers/scsi/csiostor/Kconfig"

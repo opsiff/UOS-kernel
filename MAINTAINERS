@@ -24137,3 +24137,8 @@ S:	Buried alive in reporters
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
 F:	*
 F:	*/
+CCORE RAID DRIVER
+M:	ccore	Raid	<chunfeng.li@china-core.com>
+S:	Supported
+W:	https://www.china-core.com/
+F:	drivers/scsi/ccore/
