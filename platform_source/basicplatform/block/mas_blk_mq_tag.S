@@ -41256,8 +41256,5 @@ ufs_tagset_init_tags:                   // @ufs_tagset_init_tags
 	.asciz	"ret"                           // string offset=38591
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym autoremove_wake_function
-	.addrsig_sym ufs_tagset_init_tags.__key
-	.addrsig_sym cpu_number
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

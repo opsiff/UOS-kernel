@@ -55138,16 +55138,5 @@ hynix_bkops_ops:
 	.asciz	"out_unlock"                    // string offset=60132
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym ufshcd_1861_bkops_query
-	.addrsig_sym ufshcd_1861_bkops_start
-	.addrsig_sym ufshcd_1861_bkops_stop
-	.addrsig_sym ufshcd_hynix_bkops_query
-	.addrsig_sym ufshcd_hynix_bkops_start
-	.addrsig_sym ufshcd_hynix_bkops_stop
-	.addrsig_sym __ufshcd_bkops_start_stop
-	.addrsig_sym __ufshcd_bkops_status_query
-	.addrsig_sym ufs_bkops_ops
-	.addrsig_sym hi1861_bkops_ops
-	.addrsig_sym hynix_bkops_ops
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

@@ -42278,15 +42278,5 @@ __UNIQUE_ID___addressable___cfi_mas_blk_flush_init489:
 	.asciz	"bi_bdev"                       // string offset=39862
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym __cfi_mas_blk_flush_init
-	.addrsig_sym __cfi_mas_blk_flush_work_fn
-	.addrsig_sym delayed_work_timer_fn
-	.addrsig_sym __cfi_mas_blk_poweroff_flush_notifier_call
-	.addrsig_sym all_flush_q_lock
-	.addrsig_sym all_flush_q_list
-	.addrsig_sym all_object_lock
-	.addrsig_sym all_object_list
-	.addrsig_sym mas_blk_poweroff_flush_nb
-	.addrsig_sym __UNIQUE_ID___addressable___cfi_mas_blk_flush_init489
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

@@ -46990,21 +46990,5 @@ mas_gear_ctrl_hck_init.__warned.7:
 	.asciz	"unrecognize"                   // string offset=44337
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym mas_gear_ctrl_work
-	.addrsig_sym mas_gear_ctrl_hck_init
-	.addrsig_sym hck_mas_queue_busy_change_gear
-	.addrsig_sym hck_mas_queue_ioback_change_gear
-	.addrsig_sym hck_mas_blk_gear_ctrl_reinit
-	.addrsig_sym hck_mas_blk_fill_gear_info
-	.addrsig_sym g_mas_min_gear_level
-	.addrsig_sym g_mas_max_gear_level
-	.addrsig_sym g_mas_gear_ctrl
-	.addrsig_sym mas_gear_ctrl_init.__key
-	.addrsig_sym mas_gear_ctrl_init.__key.1
-	.addrsig_sym __UNIQUE_ID___addressable_mas_gear_ctrl_hck_init368
-	.addrsig_sym __vh_hck_mas_queue_busy_change_gear
-	.addrsig_sym __vh_hck_mas_queue_ioback_change_gear
-	.addrsig_sym __vh_hck_mas_blk_gear_ctrl_reinit
-	.addrsig_sym __vh_hck_mas_blk_fill_gear_info
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

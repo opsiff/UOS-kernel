@@ -47646,17 +47646,5 @@ latency_endbio_ratelmt_state:
 	.asciz	"ret"                           // string offset=47602
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym mas_blk_latency_bio_submit_func
-	.addrsig_sym mas_blk_latency_bio_endio_func
-	.addrsig_sym mas_blk_latency_req_init_func
-	.addrsig_sym mas_blk_latency_req_free_func
-	.addrsig_sym __mas_blk_latency_check_timer_expire
-	.addrsig_sym latency_log_protect_lock
-	.addrsig_sym latency_log_ratelmt_state
-	.addrsig_sym mas_blk_latency_init.__key
-	.addrsig_sym jiffies
-	.addrsig_sym cpu_number
-	.addrsig_sym __cpu_online_mask
-	.addrsig_sym latency_endbio_ratelmt_state
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

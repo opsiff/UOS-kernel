@@ -73755,41 +73755,5 @@ hyperframe_init.__warned.16:
 	.asciz	"old_fs"                        // string offset=54998
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym hyperframe_exit
-	.addrsig_sym hyperframe_init
-	.addrsig_sym hck_hyperframe_err_record
-	.addrsig_sym hck_hyperframe_set_opf
-	.addrsig_sym hck_hyperframe_ctx_alloc
-	.addrsig_sym hck_hyperframe_ctx_free
-	.addrsig_sym hck_hyperframe_openat_prep
-	.addrsig_sym hck_hyperframe_close_prep
-	.addrsig_sym hck_hyperframe_rw_prep
-	.addrsig_sym hck_hyperframe_init_req
-	.addrsig_sym hck_hyperframe_free_req
-	.addrsig_sym hck_hyperframe_issue_sqe
-	.addrsig_sym hck_hyperframe_complete_sqe
-	.addrsig_sym hyperframe_fill_cq
-	.addrsig_sym hyperframe_read_work
-	.addrsig_sym delayed_work_timer_fn
-	.addrsig_sym hyperframe_write_work
-	.addrsig_sym hyperframe_fill_cq_work
-	.addrsig_sym __UNIQUE_ID___addressable_hyperframe_init417
-	.addrsig_sym __exitcall_hyperframe_exit
-	.addrsig_sym hf_ctx_alloc
-	.addrsig_sym hf_req_alloc
-	.addrsig_sym __vh_hck_hyperframe_err_record
-	.addrsig_sym __vh_hck_hyperframe_set_opf
-	.addrsig_sym __vh_hck_hyperframe_ctx_alloc
-	.addrsig_sym hck_hyperframe_ctx_alloc.__key
-	.addrsig_sym hck_hyperframe_ctx_alloc.__key.21
-	.addrsig_sym hck_hyperframe_ctx_alloc.__key.23
-	.addrsig_sym __vh_hck_hyperframe_ctx_free
-	.addrsig_sym __vh_hck_hyperframe_openat_prep
-	.addrsig_sym __vh_hck_hyperframe_close_prep
-	.addrsig_sym __vh_hck_hyperframe_rw_prep
-	.addrsig_sym __vh_hck_hyperframe_init_req
-	.addrsig_sym __vh_hck_hyperframe_free_req
-	.addrsig_sym __vh_hck_hyperframe_issue_sqe
-	.addrsig_sym __vh_hck_hyperframe_complete_sqe
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

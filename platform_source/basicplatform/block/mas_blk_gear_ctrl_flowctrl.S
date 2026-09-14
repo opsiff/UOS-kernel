@@ -37596,11 +37596,5 @@ flow_lock:
 	.asciz	"inflat_size"                   // string offset=37575
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym g_inflat_size
-	.addrsig_sym g_flow_cnt_last
-	.addrsig_sym g_flow_size_last
-	.addrsig_sym g_flow_last_spend_time
-	.addrsig_sym mas_gear_ctrl_flow_init.__key
-	.addrsig_sym flow_lock
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

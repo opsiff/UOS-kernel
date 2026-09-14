@@ -68843,29 +68843,5 @@ pch_emui_boot_done_fops:
 	.asciz	"pch_kfree"                     // string offset=55924
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym ext4_get_block
-	.addrsig_sym mpage_end_io
-	.addrsig_sym pch_io_idle_notify_handler
-	.addrsig_sym __cfi_pch_emui_bootstat_proc_show
-	.addrsig_sym __cfi_pch_timeout_timer
-	.addrsig_sym __cfi_pch_timeout_work
-	.addrsig_sym hisi_page_cache_manage_exit
-	.addrsig_sym __cfi_hisi_page_cache_manage_init
-	.addrsig_sym __cfi_hisi_page_cache_manage_exit
-	.addrsig_sym __cfi_pch_emui_bootstat_proc_open
-	.addrsig_sym seq_read
-	.addrsig_sym __cfi_pch_emui_bootstat_proc_write
-	.addrsig_sym seq_lseek
-	.addrsig_sym single_release
-	.addrsig_sym __UNIQUE_ID___addressable___cfi_hisi_page_cache_manage_init459
-	.addrsig_sym __exitcall___cfi_hisi_page_cache_manage_exit
-	.addrsig_sym __UNIQUE_ID_description460
-	.addrsig_sym __UNIQUE_ID_file461
-	.addrsig_sym __UNIQUE_ID_license462
-	.addrsig_sym fs_bio_set
-	.addrsig_sym vm_node_stat
-	.addrsig_sym vm_zone_stat
-	.addrsig_sym jiffies
-	.addrsig_sym pch_emui_boot_done_fops
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

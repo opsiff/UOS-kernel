@@ -48762,24 +48762,5 @@ mas_bkops_status_fops:
 	.asciz	"bkops_exit"                    // string offset=47531
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym __ufs_bkops_idle_work_func
-	.addrsig_sym delayed_work_timer_fn
-	.addrsig_sym __cfi_mas_bkops_manual_gc_proc_show
-	.addrsig_sym __cfi_mas_bkops_status_proc_show
-	.addrsig_sym __cfi_bkops_io_busyidle_notify_handler
-	.addrsig_sym __cfi_bkops_pm_callback
-	.addrsig_sym __cfi_bkops_notify_reboot
-	.addrsig_sym __cfi_mas_bkops_manual_gc_proc_open
-	.addrsig_sym seq_read
-	.addrsig_sym __cfi_mas_bkops_manual_gc_proc_write
-	.addrsig_sym seq_lseek
-	.addrsig_sym single_release
-	.addrsig_sym __cfi_mas_bkops_status_proc_open
-	.addrsig_sym bkops_io_busyidle_notify_handler._rs
-	.addrsig_sym bkops_lock
-	.addrsig_sym bkops_pm_notifier
-	.addrsig_sym bkops_reboot_notifier
-	.addrsig_sym mas_bkops_manual_gc_fops
-	.addrsig_sym mas_bkops_status_fops
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

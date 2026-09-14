@@ -46976,11 +46976,5 @@ mas_blk_panic_nb:
 	.asciz	"mas_queue_backup"              // string offset=40707
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym __cfi_mas_blk_panic_notify
-	.addrsig_sym dump_list_lock
-	.addrsig_sym dump_list
-	.addrsig_sym panic_notifier_list
-	.addrsig_sym mas_blk_panic_nb
-	.addrsig_sym cpu_number
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

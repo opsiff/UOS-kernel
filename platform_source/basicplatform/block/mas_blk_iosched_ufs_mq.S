@@ -82927,35 +82927,5 @@ ufs_turbo_check_timer_expire.check_count:
 	.asciz	"vip_io"                        // string offset=57312
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym __cfi__ufs_mq_complete_request_remote
-	.addrsig_sym __cfi_ufs_mq_sync_io_dispatch_work_fn
-	.addrsig_sym delayed_work_timer_fn
-	.addrsig_sym __cfi_ufs_mq_async_io_dispatch_work_fn
-	.addrsig_sym __cfi_ufs_mq_flush_plug_list
-	.addrsig_sym __ufs_turbo_check_timer_expire
-	.addrsig_sym ufs_datasync_work
-	.addrsig_sym __cfi_ufs_mq_sync_burst_check_timer_expire
-	.addrsig_sym __cfi_ufs_mq_write_throttle_check_timer_expire
-	.addrsig_sym ufs_sync_fs
-	.addrsig_sym __cfi_ufs_mq_io_guard_work_fn
-	.addrsig_sym ufs_mq_async_sched_fifo_init
-	.addrsig_sym ufs_mq_async_sched_fifo_insert
-	.addrsig_sym ufs_mq_async_sched_fifo_seek
-	.addrsig_sym ufs_mq_async_sched_fifo_requeue
-	.addrsig_sym ufs_mq_async_sched_fifo_attempt_merge_bio
-	.addrsig_sym ufs_mq_async_sched_fifo_empty
-	.addrsig_sym jiffies
-	.addrsig_sym io_guard_queue_list_lock
-	.addrsig_sym mas_io_guard_queue_list
-	.addrsig_sym mas_io_guard_work
-	.addrsig_sym cpu_number
-	.addrsig_sym __cpu_online_mask
-	.addrsig_sym mas_ufs_mq_async_io_fifo_sched
-	.addrsig_sym vm_node_stat
-	.addrsig_sym blk_cpu_done
-	.addrsig_sym gic_nonsecure_priorities
-	.addrsig_sym ufs_mq_sched_ds_lld_init.__key
-	.addrsig_sym ufs_mq_dispatch_list_init.__key
-	.addrsig_sym ufs_mq_dispatch_list_init.__key.18
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

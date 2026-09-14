@@ -55440,7 +55440,5 @@ s_health_info_lock:
 	.asciz	"error_out"                     // string offset=58373
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym s_health_info_lock
-	.addrsig_sym jiffies
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

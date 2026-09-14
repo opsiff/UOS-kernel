@@ -38827,7 +38827,5 @@ mas_min_gear_stay_time_show:            // @mas_min_gear_stay_time_show
 	.asciz	"ret2"                          // string offset=37241
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym g_mas_min_gear_level
-	.addrsig_sym g_mas_max_gear_level
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

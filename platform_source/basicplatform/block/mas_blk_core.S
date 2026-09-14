@@ -45180,10 +45180,5 @@ mas_queue_status_show:                  // @mas_queue_status_show
 	.asciz	"enable"                        // string offset=41824
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym _cfi_mas_blk_queue_usr_ctrl_recovery_timer_expire
-	.addrsig_sym jiffies
-	.addrsig_sym mas_ufs_blk_tagset_ops
-	.addrsig_sym mas_blk_dev_lld_init.__key
-	.addrsig_sym mas_blk_dev_lld_init.__key.5
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:

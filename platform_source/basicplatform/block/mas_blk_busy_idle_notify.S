@@ -43865,14 +43865,5 @@ mas_blk_busyidle_state_init:            // @mas_blk_busyidle_state_init
 	.asciz	"blk_lld"                       // string offset=40056
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig_sym __cfi_mas_blk_busyidle_end_rq
-	.addrsig_sym __cfi_mas_blk_idle_notify_work
-	.addrsig_sym delayed_work_timer_fn
-	.addrsig_sym __cfi_mas_blk_busyidle_handler_latency_check_timer_expire
-	.addrsig_sym __cfi_mas_blk_busyidle_notify_handler
-	.addrsig_sym jiffies
-	.addrsig_sym mas_blk_busyidle_state_init.__key
-	.addrsig_sym mas_blk_busyidle_state_init.__key.7
-	.addrsig_sym mas_blk_busyidle_state_init.__key.9
 	.section	.debug_line,"",@progbits
 .Lline_table_start0:
