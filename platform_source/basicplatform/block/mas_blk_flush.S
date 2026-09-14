@@ -21,161 +21,161 @@ __initcall__kmod_mas_blk_flush__488_284___cfi_mas_blk_flush_init6:
 
 
                                         // End of file scope inline assembly
-	.file	1 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/platform_source/basicplatform/block/mas_blk_flush.c"
-	.file	2 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/types.h"
-	.file	3 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/asm-generic/qspinlock_types.h"
-	.file	4 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/asm-generic/int-ll64.h"
-	.file	5 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/asm-generic/int-ll64.h"
-	.file	6 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/spinlock_types.h"
-	.file	7 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/notifier.h"
-	.file	8 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/module.h"
-	.file	9 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/quota.h"
-	.file	10 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/hrtimer.h"
-	.file	11 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/mm.h"
-	.file	12 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/restart_block.h"
-	.file	13 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/blkdev.h"
-	.file	14 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/platform_include/basicplatform/linux/mas/mas_blk.h"
-	.file	15 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/elevator.h"
-	.file	16 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/backing-dev-defs.h"
-	.file	17 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/pm.h"
-	.file	18 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/migrate_mode.h"
-	.file	19 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/memremap.h"
-	.file	20 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/fs.h"
-	.file	21 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/pid.h"
-	.file	22 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/kobject_ns.h"
-	.file	23 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/device/driver.h"
-	.file	24 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/device.h"
-	.file	25 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/stddef.h"
-	.file	26 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/blk_types.h"
-	.file	27 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/platform_include/basicplatform/linux/powerkey_event.h"
-	.file	28 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/workqueue.h"
-	.file	29 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/genhd.h"
-	.file	30 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/part_stat.h"
-	.file	31 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/asm-generic/atomic-long.h"
-	.file	32 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/asm-generic/local.h"
-	.file	33 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/percpu-refcount.h"
-	.file	34 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/kobject.h"
-	.file	35 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/asm-generic/posix_types.h"
-	.file	36 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/sysfs.h"
-	.file	37 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/llist.h"
-	.file	38 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/path.h"
-	.file	39 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/dcache.h"
-	.file	40 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/seqlock.h"
-	.file	41 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/list_bl.h"
-	.file	42 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/uidgid.h"
-	.file	43 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/delayed_call.h"
-	.file	44 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/time64.h"
-	.file	45 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/stat.h"
-	.file	46 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/completion.h"
-	.file	47 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/swait.h"
-	.file	48 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/export.h"
-	.file	49 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/mutex.h"
-	.file	50 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/osq_lock.h"
-	.file	51 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/moduleparam.h"
-	.file	52 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/extable.h"
-	.file	53 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/rbtree.h"
-	.file	54 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/rbtree_latch.h"
-	.file	55 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/module.h"
-	.file	56 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/linux/types.h"
-	.file	57 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/linux/elf.h"
-	.file	58 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/asm-generic/bug.h"
-	.file	59 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/tracepoint-defs.h"
-	.file	60 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/srcutree.h"
-	.file	61 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/rcu_segcblist.h"
-	.file	62 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/timer.h"
-	.file	63 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/tracepoint.h"
-	.file	64 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/lockdep_types.h"
-	.file	65 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/projid.h"
-	.file	66 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/mm_types.h"
-	.file	67 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/xarray.h"
-	.file	68 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/rwsem.h"
-	.file	69 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/thread_info.h"
-	.file	70 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/sched.h"
-	.file	71 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/refcount.h"
-	.file	72 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/smp_types.h"
-	.file	73 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/timerqueue.h"
-	.file	74 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/ktime.h"
-	.file	75 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/cpumask.h"
-	.file	76 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/plist.h"
-	.file	77 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/pgtable-types.h"
-	.file	78 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/asm-generic/pgtable-nop4d.h"
-	.file	79 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/asm-generic/pgtable-nopud.h"
-	.file	80 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/page.h"
-	.file	81 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/asm-generic/qrwlock_types.h"
-	.file	82 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/rwlock_types.h"
-	.file	83 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/mm_types_task.h"
-	.file	84 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/mmu.h"
-	.file	85 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/uprobes.h"
-	.file	86 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/xreclaimer_types.h"
-	.file	87 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/linux/time_types.h"
-	.file	88 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/vdso/time32.h"
-	.file	89 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/asm-generic/poll.h"
-	.file	90 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/wait.h"
-	.file	91 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/kref.h"
-	.file	92 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/pid_namespace.h"
-	.file	93 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/idr.h"
-	.file	94 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/ns_common.h"
-	.file	95 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/posix-timers.h"
-	.file	96 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/cred.h"
-	.file	97 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/capability.h"
-	.file	98 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/key.h"
-	.file	99 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/assoc_array.h"
-	.file	100 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/sched/user.h"
-	.file	101 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/ratelimit_types.h"
-	.file	102 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/nsproxy.h"
-	.file	103 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/sched/signal.h"
-	.file	104 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/signal_types.h"
-	.file	105 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/asm-generic/signal.h"
-	.file	106 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/task_io_accounting.h"
-	.file	107 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/linux/resource.h"
-	.file	108 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/asm-generic/signal-defs.h"
-	.file	109 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/seccomp.h"
-	.file	110 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/bvec.h"
-	.file	111 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/block/blk-mq.h"
-	.file	112 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/blk-mq.h"
-	.file	113 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/block/blk.h"
-	.file	114 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/sbitmap.h"
-	.file	115 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/block/blk-mq-tag.h"
-	.file	116 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/iocontext.h"
-	.file	117 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/smp.h"
-	.file	118 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/percpu_counter.h"
-	.file	119 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/flex_proportions.h"
-	.file	120 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/block/blk-stat.h"
-	.file	121 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/bsg.h"
-	.file	122 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/linux/bsg.h"
-	.file	123 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/bio.h"
-	.file	124 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/mempool.h"
-	.file	125 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/asm-generic/siginfo.h"
-	.file	126 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/nodemask.h"
-	.file	127 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/asm-generic/compat.h"
-	.file	128 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/compat.h"
-	.file	129 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/tlbbatch.h"
-	.file	130 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/processor.h"
-	.file	131 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/uapi/asm/ptrace.h"
-	.file	132 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/pointer_auth.h"
-	.file	133 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/pagemap.h"
-	.file	134 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/uio.h"
-	.file	135 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/linux/uio.h"
-	.file	136 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/mmzone.h"
-	.file	137 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/errseq.h"
-	.file	138 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/range.h"
-	.file	139 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/shrinker.h"
-	.file	140 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/rcu_sync.h"
-	.file	141 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/percpu-rwsem.h"
-	.file	142 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/rcuwait.h"
-	.file	143 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/uuid.h"
-	.file	144 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/list_lru.h"
-	.file	145 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/poll.h"
-	.file	146 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/nfs_fs_i.h"
-	.file	147 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/lockref.h"
-	.file	148 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/kernfs.h"
-	.file	149 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/device/bus.h"
-	.file	150 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/pm_wakeup.h"
-	.file	151 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/energy_model.h"
-	.file	152 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/device.h"
-	.file	153 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/fwnode.h"
-	.file	154 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/device/class.h"
-	.file	155 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/uapi/linux/blkzoned.h"
+	.file	1	"kernel/platform_source/basicplatform/block/mas_blk_flush.c"
+	.file	2	"kernel/include/linux/types.h"
+	.file	3	"kernel/include/asm-generic/qspinlock_types.h"
+	.file	4	"kernel/include/uapi/asm-generic/int-ll64.h"
+	.file	5	"kernel/include/asm-generic/int-ll64.h"
+	.file	6	"kernel/include/linux/spinlock_types.h"
+	.file	7	"kernel/include/linux/notifier.h"
+	.file	8	"kernel/include/linux/module.h"
+	.file	9	"kernel/include/linux/quota.h"
+	.file	10	"kernel/include/linux/hrtimer.h"
+	.file	11	"kernel/include/linux/mm.h"
+	.file	12	"kernel/include/linux/restart_block.h"
+	.file	13	"kernel/include/linux/blkdev.h"
+	.file	14	"kernel/include/platform_include/basicplatform/linux/mas/mas_blk.h"
+	.file	15	"kernel/include/linux/elevator.h"
+	.file	16	"kernel/include/linux/backing-dev-defs.h"
+	.file	17	"kernel/include/linux/pm.h"
+	.file	18	"kernel/include/linux/migrate_mode.h"
+	.file	19	"kernel/include/linux/memremap.h"
+	.file	20	"kernel/include/linux/fs.h"
+	.file	21	"kernel/include/linux/pid.h"
+	.file	22	"kernel/include/linux/kobject_ns.h"
+	.file	23	"kernel/include/linux/device/driver.h"
+	.file	24	"kernel/include/linux/device.h"
+	.file	25	"kernel/include/linux/stddef.h"
+	.file	26	"kernel/include/linux/blk_types.h"
+	.file	27	"kernel/include/platform_include/basicplatform/linux/powerkey_event.h"
+	.file	28	"kernel/include/linux/workqueue.h"
+	.file	29	"kernel/include/linux/genhd.h"
+	.file	30	"kernel/include/linux/part_stat.h"
+	.file	31	"kernel/include/asm-generic/atomic-long.h"
+	.file	32	"kernel/include/asm-generic/local.h"
+	.file	33	"kernel/include/linux/percpu-refcount.h"
+	.file	34	"kernel/include/linux/kobject.h"
+	.file	35	"kernel/include/uapi/asm-generic/posix_types.h"
+	.file	36	"kernel/include/linux/sysfs.h"
+	.file	37	"kernel/include/linux/llist.h"
+	.file	38	"kernel/include/linux/path.h"
+	.file	39	"kernel/include/linux/dcache.h"
+	.file	40	"kernel/include/linux/seqlock.h"
+	.file	41	"kernel/include/linux/list_bl.h"
+	.file	42	"kernel/include/linux/uidgid.h"
+	.file	43	"kernel/include/linux/delayed_call.h"
+	.file	44	"kernel/include/linux/time64.h"
+	.file	45	"kernel/include/linux/stat.h"
+	.file	46	"kernel/include/linux/completion.h"
+	.file	47	"kernel/include/linux/swait.h"
+	.file	48	"kernel/include/linux/export.h"
+	.file	49	"kernel/include/linux/mutex.h"
+	.file	50	"kernel/include/linux/osq_lock.h"
+	.file	51	"kernel/include/linux/moduleparam.h"
+	.file	52	"kernel/arch/arm64/include/asm/extable.h"
+	.file	53	"kernel/include/linux/rbtree.h"
+	.file	54	"kernel/include/linux/rbtree_latch.h"
+	.file	55	"kernel/arch/arm64/include/asm/module.h"
+	.file	56	"kernel/include/uapi/linux/types.h"
+	.file	57	"kernel/include/uapi/linux/elf.h"
+	.file	58	"kernel/include/asm-generic/bug.h"
+	.file	59	"kernel/include/linux/tracepoint-defs.h"
+	.file	60	"kernel/include/linux/srcutree.h"
+	.file	61	"kernel/include/linux/rcu_segcblist.h"
+	.file	62	"kernel/include/linux/timer.h"
+	.file	63	"kernel/include/linux/tracepoint.h"
+	.file	64	"kernel/include/linux/lockdep_types.h"
+	.file	65	"kernel/include/linux/projid.h"
+	.file	66	"kernel/include/linux/mm_types.h"
+	.file	67	"kernel/include/linux/xarray.h"
+	.file	68	"kernel/include/linux/rwsem.h"
+	.file	69	"kernel/arch/arm64/include/asm/thread_info.h"
+	.file	70	"kernel/include/linux/sched.h"
+	.file	71	"kernel/include/linux/refcount.h"
+	.file	72	"kernel/include/linux/smp_types.h"
+	.file	73	"kernel/include/linux/timerqueue.h"
+	.file	74	"kernel/include/linux/ktime.h"
+	.file	75	"kernel/include/linux/cpumask.h"
+	.file	76	"kernel/include/linux/plist.h"
+	.file	77	"kernel/arch/arm64/include/asm/pgtable-types.h"
+	.file	78	"kernel/include/asm-generic/pgtable-nop4d.h"
+	.file	79	"kernel/include/asm-generic/pgtable-nopud.h"
+	.file	80	"kernel/arch/arm64/include/asm/page.h"
+	.file	81	"kernel/include/asm-generic/qrwlock_types.h"
+	.file	82	"kernel/include/linux/rwlock_types.h"
+	.file	83	"kernel/include/linux/mm_types_task.h"
+	.file	84	"kernel/arch/arm64/include/asm/mmu.h"
+	.file	85	"kernel/include/linux/uprobes.h"
+	.file	86	"kernel/include/linux/xreclaimer_types.h"
+	.file	87	"kernel/include/uapi/linux/time_types.h"
+	.file	88	"kernel/include/vdso/time32.h"
+	.file	89	"kernel/include/uapi/asm-generic/poll.h"
+	.file	90	"kernel/include/linux/wait.h"
+	.file	91	"kernel/include/linux/kref.h"
+	.file	92	"kernel/include/linux/pid_namespace.h"
+	.file	93	"kernel/include/linux/idr.h"
+	.file	94	"kernel/include/linux/ns_common.h"
+	.file	95	"kernel/include/linux/posix-timers.h"
+	.file	96	"kernel/include/linux/cred.h"
+	.file	97	"kernel/include/linux/capability.h"
+	.file	98	"kernel/include/linux/key.h"
+	.file	99	"kernel/include/linux/assoc_array.h"
+	.file	100	"kernel/include/linux/sched/user.h"
+	.file	101	"kernel/include/linux/ratelimit_types.h"
+	.file	102	"kernel/include/linux/nsproxy.h"
+	.file	103	"kernel/include/linux/sched/signal.h"
+	.file	104	"kernel/include/linux/signal_types.h"
+	.file	105	"kernel/include/uapi/asm-generic/signal.h"
+	.file	106	"kernel/include/linux/task_io_accounting.h"
+	.file	107	"kernel/include/uapi/linux/resource.h"
+	.file	108	"kernel/include/uapi/asm-generic/signal-defs.h"
+	.file	109	"kernel/include/linux/seccomp.h"
+	.file	110	"kernel/include/linux/bvec.h"
+	.file	111	"kernel/block/blk-mq.h"
+	.file	112	"kernel/include/linux/blk-mq.h"
+	.file	113	"kernel/block/blk.h"
+	.file	114	"kernel/include/linux/sbitmap.h"
+	.file	115	"kernel/block/blk-mq-tag.h"
+	.file	116	"kernel/include/linux/iocontext.h"
+	.file	117	"kernel/include/linux/smp.h"
+	.file	118	"kernel/include/linux/percpu_counter.h"
+	.file	119	"kernel/include/linux/flex_proportions.h"
+	.file	120	"kernel/block/blk-stat.h"
+	.file	121	"kernel/include/linux/bsg.h"
+	.file	122	"kernel/include/uapi/linux/bsg.h"
+	.file	123	"kernel/include/linux/bio.h"
+	.file	124	"kernel/include/linux/mempool.h"
+	.file	125	"kernel/include/uapi/asm-generic/siginfo.h"
+	.file	126	"kernel/include/linux/nodemask.h"
+	.file	127	"kernel/include/asm-generic/compat.h"
+	.file	128	"kernel/include/linux/compat.h"
+	.file	129	"kernel/arch/arm64/include/asm/tlbbatch.h"
+	.file	130	"kernel/arch/arm64/include/asm/processor.h"
+	.file	131	"kernel/arch/arm64/include/uapi/asm/ptrace.h"
+	.file	132	"kernel/arch/arm64/include/asm/pointer_auth.h"
+	.file	133	"kernel/include/linux/pagemap.h"
+	.file	134	"kernel/include/linux/uio.h"
+	.file	135	"kernel/include/uapi/linux/uio.h"
+	.file	136	"kernel/include/linux/mmzone.h"
+	.file	137	"kernel/include/linux/errseq.h"
+	.file	138	"kernel/include/linux/range.h"
+	.file	139	"kernel/include/linux/shrinker.h"
+	.file	140	"kernel/include/linux/rcu_sync.h"
+	.file	141	"kernel/include/linux/percpu-rwsem.h"
+	.file	142	"kernel/include/linux/rcuwait.h"
+	.file	143	"kernel/include/linux/uuid.h"
+	.file	144	"kernel/include/linux/list_lru.h"
+	.file	145	"kernel/include/linux/poll.h"
+	.file	146	"kernel/include/linux/nfs_fs_i.h"
+	.file	147	"kernel/include/linux/lockref.h"
+	.file	148	"kernel/include/linux/kernfs.h"
+	.file	149	"kernel/include/linux/device/bus.h"
+	.file	150	"kernel/include/linux/pm_wakeup.h"
+	.file	151	"kernel/include/linux/energy_model.h"
+	.file	152	"kernel/arch/arm64/include/asm/device.h"
+	.file	153	"kernel/include/linux/fwnode.h"
+	.file	154	"kernel/include/linux/device/class.h"
+	.file	155	"kernel/include/uapi/linux/blkzoned.h"
 	.globl	mas_blk_flush_work_fn           // -- Begin function mas_blk_flush_work_fn
 	.p2align	2
 	.type	mas_blk_flush_work_fn,@function
@@ -188,7 +188,6 @@ mas_blk_flush_work_fn:                  // @mas_blk_flush_work_fn
 	//DEBUG_VALUE: mas_blk_flush_work_fn:work <- $x0
 	//DEBUG_VALUE: mas_blk_flush_work_fn:work <- $x0
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-32]!           // 16-byte Folded Spill
 	str	x19, [sp, #16]                  // 8-byte Folded Spill
 	mov	x29, sp
@@ -295,7 +294,7 @@ mas_blk_flush_work_fn:                  // @mas_blk_flush_work_fn
 .Lfunc_end0:
 	.size	mas_blk_flush_work_fn, .Lfunc_end0-mas_blk_flush_work_fn
 	.cfi_endproc
-	.file	156 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/printk.h"
+	.file	156	"kernel/include/linux/printk.h"
                                         // -- End function
 	.globl	mas_blk_flush_async_dispatch    // -- Begin function mas_blk_flush_async_dispatch
 	.p2align	2
@@ -309,7 +308,6 @@ mas_blk_flush_async_dispatch:           // @mas_blk_flush_async_dispatch
 	//DEBUG_VALUE: mas_blk_flush_async_dispatch:q <- $x0
 	//DEBUG_VALUE: mas_blk_flush_async_dispatch:bio <- $x1
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-32]!           // 16-byte Folded Spill
 	str	x19, [sp, #16]                  // 8-byte Folded Spill
 	mov	x29, sp
@@ -366,7 +364,7 @@ mas_blk_flush_async_dispatch:           // @mas_blk_flush_async_dispatch
 	//DEBUG_VALUE: arch_atomic_add:v <- [DW_OP_plus_uconst 1300, DW_OP_stack_value] $x0
 	//DEBUG_VALUE: __ll_sc_atomic_add:i <- 1
 	//DEBUG_VALUE: __ll_sc_atomic_add:v <- [DW_OP_plus_uconst 1300, DW_OP_stack_value] $x0
-	.file	157 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/atomic_ll_sc.h"
+	.file	157	"kernel/arch/arm64/include/asm/atomic_ll_sc.h"
 	.loc	157 111 1                       // kernel/arch/arm64/include/asm/atomic_ll_sc.h:111:1
 	add	x8, x0, #1300                   // =1300
 	//APP
@@ -443,7 +441,7 @@ mas_blk_flush_async_dispatch:           // @mas_blk_flush_async_dispatch
 	//DEBUG_VALUE: mas_blk_flush_async_dispatch:mas_queue <- [DW_OP_plus_uconst 1176, DW_OP_stack_value] $x0
 	//DEBUG_VALUE: mas_blk_flush_async_dispatch:q <- $x0
 	//DEBUG_VALUE: atomic_read:v <- [DW_OP_plus_uconst 1300, DW_OP_stack_value] $x0
-	.file	158 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/asm-generic/atomic-instrumented.h"
+	.file	158	"kernel/include/asm-generic/atomic-instrumented.h"
 	.loc	158 28 9 is_stmt 1              // kernel/include/asm-generic/atomic-instrumented.h:28:9
 	ldr	w9, [x0, #1300]
 .Ltmp39:
@@ -463,8 +461,8 @@ mas_blk_flush_async_dispatch:           // @mas_blk_flush_async_dispatch
 .Lfunc_end1:
 	.size	mas_blk_flush_async_dispatch, .Lfunc_end1-mas_blk_flush_async_dispatch
 	.cfi_endproc
-	.file	159 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/arch/arm64/include/asm/atomic.h"
-	.file	160 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/atomic-arch-fallback.h"
+	.file	159	"kernel/arch/arm64/include/asm/atomic.h"
+	.file	160	"kernel/include/linux/atomic-arch-fallback.h"
                                         // -- End function
 	.globl	mas_blk_flush_update            // -- Begin function mas_blk_flush_update
 	.p2align	2
@@ -514,7 +512,6 @@ blk_power_off_flush:                    // @blk_power_off_flush
 // %bb.0:
 	//DEBUG_VALUE: blk_power_off_flush:emergency <- $w0
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-96]!           // 16-byte Folded Spill
 	str	x27, [sp, #16]                  // 8-byte Folded Spill
 	stp	x26, x25, [sp, #32]             // 16-byte Folded Spill
@@ -571,7 +568,7 @@ blk_power_off_flush:                    // @blk_power_off_flush
 .LBB3_1:
 	//DEBUG_VALUE: blk_power_off_flush:flag <- $x19
 	//DEBUG_VALUE: spin_unlock_irqrestore:flags <- $x19
-	.file	161 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/spinlock.h"
+	.file	161	"kernel/include/linux/spinlock.h"
 	.loc	161 409 2                       // kernel/include/linux/spinlock.h:409:2
 	adrp	x0, all_flush_q_lock
 	add	x0, x0, :lo12:all_flush_q_lock
@@ -715,7 +712,7 @@ blk_power_off_flush:                    // @blk_power_off_flush
 .Lfunc_end3:
 	.size	blk_power_off_flush, .Lfunc_end3-blk_power_off_flush
 	.cfi_endproc
-	.file	162 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/spinlock_api_smp.h"
+	.file	162	"kernel/include/linux/spinlock_api_smp.h"
                                         // -- End function
 	.globl	mas_blk_flush_list_register     // -- Begin function mas_blk_flush_list_register
 	.p2align	2
@@ -727,7 +724,6 @@ mas_blk_flush_list_register:            // @mas_blk_flush_list_register
 // %bb.0:
 	//DEBUG_VALUE: mas_blk_flush_list_register:lld_list <- $x0
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-48]!           // 16-byte Folded Spill
 	stp	x22, x21, [sp, #16]             // 16-byte Folded Spill
 	stp	x20, x19, [sp, #32]             // 16-byte Folded Spill
@@ -748,7 +744,7 @@ mas_blk_flush_list_register:            // @mas_blk_flush_list_register
 	add	x0, x0, :lo12:all_object_lock
 	bl	_raw_spin_lock_irqsave
 .Ltmp77:
-	.file	163 "/mnt/disk/jenkins/ci/workspace/chipset_pipeline_release/opensource/component_code/vendor/huawei/extra/build/build_script/kirin_kernel_release" "kernel/include/linux/list.h"
+	.file	163	"kernel/include/linux/list.h"
 	.loc	163 86 30                       // kernel/include/linux/list.h:86:30
 	adrp	x21, all_object_list
 	add	x21, x21, :lo12:all_object_list
@@ -827,7 +823,6 @@ mas_blk_flush_list_unregister:          // @mas_blk_flush_list_unregister
 // %bb.0:
 	//DEBUG_VALUE: mas_blk_flush_list_unregister:lld_list <- $x0
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-32]!           // 16-byte Folded Spill
 	stp	x20, x19, [sp, #16]             // 16-byte Folded Spill
 	mov	x29, sp
@@ -916,7 +911,6 @@ mas_blk_order_panic_wait_flush:         // @mas_blk_order_panic_wait_flush
 	.cfi_startproc
 // %bb.0:
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-96]!           // 16-byte Folded Spill
 	stp	x28, x27, [sp, #16]             // 16-byte Folded Spill
 	stp	x26, x25, [sp, #32]             // 16-byte Folded Spill
@@ -1158,7 +1152,6 @@ mas_blk_panic_flush:                    // @mas_blk_panic_flush
 	.cfi_startproc
 // %bb.0:
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-64]!           // 16-byte Folded Spill
 	stp	x24, x23, [sp, #16]             // 16-byte Folded Spill
 	stp	x22, x21, [sp, #32]             // 16-byte Folded Spill
@@ -1347,7 +1340,6 @@ mas_blk_poweroff_flush_notifier_call:   // @mas_blk_poweroff_flush_notifier_call
 	//DEBUG_VALUE: mas_blk_poweroff_flush_notifier_call:event <- $x1
 	//DEBUG_VALUE: mas_blk_poweroff_flush_notifier_call:data <- $x2
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-64]!           // 16-byte Folded Spill
 	str	x23, [sp, #16]                  // 8-byte Folded Spill
 	stp	x22, x21, [sp, #32]             // 16-byte Folded Spill
@@ -1569,7 +1561,6 @@ mas_blk_flush_init:                     // @mas_blk_flush_init
 	.cfi_startproc
 // %bb.0:
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-16]!           // 16-byte Folded Spill
 	mov	x29, sp
 	.cfi_def_cfa w29, 16
@@ -1602,7 +1593,6 @@ mas_blk_flush_reduced_queue_unregister: // @mas_blk_flush_reduced_queue_unregist
 	//DEBUG_VALUE: mas_blk_flush_reduced_queue_unregister:q <- $x0
 	//DEBUG_VALUE: mas_blk_flush_reduced_queue_unregister:q <- $x0
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-48]!           // 16-byte Folded Spill
 	str	x21, [sp, #16]                  // 8-byte Folded Spill
 	stp	x20, x19, [sp, #32]             // 16-byte Folded Spill
@@ -1748,7 +1738,6 @@ blk_mq_tagset_direct_flush_register:    // @blk_mq_tagset_direct_flush_register
 	//DEBUG_VALUE: blk_mq_tagset_direct_flush_register:func <- $x1
 	//DEBUG_VALUE: blk_mq_tagset_direct_flush_register:func <- $x1
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-16]!           // 16-byte Folded Spill
 	mov	x29, sp
 	.cfi_def_cfa w29, 16
@@ -1801,7 +1790,6 @@ mas_blk_queue_async_flush_init:         // @mas_blk_queue_async_flush_init
 // %bb.0:
 	//DEBUG_VALUE: mas_blk_queue_async_flush_init:q <- $x0
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-64]!           // 16-byte Folded Spill
 	str	x23, [sp, #16]                  // 8-byte Folded Spill
 	stp	x22, x21, [sp, #32]             // 16-byte Folded Spill
@@ -2120,7 +2108,6 @@ blk_queue_direct_flush_register:        // @blk_queue_direct_flush_register
 	//DEBUG_VALUE: blk_queue_direct_flush_register:func <- $x1
 	//DEBUG_VALUE: blk_queue_direct_flush_register:q <- $x0
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-64]!           // 16-byte Folded Spill
 	str	x23, [sp, #16]                  // 8-byte Folded Spill
 	stp	x22, x21, [sp, #32]             // 16-byte Folded Spill
@@ -2437,7 +2424,6 @@ blk_queue_flush_reduce_config:          // @blk_queue_flush_reduce_config
 	//DEBUG_VALUE: blk_queue_flush_reduce_config:flush_reduce_enable <- [DW_OP_LLVM_convert 1 7, DW_OP_LLVM_convert 8 7, DW_OP_stack_value] $w1
 	//DEBUG_VALUE: blk_queue_flush_reduce_config:q <- $x0
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-32]!           // 16-byte Folded Spill
 	stp	x20, x19, [sp, #16]             // 16-byte Folded Spill
 	mov	x29, sp
@@ -2526,7 +2512,6 @@ blk_mq_tagset_flush_reduce_config:      // @blk_mq_tagset_flush_reduce_config
 	//DEBUG_VALUE: blk_mq_tagset_flush_reduce_config:flush_reduce_enable <- [DW_OP_LLVM_convert 1 7, DW_OP_LLVM_convert 8 7, DW_OP_stack_value] $w1
 	//DEBUG_VALUE: blk_mq_tagset_flush_reduce_config:flush_reduce_enable <- [DW_OP_LLVM_convert 1 7, DW_OP_LLVM_convert 8 7, DW_OP_stack_value] $w1
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-16]!           // 16-byte Folded Spill
 	mov	x29, sp
 	.cfi_def_cfa w29, 16
@@ -2602,7 +2587,6 @@ blk_flush_async_support:                // @blk_flush_async_support
 	//DEBUG_VALUE: blk_flush_async_support:bi_bdev <- $x0
 	//DEBUG_VALUE: blk_flush_async_support:bi_bdev <- $x0
 	hint	#25
-	.cfi_negate_ra_state
 	stp	x29, x30, [sp, #-16]!           // 16-byte Folded Spill
 	mov	x29, sp
 	.cfi_def_cfa w29, 16
@@ -42294,7 +42278,6 @@ __UNIQUE_ID___addressable___cfi_mas_blk_flush_init489:
 	.asciz	"bi_bdev"                       // string offset=39862
 	.ident	"Android (7485623, based on r416183b1) clang version 12.0.7 (https://android.googlesource.com/toolchain/llvm-project c935d99d7cf2016289302412d708641d52d2f7ee)"
 	.section	".note.GNU-stack","",@progbits
-	.addrsig
 	.addrsig_sym __cfi_mas_blk_flush_init
 	.addrsig_sym __cfi_mas_blk_flush_work_fn
 	.addrsig_sym delayed_work_timer_fn
