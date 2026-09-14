@@ -47,3 +47,7 @@ BQ40Z50_FUEL_GAUGE
 HIBERNATION
 HHEE_HIBERNATE
 CONNECTIVITY_HI1105
+# 追加：本树（与 kirin9000 同源）的调用点没有配置守卫，因此这两个提供者开关必须打开。
+# 机器自带内核在 pgx 树里用另一种方式满足；这里属提供者侧的最小偏差。
++CONFIG_LOG_EXCEPTION
++CONFIG_CHR_NETLINK_MODULE

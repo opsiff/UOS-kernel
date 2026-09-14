@@ -20,7 +20,10 @@ MK="make -C $SRC O=$OBJ ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM= LLVM_I
 $MK olddefconfig
 while read -r s; do
     case "$s" in ""|\#*) continue ;; esac
-    "$SRC/scripts/config" --file "$OBJ/.config" -d "$s"
+    case "$s" in
+    +*) "$SRC/scripts/config" --file "$OBJ/.config" -e "${s#+CONFIG_}" ;;
+    *)  "$SRC/scripts/config" --file "$OBJ/.config" -d "$s" ;;
+    esac
 done < "$SRC/arch/arm64/configs/pgx_stock_build_exceptions.txt"
 $MK olddefconfig
 exec $MK KCFLAGS="-Wno-error=strict-prototypes -std=gnu11" -j"$(nproc)" $TARGETS
