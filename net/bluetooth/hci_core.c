@@ -4988,3 +4988,11 @@ static void hci_cmd_work(struct work_struct *work)
 		}
 	}
 }
+
+/* Source: android_kernel_LIO_kirin990 (5.10.116) net/bluetooth/hci_core.c */
+int hisi_hci_dev_do_open(struct hci_dev *hdev)
+{
+	int ret = hci_dev_do_open(hdev);
+
+	return ret;
+}
