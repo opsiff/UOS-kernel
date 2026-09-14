@@ -71,7 +71,9 @@ static DEFINE_SPINLOCK(rtcdev_lock);
 
 #define ALARM_AHEAD_TIME    (60)
 #define ALARM_AFTER_TIME    (15)
+#ifndef CONFIG_RTC_DISABLE_POWEROFF_ALARM
 struct rtc_wkalrm poweroff_rtc_alarm = { 0, 0, {0} };
+#endif
 
 /*
  * set_power_on_alarm - set power on alarm value into rtc register
