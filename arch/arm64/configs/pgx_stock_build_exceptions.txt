@@ -45,3 +45,9 @@ CONNECTIVITY_HI1105
 # 机器自带内核在 pgx 树里用另一种方式满足；这里属提供者侧的最小偏差。
 +CONFIG_LOG_EXCEPTION
 +CONFIG_CHR_NETLINK_MODULE
+# 追加：kirin9000 的 mem_lat 源码依赖该树更新的 devfreq/cpuhp 接口
+# (struct devfreq.min_freq、SUGOV_* 状态、CPUHP_AP_ARM_MEMLAT_MON_NOTIFY_PREPARE)，
+# 与本树核心不兼容；本树无其他可用来源，故维持关闭。
+ARM_MEMLAT_MON
+DEVFREQ_GOV_MEMLAT
+DEVFREQ_DEVBW
