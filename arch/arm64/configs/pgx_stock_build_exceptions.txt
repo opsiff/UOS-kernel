@@ -77,3 +77,13 @@ DEVFREQ_DEVBW
 #   只有改成 CMDLINE_EXTEND 或 CMDLINE_FORCE 才会与机器不一致。
 # 保留（不可回落）：OEM_DEFINE_VERITY_FEC —— 本树 drivers/md/dm-verity-target.c 无条件使用
 #   FIRST_TIME_HASH_VERIFY，该符号只在该配置下定义，关闭即编译失败。
+# 无线整块（his i/ 变体）：机器配置里 HI1102_PLATFORM=m、HI1102_WIFI=m 及子项为 y。
+# 本树需要额外打开 CONNECTIVITY_HISI 才能构建 drivers/connectivity/hisi/（本树 Makefile 用它做门控，
+#   obj-$(CONFIG_CONNECTIVITY_HISI) += hisi/），机器侧由其自身 Makefile 组织，故此差异属树内机制。
+# drv_e2prom_read 只被 hi1105 变体使用（且树内无实现），本变体不涉及，故 CONNECTIVITY_HI1105 继续关闭。
++CONFIG_CONNECTIVITY_HISI
++CONFIG_HI1102_PLATFORM
++CONFIG_HI1102_WIFI
++CONFIG_HI110X_SDIO_STD_CARD_SUPPORT
++CONFIG_HI110X_SDIO_FPGA
++CONFIG_HI110X_SDIO_DETECT_FUNCTION
