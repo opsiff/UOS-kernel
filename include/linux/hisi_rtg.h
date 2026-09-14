@@ -45,12 +45,12 @@ int sched_set_group_ed_params(struct rtg_ed_params *params);
 unsigned int sched_get_group_id(struct task_struct *p);
 
 unsigned int get_cluster_grp_running(int cluster_id);
+#else /* CONFIG_SCHED_RTG */
 
 static inline unsigned int get_cluster_grp_running(int cluster_id)
 {
 	return 0;
 }
-#else /* CONFIG_SCHED_RTG */
 
 static inline struct related_thread_group* lookup_related_thread_group(unsigned int group_id)
 {
