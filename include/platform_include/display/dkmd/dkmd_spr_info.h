@@ -120,5 +120,8 @@ struct spr_info {
 
 	uint32_t panel_xres;
 	uint32_t panel_yres;
+
+	uint32_t spr_gamma_low_lut_table_len;
+	uint32_t *spr_gamma_low_lut_table;
 };
 #endif

@@ -17,6 +17,8 @@
 #include <linux/atomic.h>
 #include <linux/types.h>
 
+#include "dkmd_user_panel_info.h"
+
 enum mipi_frame_rate_mode_type {
 	MIPI_FRM_RATE_30,
 	MIPI_FRM_RATE_60,
@@ -185,14 +187,35 @@ struct mipi_panel_info {
 
 	uint64_t pxl_clk_rate;
 	uint32_t pxl_clk_rate_div;
+
+	uint32_t dynamic_frame_hs_tx_en; /* 0: line， 1：frame */
+	uint32_t vactive_timeout_thr; /* us */
+	uint32_t data_continue_timeout_thr; /* us */
 };
 
 struct dsi_cmd_desc {
 	uint32_t dtype;
 	uint32_t vc;
+	/* while write cmds, it means that waitting between cmds,
+	 * while read cmd, it means waitting time of ack once, prefer to short time */
 	uint32_t wait;
+	/* write cmd support us/ms wait type,
+	 * read cmd only support us, not support ms */
 	uint32_t waittype;
 	uint32_t dlen;
 	char *payload;
+	/* 0: single MIPI CMD
+	 * 1: first MIPI CMD of one group of CMDs
+	 * 2: middle MIPI CMDs of one group of CMDs
+	 * 3: last MIPI CMD of one group of CMDs */
+	uint32_t groupflag;
+	/* hs or lp */
+	uint32_t singlemode;
 };
+
+struct mipi_dsi_cmds {
+	uint32_t cmds_num;
+	struct dsi_cmd_desc *cmds;
+};
+
 #endif

@@ -28,6 +28,9 @@ enum dkmd_event_type {
 	DKMD_EVENT_FFD_DISABLE,
 	DKMD_EVENT_FFD_RESULT,
 	DKMD_EVENT_SET_ACTIVE_RECT,
+	DKMD_EVENT_FRAME_RATE, // Notify the active frame rate to kernel, receiver: cee/kernel/sched/frame_window.c 
+	DKMD_EVENT_CLOSE_TCON_LOGO, // Notify tcon logo close msg to kernel, receiver: echub/power/ec_state_sync.c
+	DKMD_EARLY_EVENT_BLANK,
 	DKMD_EVENT_MAX,
 };
 

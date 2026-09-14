@@ -32,16 +32,21 @@ enum panel_ltpo_dsi_cmd_type {
 	PANEL_LTPO_DSI_CMD_TE_90HZ,
 	PANEL_LTPO_DSI_CMD_TE_120HZ,
 	PANEL_LTPO_DSI_CMD_REFRESH,
-	PANEL_LTPO_DSI_CMD_REFRESH_1HZ,
+	PANEL_LTPO_DSI_CMD_REFRESH_1HZ,      /* not used any more */
 	PANEL_LTPO_DSI_CMD_BL,
 	PANEL_LTPO_DSI_CMD_TE_360HZ,
 	PANEL_LTPO_DSI_CMD_TE_432HZ,
+	PANEL_LTPO_DSI_CMD_REFRESH_PPU_FULL, /* full screen refresh cmds */
+	PANEL_LTPO_DSI_CMD_REFRESH_PPU_HIGH, /* high region refresh cmds */
+	PANEL_LTPO_DSI_CMD_REFRESH_EXT,
+	PANEL_LTPO_DSI_CMD_TE_144HZ,
 	PANEL_LTPO_DSI_CMD_MAX
 };
 
 enum ddic_type {
 	DDIC_TYPE_C08,
 	DDIC_TYPE_H01,
+	DDIC_TYPE_F01,
 	DDIC_TYPE_INVALID
 };
 enum dimming_type {
@@ -56,7 +61,7 @@ enum dimming_mode {
 	DIMMING_MODE_INVALID
 };
 
-#define DSI_CMDS_NUM_MAX 10
+#define DSI_CMDS_NUM_MAX 20
 struct dsi_cmds {
 	uint32_t cmd_num;
 	struct dsi_cmd_desc cmds[DSI_CMDS_NUM_MAX];
@@ -71,7 +76,17 @@ struct dimming_node {
 	uint32_t frm_rate;
 	uint32_t repeat_num;
 };
-#define DIMMING_SEQ_LEN_MAX 12
+
+struct dimming_gear_config {
+	uint32_t frm_rate;
+	uint32_t dimming_gear1;
+	uint32_t dimming_gear2;
+	uint32_t dimming_end;
+};
+
+#define DIMMING_SEQ_LEN_MAX 22
+#define DIMMING_GEAR_CONFIG_MAX 20
+#define DIMMING_GEAR_INFO_NUM 4
 struct dimming_sequence {
 	enum dimming_type type;
 	uint32_t dimming_seq_num;
@@ -79,7 +94,9 @@ struct dimming_sequence {
 };
 
 #define TE_FREQ_NUM_MAX 2
+#define TE_FREQ_NUM_MAX_LTPS 3
 #define SAFE_FRM_RATE_MAX_NUM 12
+#define SAFE_FRM_RATE_MAX_NUM_LTPS 7
 
 struct panel_ltpo_info {
 	/* version only used to print */
@@ -96,6 +113,9 @@ struct panel_ltpo_info {
 	bool dimming_enable;
 	enum dimming_mode dimming_mode;
 	struct dimming_sequence dimming_sequence[DIMMING_TYPE_MAX];
+	bool dimming_gear_enable;
+	uint32_t dimming_gear_len;
+	struct dimming_gear_config dimming_gear_config[DIMMING_GEAR_CONFIG_MAX];
 
 	struct dsi_cmds dsi_cmds[PANEL_LTPO_DSI_CMD_MAX];
 
@@ -104,13 +124,18 @@ struct panel_ltpo_info {
 };
 
 struct panel_ltps_info {
-	uint32_t reserved;
+	uint32_t te_freq_num; // for harden dfr
+	uint32_t te_freqs[TE_FREQ_NUM_MAX_LTPS];
+	uint32_t safe_frm_rates_num;
+	struct safe_frm_rates safe_frm_rates[SAFE_FRM_RATE_MAX_NUM_LTPS];
 };
 
 struct panel_oled_info {
 	enum panel_oled_type oled_type;
 	uint32_t fps_sup_num;
+	uint32_t porch_fps_num;
 	uint32_t fps_sup_seq[FPS_LEVEL_MAX];
+	uint32_t porch_fps_seq[FPS_LEVEL_MAX];
 	union {
 		struct panel_ltpo_info ltpo_info;
 		struct panel_ltps_info ltps_info;

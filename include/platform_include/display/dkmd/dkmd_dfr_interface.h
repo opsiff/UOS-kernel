@@ -40,9 +40,10 @@ extern int32_t dkmd_dfr_send_refresh(uint32_t conn_id, uint32_t panel_type);
  * @param[in] conn_id find the compose based on the conn_id.
  * @param[in] panel_type.
  * @param[in] safe_frm_rate decision module to send safe frame rate.
+ * @param[in] sfr_info safe frame rate info.
  * @return Operation status; 0 if the operation succeeded
  */
-extern int32_t dkmd_dfr_send_safe_frm_rate(uint32_t conn_id, uint32_t panel_type, uint32_t safe_frm_rate);
+extern int32_t dkmd_dfr_send_safe_frm_rate(uint32_t conn_id, uint32_t panel_type, uint32_t safe_frm_rate, const struct sfr_info *sfr_info);
 
 /** after called, dss enable dimming
  *

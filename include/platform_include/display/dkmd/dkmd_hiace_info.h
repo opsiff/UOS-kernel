@@ -95,6 +95,7 @@ struct dkmd_hiace_hist_data {
 	uint32_t lhist_half_blk_height;
 
 	uint32_t folding_mode;
+	uint32_t frame_index;
 	struct dkmd_rect_coord hist_rect;
 };
 

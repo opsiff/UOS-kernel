@@ -26,6 +26,11 @@
 #include "dkmd_dfr_info.h"
 #include "dkmd_spr_info.h"
 #include "dkmd_dubai_interface.h"
+#include "dkmd_mipi_dsi_itf.h"
+
+enum notify_event_type {
+	DPU_EVENT_ISR_VACTIVE_START = 0,
+};
 
 struct frm_rate_gears {
 	uint32_t type;
@@ -68,9 +73,19 @@ struct panel_special_config {
 	uint8_t lcd_updt_fps_pfm_support;
 };
 
-struct panel_update_safe_frm_rate_info {
-	uint32_t update_frm_rate;
-	uint32_t update_safe_frm_rate;
+enum sfr_info_type {
+	INFO_TYPE_PPU_ENTER = BIT(0),  /* panel partial update mode enter */
+	INFO_TYPE_PPU_EXIT = BIT(1),   /* panel partial update mode exit */
+	INFO_TYPE_AFR_SEND = BIT(2),   /* agp active frame rate send */
+	INFO_TYPE_SFR_SEND = BIT(3),   /* panel safe frame rate send */
+	INFO_TYPE_SFR_RESEND = BIT(4), /* panel safe frame rate resend */
+};
+
+struct sfr_info {
+	uint32_t info_type;
+	uint32_t afr;             /* agp active frame rate */
+	uint32_t full_mode_sfr;   /* panel full mode safe frame rate */
+	uint32_t ppu_mode_sfr;    /* panel partial update mode safe frame rate */
 };
 
 struct dpu_panel_info {
@@ -91,13 +106,17 @@ struct dpu_panel_info {
 	uint32_t lcd_te_idx; /* 0: te0, 1: te1 */
 	uint8_t aod_enable;
 	uint8_t update_core_clk_support;
-	uint8_t rsv[2];
+	uint8_t dsc_switch_enable;
+	uint8_t support_bt2020;
 	uint32_t fake_panel_flag;
 	uint32_t esd_enable;
+	uint8_t poweroff_ulps_support;
+	uint8_t is_hardware_cursor_support;
 	enum product_type product_type;
 	struct esd_panel_info esd_info;
 	struct mipi_panel_info mipi;
 	struct user_panel_info user_info;
+	struct ppu_config_info ppu_cfg_info;
 	struct input_dsc_info input_dsc_info;
 	struct bl_info bl_info;
 	struct dfr_info dfr_info;
@@ -111,6 +130,8 @@ struct dpu_panel_info {
 	struct panel_special_config panel_spcl_cfg;
 
 	uint32_t panel_split_swap_enable;
+	uint32_t panel_force_update_frm_rate; // panel force update frame rate during startup
+	uint32_t longvh_vactive_end_ctrl_support; // longvh update frame rate in vactive end
 	uint32_t panel_partial_ctrl_support;
 	uint32_t hs_pkt_discontin_support;
 	uint32_t ppc_enable_panel_estv_support;
@@ -120,10 +141,20 @@ struct dpu_panel_info {
 	struct dpu_ppc_config_id_dsi_cmds ppc_config_id_dsi_cmds[PPC_CONFIG_ID_CNT][PPC_CONFIG_ID_DSI_CNT];
 };
 
+struct dpu_dynamic_panel_info {
+	uint32_t ifbc_type;
+	struct mipi_panel_info mipi;
+	struct input_dsc_info input_dsc_info;
+	struct dfr_info dfr_info;
+	struct spr_info spr;
+};
+
 struct dpu_panel_ops {
 	int32_t (*set_fastboot)(void);
 	int32_t (*on)(void);
 	int32_t (*off)(void);
+	int32_t (*doze)(void);
+	int32_t (*doze_suspend)(void);
 	int32_t (*set_backlight)(uint32_t bl_level);
 	int32_t (*send_cmds_at_vsync)(void);
 	struct dpu_panel_info *(*get_panel_info)(void);
@@ -141,7 +172,17 @@ struct dpu_panel_ops {
 	int32_t (*update_fps_te_mode)(uint32_t target_fps);
 	int32_t (*update_fps_pfm_mode)(uint32_t target_fps);
 	int32_t (*set_ppc_config_id)(uint32_t ppc_config_id);
-	int32_t (*set_safe_frm_rate)(const struct panel_update_safe_frm_rate_info *updt_safe_frm_info);
+	int32_t (*notify_sfr_info)(const struct sfr_info *sfr_info);
+	int32_t (*get_cmds_tx_params)(const struct dkmd_cmds_info *cmds_info, struct mipi_dsi_tx_params *params);
+	int32_t (*get_dual_cmds_tx_params)(const struct dkmd_cmds_info *cmds_info, struct mipi_dsi_tx_params *params0,
+		struct mipi_dsi_tx_params *params1);
+	int32_t (*set_dsc_config)(uint8_t dsc_enable);
+	struct dpu_dynamic_panel_info *(*get_dynamic_panel_info)(uint32_t panel_id);
+	int32_t (*ddic_exception_mode_cfg)(uint32_t mode);
+	int32_t (*skip_tp_notify)(bool skip_tp);
+
+	/* enmu NOTIFY_EVENT_TYPE */
+	int32_t (*handle_event)(uint32_t panel_id, uint32_t event, const void *value, bool is_isr_event);
 };
 
 struct product_display_ops {
@@ -175,7 +216,10 @@ uint32_t dkmd_get_lcd_status(void);
 void dkmd_set_lcd_status(uint32_t bit, uint32_t bit_value);
 extern struct dsm_client* dkmd_get_dmd_client(void);
 
+extern int32_t update_panel_info(struct dpu_panel_info *pinfo, uint32_t panel_id);
 extern int32_t register_panel(struct dpu_panel_ops *pops, uint32_t panel_id);
 extern int32_t regitster_product_ops(struct product_display_ops* ops);
+extern int32_t dpu_gfxdev_power_ctl(uint32_t panel_id);
+extern int32_t notify_de_event(uint32_t panel_id, uint32_t event);
 
 #endif

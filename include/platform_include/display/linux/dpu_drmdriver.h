@@ -30,6 +30,14 @@ enum _master_id_type_ {
 	MASTER_ID_MAX
 };
 
+enum master_aae_sec_op_type {
+	AAE_SEC_CMDLIST_SET_CH7_ADDR = 0,
+	AAE_SEC_CMDLIST_BUILD_CH8,
+	AAE_SEC_CLEAR_CMDLIST,
+	AAE_SEC_RETENTION_SD,
+	AAE_SEC_OP_MAX
+};
+
 #ifdef CONFIG_DKMD_ENABLE
 #define DSS_SMMU_INIT                FID_BL31_DISPLAY_DEFAULT_INIT
 #define DSS_CH_MMU_SEC_CONFIG
@@ -38,6 +46,9 @@ enum _master_id_type_ {
 #define DSS_CH_DEFAULT_SEC_CONFIG    FID_BL31_DISPLAY_CH_DEFAUL_SEC_CONFIG
 #define DSS_QOS_CONFIG               FID_BL31_DISPLAY_QOS_CONFIG
 #define MASTER_OP_SECURITY_MAX
+#define AAE_SEC_CONFIG               FID_BL31_DISPLAY_AAE_SEC_CONFIG
+#define AAE_XPU_AAE_MSG_HANDLE       FID_BL31_DISPLAY_XPU_AAE_MSG_HANDLE
+#define DSS_DOZE1_CONFIG             FID_BL31_DISPLAY_DOZE1_CONFIG
 #define get_group_id(func_id)        (((func_id) & 0xff00) >> 8)
 
 #else
@@ -51,6 +62,9 @@ enum master_dss_op_type {
 	DSS_SMMU_BYPASS_CONFIG,
 	DSS_QOS_CONFIG,
 	MASTER_OP_SECURITY_MAX,
+	AAE_SEC_CONFIG,
+	AAE_XPU_AAE_MSG_HANDLE,
+	DSS_DOZE1_CONFIG,
 };
 #endif
 

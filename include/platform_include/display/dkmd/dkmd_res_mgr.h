@@ -40,6 +40,8 @@ enum {
 	RES_IOCTL_NORMAL_DVFS = 0x22,
 	RES_IOCTL_FRAME_INTRA_DVFS = 0x23,
 	RES_IOCTL_REQUEST_LB = 0x24,
+	RES_IOCTL_GET_PRODUCT_TYPE = 0x25,
+	RES_IOCTL_MAP_IOVA_ASYNC = 0x26,
 	RES_IOCTL_CMD_MAX,
 };
 
@@ -50,10 +52,12 @@ enum {
 #define RES_RELEASE_OPR      _IOW(RES_IOCTL_MAGIC, RES_IOCTL_RELEASE_OPR, uint32_t)
 
 // RES_GR_DEV
+#define RES_MAP_IOVA_ASYNC   _IOWR(RES_IOCTL_MAGIC, RES_IOCTL_MAP_IOVA_ASYNC, struct res_dma_buf)
 #define RES_MAP_IOVA         _IOWR(RES_IOCTL_MAGIC, RES_IOCTL_MAP_IOVA, struct res_dma_buf)
 #define RES_UNMAP_IOVA       _IOWR(RES_IOCTL_MAGIC, RES_IOCTL_UNMAP_IOVA, struct res_dma_buf)
 #define RES_GET_VSCREEN_INFO _IOWR(RES_IOCTL_MAGIC, RES_IOCTL_GET_VSCREEN_INFO, struct screen_info)
 #define RES_GET_DISP_VERSION _IOWR(RES_IOCTL_MAGIC, RES_IOCTL_GET_DISP_VERSION, uint64_t)
+#define RES_GET_PRODUCT_TYPE _IOWR(RES_IOCTL_MAGIC, RES_IOCTL_GET_PRODUCT_TYPE, uint32_t)
 
 #define RES_REGISTER_TYPES   _IOWR(RES_IOCTL_MAGIC, RES_IOCTL_REGISTER_TYPES, uint64_t)     // enum res_types
 
@@ -84,6 +88,9 @@ enum dpu_version_code {
 	DPU_ACCEL_DPUV720 = 0x8004,
 	DPU_ACCEL_DPUV800 = 0x8005,
 	DPU_ACCEL_DPUV820 = 0x8006,
+	DPU_ACCEL_DPUV900 = 0x8007,
+	DPU_ACCEL_DPUV9200 = 0x8008,
+	DPU_ACCEL_DPUV840 = 0x8009,
 };
 
 enum scene_user_type {
@@ -170,6 +177,22 @@ struct req_lbuf_node_info {
 	uint32_t used_lb;
 };
 
+struct lbuf_part_info {
+	int32_t part_id;
+	uint32_t used_lb;
+};
+
+#define LB0_RSERVED_NUM_SCENE4 16
+#define LB1_RSERVED_NUM_SCENE4 3
+#define LB3_RSERVED_NUM_SCENE4 6
+#define LB0_RSERVED_NUM_SCENEALL 4
+
+#define LBUF_LB0_PART_ID 0
+#define LBUF_LB1_PART_ID 1
+#define LBUF_LB2_PART_ID 2
+#define LBUF_LB3_PART_ID 3
+#define LBUF_PART_NUM_MAX 4
+
 enum lb_opeartion {
 	LB_REQUEST = 0,
 	LB_RELEASE = 1,
@@ -189,11 +212,17 @@ struct req_lbuf_info {
 	int32_t user_type;
 	int32_t scene_id;
 	enum lb_opeartion opt;
+
+	// lb mgr ver1.0
 	uint32_t node_num;
 	struct req_lbuf_node_info req_lb_node_info[LBUF_NODE_NUM_MAX];
 	uint32_t req_scene_lb_num;
 	uint32_t conn_num;
 	struct lbuf_opr_conn_info opr_conn_info[LBUF_CONNECT_NUM_MAX];
+
+	// lb mgr ver2.0
+	uint32_t part_num;
+	struct lbuf_part_info req_part_info[LBUF_PART_NUM_MAX];
 };
 
 #endif

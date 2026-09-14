@@ -26,15 +26,25 @@
 #define DISP_PRESENT _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_PRESENT, struct disp_frame)
 #define DISP_IOBLANK _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_IOBLANK, int)
 #define DISP_GET_HDR_MEAN _IOR(DISP_IOCTL_MAGIC, DISP_IOCTL_GET_HDR_MEAN, uint32_t)
+#define DISP_GET_HDR_STATISTIC _IOR(DISP_IOCTL_MAGIC, DISP_IOCTL_GET_HDR_STATISTIC, struct dkmd_hdr_statistic_info)
 #define DISP_SAFE_FRM_RATE _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_SAFE_FRM_RATE, int)
 #define DISP_SET_ACTIVE_RECT _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_SET_ACTIVE_RECT, uint32_t)
+#define DISP_DEVICE_IOBLANK _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_DEVICE_IOBLANK, uint32_t)
+#define DISP_GET_ONLINE_CRC _IOR(DISP_IOCTL_MAGIC, DISP_IOCTL_GET_ONLINE_CRC, uint32_t)
+#define DISP_GET_DP_HDMI_LINK_INFO \
+	_IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_GET_DP_HDMI_LINK_INFO, struct dpu_dp_hdmi_link_info)
 /**
  * @brief this cmd was used to get product config items,
  *        those itmes may were defined at dts or panel,
  *        each online scene must have product config items.
  */
 #define DISP_GET_PRODUCT_CONFIG _IOR(DISP_IOCTL_MAGIC, DISP_IOCTL_GET_PRODUCT_CONFIG, struct product_config)
-
+#define DISP_GET_PRODUCT_EXT_CONFIG \
+    _IOR(DISP_IOCTL_MAGIC, DISP_IOCTL_GET_PRODUCT_EXT_CONFIG, struct product_ext_config)
+#define DISP_GET_SUPPORT_DISPLAY_TIMING \
+	_IOR(DISP_IOCTL_MAGIC, DISP_IOCTL_GET_SUPPORT_DISPLAY_TIMING, struct edid_timing_list)
+#define DISP_SET_DISPLAY_TIMING _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_SET_DISPLAY_TIMING, uint32_t)
+#define DISP_SET_DISPLAY_ACTIVE_REGION _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_DISPLAY_ACTIVE_REGION, struct dkmd_rect_coord)
 #define DISP_GET_ALSC_INFO _IOR(DISP_IOCTL_MAGIC, DISP_IOCTL_GET_ALSC_INFO, struct alsc_info)
 #define DISP_GET_FUSA_INFO _IOR(DISP_IOCTL_MAGIC, DISP_IOCTL_GET_FUSA_INFO, struct dkmd_ffd_cfg)
 
@@ -45,8 +55,23 @@
 #define DISP_SET_HIACE_LUT _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_SET_HIACE_LUT, struct dkmd_hiace_lut_data)
 #define DISP_WAKE_UP_HIACE_HIST _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_WAKE_UP_HIACE_HIST, int)
 
+// for rgb_hist
+#define DISP_GET_RGB_HIST _IOR(DISP_IOCTL_MAGIC, DISP_IOCTL_GET_RGB_HIST, struct dkmd_rgb_hist_data)
+#define DISP_WAKE_UP_RGB_HIST _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_WAKE_UP_RGB_HIST, int)
+
 #define DISP_HDCP_IN _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_HDCP_IN, int)
 #define DISP_HDCP_OUT _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_HDCP_OUT, int)
+#define DISP_DMD_REPORT _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_DMD_REPORT, struct disp_dmd_list)
+#define DISP_NOTIFY_ABNORMAL_HANDLE _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_NOTIFY_ABNORMAL_HANDLE, uint32_t)
+
+#define DISP_UPDATE_HARDWARE_CURSOR \
+	_IOWR(DISP_IOCTL_MAGIC, DISP_IOCTL_UPDATE_HARDWARE_CURSOR, struct hardware_cursor_info)
+
+#define DISP_TUNNEL_PRESENT _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_TUNNEL_PRESENT, struct tunnel_layer_data)
+
+// for tui level1
+#define DISP_GET_TUI_LEVEL1_INFO _IOR(DISP_IOCTL_MAGIC, DISP_IOCTL_GET_TUI_LEVEL1_INFO, struct tui_level1_layer_info)
+#define DISP_CONNECT _IOW(DISP_IOCTL_MAGIC, DISP_IOCTL_CONNECT, int)
 
 enum {
 	DISP_IOCTL_CREATE_FENCE = 0x10,
@@ -64,7 +89,23 @@ enum {
 	DISP_IOCTL_HDCP_IN,
 	DISP_IOCTL_HDCP_OUT,
 	DISP_IOCTL_GET_FUSA_INFO,
-	DISP_IOCTL_SET_ACTIVE_RECT
+	DISP_IOCTL_SET_ACTIVE_RECT,
+	DISP_IOCTL_GET_HDR_STATISTIC,
+	DISP_IOCTL_DEVICE_IOBLANK,
+	DISP_IOCTL_GET_ONLINE_CRC,
+	DISP_IOCTL_GET_DP_HDMI_LINK_INFO,
+	DISP_IOCTL_GET_PRODUCT_EXT_CONFIG,
+	DISP_IOCTL_SET_DISPLAY_TIMING,
+	DISP_IOCTL_DMD_REPORT,
+	DISP_IOCTL_UPDATE_HARDWARE_CURSOR,
+	DISP_IOCTL_DISPLAY_ACTIVE_REGION,
+	DISP_IOCTL_NOTIFY_ABNORMAL_HANDLE,
+	DISP_IOCTL_TUNNEL_PRESENT,
+	DISP_IOCTL_GET_TUI_LEVEL1_INFO,
+	DISP_IOCTL_CONNECT,
+	DISP_IOCTL_GET_SUPPORT_DISPLAY_TIMING,
+	DISP_IOCTL_WAKE_UP_RGB_HIST,
+	DISP_IOCTL_GET_RGB_HIST,
 };
 
 enum {
@@ -74,19 +115,35 @@ enum {
 	ASYNC_MODE_INVALID,
 };
 
+typedef enum connect_type {
+	CONNECT = 1,
+	DISCONNECT,
+	CONNECT_MAX_NUM
+}CONNECT_TYPE;
+
 // should be consistent with linux/fb.h
 enum {
-	/* screen: unblanked, hsync: on,  vsync: on */
+	/* 正常亮屏场景使用，dss上电，屏幕上电 */
 	DISP_BLANK_UNBLANK,
-	/* screen: blanked,   hsync: on,  vsync: on, Notice: this is used by DISP_BLANK_FAKE_OFF, do not reuse this */
+	/* 等价fake off，hal层实际未使用，dss下电，屏幕不下电 */
 	DISP_BLANK_NORMAL,
-	/* screen: blanked,   hsync: on,  vsync: off */
+	/* 等价poweroff，hal层实际未使用，dss下电，屏幕下电 */
 	DISP_BLANK_VSYNC_SUSPEND,
-	/* screen: blanked,   hsync: off, vsync: on */
+	/* 等价poweroff，hal层实际未使用，dss下电，屏幕下电 */
 	DISP_BLANK_HSYNC_SUSPEND,
-	/* screen: blanked,   hsync: off, vsync: off */
+	/* 正常灭屏场景使用，dss下电，屏幕下电 */
 	DISP_BLANK_POWERDOWN,
-	/* screen: no change,   hsync: off, vsync: off */
+	/* 指纹解锁场景使用，dss下电，屏幕上电 */
+	DISP_BLANK_PERI_UNBLANK,
+	/* 指纹解锁失败场景，dss下电，屏幕下电 */
+	DISP_BLANK_PERI_POWERDOWN,
+	/* AP AOD场景使用，dss上电，屏幕处于低功耗模式 */
+	DISP_BLANK_DOZE,
+	/* AP AOD场景使用，dss下电，屏幕处于低功耗模式 */
+	DISP_BLANK_DOZE_SUSPEND,
+	/* AP AOD切AP上电场景，dss上电，屏幕上电 */
+	DISP_BLANK_DOZE_SWITCH_ON,
+	/* 单框架灭屏一镜到底，折叠屏开机双屏同显场景，dss下电，屏幕不下电 */
 	DISP_BLANK_FAKE_OFF = DISP_BLANK_NORMAL,
 };
 
@@ -112,6 +169,8 @@ enum dfr_mode {
 	DFR_MODE_TE_SKIP_BY_ACPU,
 	DFR_MODE_LONG_VH, // both longv and longh exist
 	DFR_MODE_LONGH_TE_SKIP_BY_MCU,
+	DFR_MODE_LONGV_BY_MCU,
+	DFR_MODE_LONGH_BY_MCU,
 	DFR_MODE_INVALID
 };
 
@@ -132,11 +191,10 @@ struct disp_layer {
 struct vote_freq_info {
 	uint64_t current_total_freq;
 	uint64_t sdma_freq;
+	uint64_t ov_freq;
 };
 
 struct intra_frame_dvfs_info {
-	uint32_t perf_level;
-	int32_t scene_id;
 	struct vote_freq_info vote_freq_info;
 	uint32_t frame_rate;
 	uint32_t sw_dvfs_frm_rate;
@@ -164,9 +222,53 @@ struct disp_present_fence {
 
 #define DISP_LAYER_MAX_COUNT 32
 
+enum panel_refresh_mode {
+    PANEL_REFRESH_MODE_FULL,
+    PANEL_REFRESH_MODE_PPU,
+    PANEL_REFRESH_MODE_INVALID
+};
+
+enum ppu_ctrl_mode {
+    PPU_CTRL_MODE_NORMAL,
+    PPU_CTRL_MODE_MRRI, // Multiple Region Repetitive Intersecting, for example A/B/A/B...
+    PPU_CTRL_MODE_INVALID
+};
+
+struct pre_extend_ctrl {
+    uint32_t ppu_ctrl_mode;
+    struct dkmd_rect panel_rect;
+};
+
+struct panel_refresh_ctrl {
+	uint32_t panel_refresh_mode;
+	uint32_t ppu_ctrl_mode;
+	bool is_aux_full_refresh;
+	struct dkmd_rect panel_rect;
+	struct pre_extend_ctrl pre_extend_ctrl;
+};
+
+#define DISP_RECT_MAX_DIRTY_NUM 5
+#define PQ_DATA_SIZE 30
+
+struct tunnel_layer_data {
+    uint64_t tunnel_id;
+    uint32_t buffer_h_addr;
+    uint32_t buffer_l_addr;
+    int32_t x;
+    int32_t y;
+    uint32_t data_index; // tunnel layer and tunnel data reg start addr index
+    uint32_t property;
+};
+
+struct tunnel_info {
+	uint32_t dev_commit_layer_cnt;
+	bool has_tunnel_layer;
+	uint8_t reserved[3];
+};
+
 struct disp_frame {
 	int32_t scene_id;
-	uint32_t cmdlist_id;
+	uint64_t cmdlist_id;
 	uint32_t layer_count;
 	int32_t protected_wch_id;  // add for drm layers config
 	struct disp_layer layer[DISP_LAYER_MAX_COUNT];
@@ -177,12 +279,23 @@ struct disp_frame {
 	uint32_t active_frame_rate;  // for ltpo dynamic frame rate
 	struct disp_effect_params effect_params;
 	struct dkmd_rect disp_rect; // display rect on screen
+	struct dkmd_rect multi_dirty_rects[DISP_RECT_MAX_DIRTY_NUM];
+	int32_t multi_dirty_rects_size;
+	struct panel_refresh_ctrl panel_refresh_ctrl;
 	struct intra_frame_dvfs_info dvfs_info;
 	uint32_t async_mode;
 	uint32_t tui_ready_status;
 	uint32_t alsc_en;
 	uint64_t present_fence_pt;
 	uint32_t ppc_config_id; /* panel partial control, active display area id */
+	uint32_t hdr_en;
+	uint32_t reset_ack;
+	uint64_t forbid_partial_update_reason;
+	uint64_t frame_id;
+	uint64_t request_time_nanos;
+	uint32_t time_nanos_type;
+	struct tunnel_info tunnel_info;
+	uint8_t pq_data[PQ_DATA_SIZE];
 };
 
 #define SCENE_SPLIT_MAX 4
@@ -190,6 +303,19 @@ enum split_mode {
 	SCENE_SPLIT_MODE_NONE = 0,
 	SCENE_SPLIT_MODE_V,
 	SCENE_SPLIT_MODE_H,
+};
+
+#define GTM_HIST_SIZE 256
+#define LTM_HIST_SIZE 64
+struct dkmd_hdr_statistic_info {
+	uint32_t hdr_mean;
+	uint32_t gtm_hist[GTM_HIST_SIZE];
+	uint32_t ltm_hist[LTM_HIST_SIZE];
+};
+
+#define RGB_HIST_SIZE 48
+struct dkmd_rgb_hist_data {
+	uint32_t rgb_hist[RGB_HIST_SIZE];
 };
 
 // dimension
@@ -210,12 +336,13 @@ enum fps_id {
 	FPS_LEVEL5,
 	FPS_LEVEL6,
 	FPS_LEVEL7,
-	FPS_LEVEL_MAX,
+	FPS_LEVEL_MAX = 20,
 };
 
 struct rog_dim {
 	int32_t width;
 	int32_t height;
+    uint32_t link_id;
 };
 
 enum color_mode {
@@ -244,7 +371,8 @@ union feature_bits {
 		uint64_t enable_spr : 1;
 		uint64_t enable_lbuf_reserve : 1;
 		uint64_t enable_online_async : 1;
-		uint64_t reserved : 59;
+		uint64_t enable_scene_switch : 1;
+		uint64_t reserved : 58;
 	} bits;
 };
 
@@ -261,7 +389,9 @@ union driver_bits {
 	struct {
 		uint64_t drv_framework : 3;
 		uint64_t is_pluggable  : 1;
-		uint64_t reserved      : 60;
+		uint64_t is_dynamic_connect : 1;
+		uint64_t is_plugin : 1;
+		uint64_t reserved      : 58;
 	} bits;
 };
 
@@ -280,6 +410,10 @@ struct alsc_info {
 	uint32_t bl_update;
 };
 
+struct tui_level1_layer_info {
+	struct dkmd_rect tui_level1_display_rect;
+};
+
 #define ONLINE_SCENE_MAX 4
 #define DEFAULT_OPR_MASK 0xFFFFFFFFFFFFFFFF
 
@@ -288,7 +422,14 @@ struct support_scene_info {
 	uint32_t scene_id[ONLINE_SCENE_MAX];
 };
 
+struct dpu_dp_hdmi_link_info {
+	uint16_t edid_len;
+	uint8_t *edid;
+};
+
 #define SPLIT_SCREEN_MAX 4
+#define TIMING_NUMBER_MAX 64
+#define EDID_COLOR_DATA_LEN	10
 
 enum ppc_config_id_type {
 	PPC_CONFIG_ID_F_MODE = 0,
@@ -302,6 +443,33 @@ struct dpu_ppc_config_id_rect_info {
 	struct dkmd_rect_coord rect;
 };
 
+struct dpu_porch_info_legacy {
+	uint32_t hfp;
+	uint32_t hbp;
+	uint32_t hsa;
+	uint32_t vfp;
+	uint32_t vbp;
+	uint32_t vsa;
+};
+
+struct hline_info {
+	uint32_t frame_rate;
+	uint32_t hline_time;
+};
+
+#define MAX_FPS_NUM 8
+struct dpu_porch_info {
+	uint32_t lane_byte_clk;
+	struct hline_info master_hline_info;
+	struct hline_info slave_hline_info[MAX_FPS_NUM];
+};
+
+struct dp_display_timing {
+	uint32_t xres;
+	uint32_t yres;
+	uint32_t fps;
+};
+
 /**
  * @brief color_modes is must be enum color_mode's value
  *
@@ -311,6 +479,8 @@ struct product_config {
 	uint32_t width;
 	uint32_t sub_width[SPLIT_SCREEN_MAX];
 	uint32_t height;
+	uint32_t xres;
+	uint32_t yres;
 	uint32_t sub_height[SPLIT_SCREEN_MAX];
 	union driver_bits drv_feature; // driver and device feature
 
@@ -333,6 +503,9 @@ struct product_config {
 	uint32_t color_mode_count;
 	uint32_t color_modes[COLOR_MODE_COUNT_MAX];
 
+	bool has_edid_color;
+	uint8_t edid_color[EDID_COLOR_DATA_LEN];
+
 	uint32_t dsc_out_width;
 	uint32_t dsc_out_height;
 	uint32_t spr_ctrl;
@@ -342,14 +515,73 @@ struct product_config {
 	uint32_t spr_border_b_tb;
 
 	struct user_panel_info user_pinfo;
-	bool is_support_intra_dvfs;
+	struct ppu_config_info ppu_cfg_info;
 
 	struct support_scene_info scene_info;
 	uint64_t opr_policy;
 	uint8_t compose_policy;
-	uint8_t rsv[3];
+	uint8_t init_panel_display_status;
+	uint8_t support_color_mode;
+	uint8_t rsv[1];
 	uint32_t dfr_mode;
 	struct dpu_ppc_config_id_rect_info ppc_config_id_rect_info[PPC_CONFIG_ID_CNT];
 	uint32_t ppc_config_id_cnt; // reserved for other fold panel
+	struct dpu_porch_info porch_info;
+	struct dpu_porch_info_legacy porch_info_legacy;
+
+	bool is_primary_panel;
+	uint32_t effect_ctrl_flag;
+	uint32_t connector_trans_mode; // if connector is mipi, mode will be video or cmd type
+	bool is_hardware_cursor_support;
+	uint32_t dbuf_discount_factor;
+	uint32_t is_send_pqdata;
+	bool is_split_node_recognition_enable; // whether recognize master or slave for split mode
+	uint32_t is_msr_support;
+	bool is_enable_set_display_timing;
 };
+
+struct product_ext_config {
+	uint32_t dfr_mode;
+	uint32_t dsc_en;
+	uint32_t dsc_out_width;
+	uint32_t dsc_out_height;
+	struct dpu_porch_info_legacy porch_info_legacy;
+};
+
+#define DISP_DMD_MAX_LENGTH 1024
+#define DISP_DMD_MAX_COUNT 5
+
+struct disp_dmd {
+	uint32_t dmd_id;
+	uint64_t dmd_report_info;
+	uint32_t info_size;
+};
+
+struct disp_dmd_list {
+	struct disp_dmd dmd_info[DISP_DMD_MAX_COUNT];
+	uint32_t dmd_count;
+};
+enum hardware_cursor_cmd {
+    HARDWARE_CURSOR_ENABLE_STATS = 1,
+    HARDWARE_CUSROR_DISABLE_STATS,
+    HARDWARE_CURSOR_GET_STATS,
+    HARDWARE_CUSROR_CMD_MAX,
+};
+
+struct hardware_cursor_info {
+	uint32_t cmd;
+	int32_t scene_id;
+	struct {
+		uint32_t *frame_count;
+		uint32_t *vsync_count;
+	} stats;
+};
+
+struct edid_timing_list {
+	uint32_t support_timing_num;
+	struct dp_display_timing support_timing[TIMING_NUMBER_MAX];
+};
+
+#define DISP_RESET_DROP_FRAME_NUM 4
+
 #endif

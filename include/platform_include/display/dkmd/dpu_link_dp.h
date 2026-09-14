@@ -17,7 +17,8 @@
 #include <linux/types.h>
 #define EDID_LEN 128
 
-struct screen_info {
+struct ext_screen_info {
+    uint32_t link_id;
 	uint32_t width;
 	uint32_t height;
 	uint32_t h_active_pixels;
@@ -30,7 +31,7 @@ struct dp_ext_disp_info {
 	uint32_t screen_num;
 	uint32_t edid_len;
 	uint32_t edid_blocks;
-	struct screen_info *sinfo;
+	struct ext_screen_info *sinfo;
 };
 
 struct dp_connect_ctrl_info {
@@ -39,12 +40,14 @@ struct dp_connect_ctrl_info {
 	uint32_t screen_num;
 	uint32_t edid_len;
 	uint32_t max_brightness;
+	struct ext_screen_info *sinfo;
 	void(*set_backlight)(int port_id, uint32_t bl_level);
 
 	int(*get_ext_disp_info)(struct dp_ext_disp_info *, int);
 	int(*notify_ser_dp_vp_sync)(int port_id);
 	int(*notify_ser_dp_unplug)(int port_id);
 	int (*dp_connect_ctrl_reset_dprx)(int port_id);
+	void(*dp_screen_on_prepare)(int port_id);
 };
 
 // for dptx obtain dprx info such as edid that not support

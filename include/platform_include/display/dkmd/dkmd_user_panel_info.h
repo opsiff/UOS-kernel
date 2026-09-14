@@ -43,9 +43,23 @@ struct user_panel_info {
 
 	int32_t top_start;
 	int32_t bottom_start;
+	int32_t te_shift_limit;
 	int32_t spr_overlap;
 	uint8_t dirty_region_updt_support;
-	uint8_t rsv[3];
+	uint8_t psr2_support;
+	uint8_t rsv[2];
+	int32_t software_cld_first;
+};
+
+struct ppu_config_info {
+	int32_t left_align;
+	int32_t right_align;
+	int32_t top_align;
+	int32_t bottom_align;
+
+	int32_t w_min;
+	int32_t h_min;
+	uint32_t ppu_support;
 };
 
 #endif

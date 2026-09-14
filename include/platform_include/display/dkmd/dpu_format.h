@@ -79,6 +79,8 @@ enum DPU_PIXEL_FORMAT {
 	DPU_FMT_RGB_10BIT,
 	DPU_FMT_D3_128,
 	DPU_FMT_D3_RGBG,
+	DPU_FMT_YCBCR_I444,
+	DPU_FMT_B38_RGBA,
 	DPU_FMT_NO_SUPPORT,
 	DPU_FMT_MAX,
 };
@@ -88,6 +90,7 @@ enum BYTES_PER_PIXEL {
 	BPP_RGB_4PXL = 4,
 	BPP_YUV_2PXL = 2,
 	BPP_YUV_1PXL = 1,
+	BPP_B38_5PXL = 5,
 };
 
 static inline int get_bpp_by_dpu_format(int format)
@@ -125,6 +128,8 @@ static inline int get_bpp_by_dpu_format(int format)
 	case DPU_FMT_YCBCR_420_SP:
 	case DPU_FMT_YCRCB_420_SP:
 		return BPP_YUV_1PXL;
+	case DPU_FMT_B38_RGBA:
+		return BPP_B38_5PXL;
 	default:
 		return -1;
 	}

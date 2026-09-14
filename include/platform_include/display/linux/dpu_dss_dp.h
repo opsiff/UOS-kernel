@@ -17,7 +17,7 @@
 #include <linux/platform_drivers/usb/tca.h>
 
 #if defined(CONFIG_HISI_DSS_V510) || defined(CONFIG_HISI_DSS_V600) || \
-	defined(CONFIG_DPU_DP_EN) || defined(CONFIG_DKMD_DPU_DP)
+	defined(CONFIG_DPU_DP_EN) || defined(CONFIG_DKMD_DPU_DP) || defined(CONFIG_DPU_DRM_DP)
 extern int dpu_dptx_hpd_trigger(TCA_IRQ_TYPE_E irq_type, TCPC_MUX_CTRL_TYPE mode,
 	TYPEC_PLUG_ORIEN_E typec_orien, int port_id);
 extern int dpu_dptx_notify_switch(void);
