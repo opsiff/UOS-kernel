@@ -24,9 +24,13 @@
 extern const struct bio_delay_stage_config bio_stage_cfg[BIO_PROC_STAGE_MAX];
 extern const struct req_delay_stage_config req_stage_cfg[REQ_PROC_STAGE_MAX];
 
-extern void mas_blk_latency_check_timer_expire(struct bio *bio);
+extern void mas_blk_latency_check_timer_expire(unsigned long data);
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0))
 extern void __mas_blk_latency_check_timer_expire(struct timer_list *timer);
+#else
+extern void __mas_blk_latency_check_timer_expire(unsigned long data);
+#endif
 extern ssize_t mas_queue_io_latency_warning_threshold_store(
 	const struct request_queue *q, const char *page, size_t count);
 extern ssize_t __mas_queue_io_latency_warning_threshold_store(

@@ -18,14 +18,19 @@
 #include <linux/version.h>
 #include <linux/timer.h>
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0))
 extern void _cfi_mas_blk_queue_usr_ctrl_recovery_timer_expire(
 	struct timer_list *timer);
-extern void mas_blk_queue_usr_ctrl_recovery_timer_expire(struct request_queue *q);
+#else
+extern void _cfi_mas_blk_queue_usr_ctrl_recovery_timer_expire(
+	unsigned long data);
+#endif
+extern void mas_blk_queue_usr_ctrl_recovery_timer_expire(unsigned long data);
 extern ssize_t __cfi_mas_queue_status_show(
 	struct request_queue *q, char *page);
 extern ssize_t mas_queue_status_show(
 	const struct request_queue *q, char *page, unsigned long len);
-#ifdef CONFIG_MAS_DEBUG_FS
+#if defined(CONFIG_MAS_DEBUG_FS) || defined(CONFIG_MAS_BLK_DEBUG)
 extern ssize_t __cfi_mas_queue_io_prio_sim_show(
 	struct request_queue *q, char *page);
 extern ssize_t mas_queue_io_prio_sim_show(

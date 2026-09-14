@@ -14,15 +14,7 @@
 
 #ifndef MAS_BLK_INTERNAL_H
 #define MAS_BLK_INTERNAL_H
-#include <linux/bio.h>
-#include <linux/blk-mq.h>
-#include <linux/blk_types.h>
-#include <linux/blkdev.h>
 #include <platform_include/basicplatform/linux/rdr_platform.h>
-#include <platform_include/basicplatform/linux/hck/ufs/hck_ufs_mas_mcq.h>
-#ifdef CONFIG_MAS_MCQ
-#include "mas_mcq.h"
-#endif
 
 #define IO_FROM_SUBMIT_BIO_MAGIC 0x4C
 #define IO_FROM_BLK_EXEC 0x4D
@@ -74,7 +66,6 @@ enum blk_lld_feature_bits {
 	__BLK_LLD_UFS_UNISTORE_EN,
 	__BLK_LLD_IOSCHED_MMC_MQ,
 	__BLK_LLD_UFS_CPPLUS_EN,
-	__BLK_LLD_IOSCHED_MAS_MCQ,
 };
 
 #define BLK_LLD_DUMP_SUPPORT (1ULL << __BLK_LLD_DUMP_SUPPORT)
@@ -88,7 +79,6 @@ enum blk_lld_feature_bits {
 #define BLK_LLD_UFS_UNISTORE_EN (1ULL << __BLK_LLD_UFS_UNISTORE_EN)
 #define BLK_LLD_IOSCHED_MMC_MQ (1ULL << __BLK_LLD_IOSCHED_MMC_MQ)
 #define BLK_LLD_UFS_CPPLUS_EN (1ULL << __BLK_LLD_UFS_CPPLUS_EN)
-#define BLK_LLD_IOSCHED_MAS_MCQ (1ULL << __BLK_LLD_IOSCHED_MAS_MCQ)
 
 #define BLK_QUEUE_DURATION_UNIT_NS 10000
 
@@ -212,7 +202,7 @@ static inline void mas_blk_rdr_panic(const char *msg)
 void mas_blk_bio_clone_fast(
 	struct bio *bio, struct bio *bio_src);
 void mas_blk_set_data_flag(struct request_queue *q,
-	struct blk_mq_alloc_data *data, unsigned int op);
+	struct blk_mq_alloc_data *data, struct bio *bio, unsigned int op);
 void mas_blk_bio_queue_split(
 	struct request_queue *q, struct bio **bio, struct bio *split);
 bool mas_blk_bio_merge_allow(const struct request *rq,
@@ -243,7 +233,7 @@ void mas_blk_request_execute_nowait(
 	rq_end_io_fn *done);
 void mas_blk_mq_rq_ctx_init(
 	struct request_queue *q, struct blk_mq_ctx *ctx, struct request *rq);
-void mas_blk_mq_request_start(const struct request *req);
+void mas_blk_mq_request_start(const struct request *rq);
 void mas_blk_request_start(const struct request *req);
 void mas_blk_requeue_request(const struct request *rq);
 void mas_blk_request_update(
@@ -262,6 +252,11 @@ void mas_blk_mq_free_queue(const struct request_queue *q);
 void mas_blk_cleanup_queue(struct request_queue *q);
 
 void mas_blk_mq_allocated_tagset_init(struct blk_mq_tag_set *set);
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0))
+void blk_add_queue_tags(
+	struct blk_queue_tag *tags, struct request_queue *q);
+void mas_blk_allocated_tags_init(struct blk_queue_tag *tags);
+#endif
 
 int mas_blk_dev_init(void);
 
@@ -302,15 +297,6 @@ int mas_blk_dump_lld_status(
 void mas_blk_dump_init(void);
 void mas_blk_check_fg_io(struct bio *bio);
 
-static inline void *mas_get_debug_addr(void *q)
-{
-#ifdef CONFIG_MAS_DEBUG_FS
-	return q;
-#else
-	return NULL;
-#endif
-}
-
 void mas_blk_queue_usr_ctrl_set(struct request_queue *q);
 #ifdef CONFIG_MAS_MQ_USING_CP
 static inline bool mas_blk_bio_is_cp(const struct bio *bio)
@@ -321,12 +307,6 @@ static inline bool mas_blk_bio_is_cp(const struct bio *bio)
 #endif
 
 void blk_req_set_make_req_nr(struct request *req);
-int mas_blk_register_queue(struct request_queue *q);
-#ifdef CONFIG_MAS_UFS_GEAR_CTRL
-int mas_blk_get_fg_vip_sync_io_num(struct request_queue *q, unsigned long *fg_io, unsigned long *vip_io,
-			    unsigned long *sync_io);
-void mas_gear_ctrl_init(struct request_queue *q);
-#endif
 
 #define NO_EXTRA_MSG NULL
 
@@ -348,8 +328,14 @@ void mas_blk_request_init_from_bio_unistore(
 void mas_blk_order_info_reset(struct blk_dev_lld *lld);
 void mas_blk_req_update_unistore(
 	struct request *req, blk_status_t error, unsigned int nr_bytes);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0))
 struct bio* mas_blk_bio_segment_bytes_split(
 		struct bio *bio, struct bio_set *bs, unsigned int bytes);
+#else
+struct bio* mas_blk_bio_segment_bytes_split(
+	struct bio *bio, struct bio_set *bs, unsigned int bytes,
+	unsigned front_seg_size, unsigned seg_size);
+#endif
 unsigned int mas_blk_bio_get_residual_byte(
 	struct request_queue *q, struct bvec_iter iter);
 bool mas_blk_bio_check_over_section(
@@ -365,7 +351,11 @@ static inline void mas_blk_make_req_over_section(
 	struct bio *bio, bool write_over_section)
 {
 	if (write_over_section)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0))
 		submit_bio_noacct(bio);
+#else
+		generic_make_request(bio);
+#endif
 }
 
 void mas_blk_recovery_update_section_list(struct blk_dev_lld *lld,
@@ -428,7 +418,7 @@ static inline void mas_blk_lock_by_op(
 
 	mas_blk_lock(q);
 }
-#ifdef CONFIG_MAS_DEBUG_FS
+#if defined(CONFIG_MAS_DEBUG_FS) || defined(CONFIG_MAS_BLK_DEBUG)
 ssize_t mas_queue_device_pwron_info_show(
 	struct request_queue *q, char *page);
 ssize_t mas_queue_device_reset_ftl_store(
@@ -471,18 +461,6 @@ ssize_t mas_queue_unistore_debug_en_show(
 	struct request_queue *q, char *page);
 ssize_t mas_queue_unistore_debug_en_store(
 	struct request_queue *q, const char *page, size_t count);
-#ifdef CONFIG_MAS_MQ_USING_CPP
-ssize_t mas_queue_cpp_io_sum_cnt_show(
-	struct request_queue *q, char *page);
-ssize_t mas_queue_cpplus_debug_en_show(
-	struct request_queue *q, char *page);
-ssize_t mas_queue_cpplus_debug_en_store(
-	struct request_queue *q, const char *page, size_t count);
-ssize_t mas_queue_cpp_io_cnt_show(
-	struct request_queue *q, char *page);
-ssize_t mas_queue_lrb_in_use_show(
-	struct request_queue *q, char *page);
-#endif
 ssize_t mas_queue_unistore_en_show(
 	struct request_queue *q, char *page);
 ssize_t mas_queue_recovery_debug_on_show(
@@ -520,7 +498,7 @@ static inline bool mas_blk_enable_disorder(void)
 #endif
 #endif
 
-#ifdef CONFIG_MAS_DEBUG_FS
+#if defined(CONFIG_MAS_DEBUG_FS) || defined(CONFIG_MAS_BLK_DEBUG)
 ssize_t mas_queue_io_latency_warning_threshold_store(
 	const struct request_queue *q, const char *page, size_t count);
 ssize_t mas_queue_timeout_tst_enable_store(
@@ -573,13 +551,6 @@ static inline void mas_blk_dump_fs(const struct bio *bio)
 	if (bio->dump_fs)
 		bio->dump_fs();
 }
-
-#ifndef CONFIG_MAS_MCQ
-static inline bool mas_mcq_dfa_enable(const struct request_queue *q)
-{
-	return false;
-}
-#endif
 #endif /* CONFIG_MAS_BLK */
 
 #endif /* MAS_BLK_INTERNAL_H */
