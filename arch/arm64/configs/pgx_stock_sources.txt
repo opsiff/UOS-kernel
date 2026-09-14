@@ -50,3 +50,58 @@ F. 启动相关（1 项）
   CMDLINE_FROM_BOOTLOADER 与 pgx 树语义一致（详见构建例外清单）
 
 合计 6 + 5 + 3 + 1 + 1 + 1 = 17 项，与当前多开数量一致。
+
+少开项分类（相对机器全量配置 config-5.10.97，共 139 项 = 例外主动关闭 26 + 本树未打开 113）
+
+修正记录（2026-09-14）：早期把这 113 项统称“本树 Kconfig 无此符号”不准确，原因有二：
+  1) 只搜索了名为 Kconfig 的文件，漏掉 Kconfig.* 与子目录 Kconfig（同类错误此前也发生在 MQ_IOSCHED_DEADLINE_CGROUP）；
+  2) 用“符号未出现在 .config”替代了“符号在 Kconfig 中无定义”，而前者也可能是依赖不满足。
+正确口径复核结果：39 项本树有定义、74 项确实没有定义。
+
+一、例外主动关闭 26 项：见构建例外清单（缺源码或缺依赖）；HMDFS_FS 已补齐并打开。
+
+二、本树未打开 113 项的细分
+
+A. 本树有 Kconfig 定义、只是未打开：39 项
+   A1 被例外清单的父项间接阻塞（11 项）
+      DPU_DRM_GEM(父 DPU_DRM)、ARCH_HIBERNATION_HEADER / HIBERNATION_SNAPSHOT_DEV /
+      HISI_BL31_HIBERNATE / HIBERNATE_CALLBACKS(父 HIBERNATION)、ECRYPT_FS_MESSAGING(父 ECRYPT_FS)、
+      HUGETLB_PAGE(父 HUGETLBFS)、ARCH_ENABLE_HUGEPAGE_MIGRATION(依赖 HUGETLB_PAGE)、
+      SCSI_UFS_CUST_MAX_SECTORS(依赖 MAS_BLK)、HW_VOTE_L3C_FREQ(依赖 L3C_DEVFREQ)、
+      L3C_DEVFREQ(依赖 ARM_DSU_PMU 与 NAMTSO_PMU，二者未开)
+   A2 依赖已满足、父菜单未开（22 项）
+      HI1102_PLATFORM 与 HI1102_PLAT_FRW/HW_CHR/MAIN/OAL/OAM/PM/PS/SDT（9）、
+      HI1102_WIFI 与 _HMAC/_MAIN/_WAL（4）、HI110X_SDIO_DETECT_FUNCTION/FPGA/STD_CARD_SUPPORT（3）、
+      DRM_GEM_CMA_HELPER / DRM_KMS_CMA_HELPER / DRM_MIPI_DSI、PERFHUB / PERF_CTRL / PERF_MODE、
+      CRYPTO_SIMD、ARCH_MIGHT_HAVE_PC_PARPORT
+   A3 平台条件不满足（4 项）
+      PARPORT_PC（依赖 ARCH_MIGHT_HAVE_PC_PARPORT；arm64 不 select，而机器侧的树有该 select）、
+      PARPORT_PC_FIFO、PARPORT_PC_PCMCIA、PARPORT_SERIAL
+   源码实况抽查：
+      - platform_source/display/drivers/dpu_drm：Kconfig 与 Makefile 在，但 .c 文件为 0（源码缺）→
+        即使打开父项 DPU_DRM 也编不了，显示整块仍需从 kernel-pgx 取代码
+      - drivers/connectivity/hi11xx/hi1105/{platform,wifi}：.c 分别为 159 与 264 个（代码齐）→
+        打开父项 CONNECTIVITY_HI110X 即可参与构建
+      - drivers/parport：16 个 .c（代码齐，仍需 arm64 select 该能力位）
+      - platform_source/cee/drivers/{perfhub,l3c_devfreq}：.c 为 0（缺源码）
+
+B. 本树没有 Kconfig 定义：74 项
+   B1 Makefile 已引用该符号（代码或构建规则在树里，只缺 Kconfig 定义）：4 项
+      DFX_OHOS(drivers/hwmemcheck)、HISI_MODEM_OHOS(drivers/platform_drivers/modem)、
+      MM_LTS_KERNEL(platform_source/basicplatform/mm)、USB_HW_F_ACM_MUSL(drivers/huawei_platform/usb)
+   B2 无任何 Makefile 引用（基本可判定为缺代码；个别如 KVM_ARM_PMU 是 arch/arm64/kvm 代码在但构建项与 Kconfig 被裁）：70 项
+      64BIT_CCSIDR, ANDROID_STRUCT_PADDING, ARCH_SUPPORTS_CFI_CLANG, ARMPC_ECHUB_FAN,
+      ARMPC_ECHUB_MCU_STATE_SYNC, ARMPC_ECHUB_OVERHEAT, BINDER_ONEWAY_TF_SENDER_INFO,
+      BINDER_SENDER_INFO, BLACKBOX, CPU_FREQ_DEFAULT_GOV_DDE_SCHEDUTIL, CRYPTO_CORE_DISABLE,
+      DEVICE_THREAT_DETECTION, DPU_CONN_MANAGER, DPU_DKSM, DPU_DP_CTRL, DPU_DRM_BRIDGE, DPU_DRM_DP,
+      DPU_HDCPTX, DP_DSC, EDP_DRIVER, FBE_ARMPC, FONT_CJK_16x16, GD25L_DRIVER, HIEVENT,
+      HISI1103_EEPROM, HMDFS_FS_ENCRYPTION, HMDFS_FS_PERMISSION, HUAWEI_ARMPC_SMART_USB,
+      HUAWEI_HIBERNATE_SWAP_PROTECT, IP_RSVD_PORT_BIND_CTRL, KVM_ARM_MPAM_BUGFIX, KVM_ARM_PMU,
+      L3CACHE_TZSP, LEDS_ARMPC, NAMTSO, NAMTSO_PMU, NET_VENDOR_MOTORCOMM, NET_VENDOR_WANGXUN,
+      NGBE, NGBEVF, QOS_SCHED_DYNAMIC_AFFINITY, R8168, R8168_NAPI, RTL8821CU, RTL8822BU,
+      RTW88_8723DU, RTW88_8723X, RTW88_8821CU, RTW88_8822CU, RTW88_USB, RT_SOFT_BANDWIDTH,
+      SCHED_EAS, SCSI_UFS_LUN_PROTECT, SECURITY_ELFVERIFY, SECURITY_HOOKMANAGER,
+      SECURITY_UOS_MODULE_PROTECT, SECURITY_UOS_SECURITY_MODULES, SELINUX_SID2,
+      SR_HIBERNATION_SUSPEND_TIME_OPP, TCP_NB_URC, THERMAL_THRESHOLD, TXGBE, TXGBEVF,
+      UNIFIED_COLLECTION, UOS_INVENTION, UOS_LIGHTCHERRY, UOS_PROC, UOS_TOUCHPAD_SWITCH,
+      USB_REMOTE_WAKEUP, YT6801
