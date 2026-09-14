@@ -33,6 +33,7 @@
 #include "dpu_comp_mgr.h"
 #include "gfxdev_utils.h"
 #include "dpu_gfx_ion_mem.h"
+#include "res_mgr.h"
 
 struct gfx_devno_info {
 	dev_t devno;
@@ -118,19 +119,19 @@ static int32_t dpu_gfx_open(struct inode *inode, struct file *filp)
 
 	dpu_pr_info("ref_cnt = %d comp index = %u enter", atomic_read(&gfx_dev->ref_cnt), comp->index);
 	dpu_comp = to_dpu_composer(comp);
-	if (atomic_read(&gfx_dev->ref_cnt) == 0 &&
-		dpu_comp->conn_info->base.pipe_sw_itfch_idx == PIPE_SW_PRE_ITFCH1 &&
-		comp->index == DEVICE_COMP_BUILTIN_ID) {
-		dpu_comp_active_vsync(dpu_comp);
-		fastboot_enable = dpu_gfxdev_set_fastboot(comp);
-		dpu_comp_deactive_vsync(dpu_comp);
-		if (!fastboot_enable)
-			ret = dpu_gfxdev_blank(comp, FB_BLANK_UNBLANK);
+
+	if (atomic_read(&gfx_dev->ref_cnt) == 0 && comp->index == DEVICE_COMP_BUILTIN_ID) {
+		dpu_pr_info("init_panel_display_status=%u",dpu_comp->comp_mgr->init_panel_display_status);
+		if (dpu_comp->comp_mgr->init_panel_display_status == MULTI_PANEL_DISPLAY) {
+			dpu_comp_active_vsync(dpu_comp);
+			fastboot_enable = dpu_gfxdev_set_fastboot(comp);
+			dpu_comp_deactive_vsync(dpu_comp);
+			if (!fastboot_enable)
+				ret = dpu_gfxdev_blank(comp, FB_BLANK_UNBLANK);
+		}
 	}
 
 	atomic_inc(&gfx_dev->ref_cnt);
-	dpu_pr_warn("ref_cnt=%d, comp index = %u exit",
-		atomic_read(&gfx_dev->ref_cnt), comp->index);
 	return ret;
 }
 
@@ -151,7 +152,7 @@ static int32_t dpu_gfx_release(struct inode *inode, struct file *filp)
 	}
 
 	if (!atomic_sub_and_test(1, &gfx_dev->ref_cnt)) {
-		dpu_pr_info("gfx%u not need release, cnt = %u", gfx_dev->index, gfx_dev->ref_cnt);
+		dpu_pr_info("gfx%u not need release, cnt = %d", gfx_dev->index, atomic_read(&gfx_dev->ref_cnt));
 		return 0;
 	}
 
@@ -168,10 +169,55 @@ static int32_t dpu_gfx_release(struct inode *inode, struct file *filp)
 	return ret;
 }
 
+static int32_t dpu_gfx_set_display_timing(struct device_gfx *gfx_dev, uint32_t timing_index)
+{
+	struct composer *comp = gfx_dev->composer;
+
+	if (!comp->set_display_timing) {
+		dpu_pr_info("comp set display timming function is nullptr");
+		return -1;
+	}
+
+	dpu_pr_info("gfx set display timing:[%u]", timing_index);
+	return comp->set_display_timing(comp, timing_index);
+}
+
+static int32_t dpu_gfxdev_get_support_display_timing(struct device_gfx *gfx_dev, void __user *argp)
+{
+	int32_t ret = 0;
+	struct edid_timing_list timing_list = {0};
+	struct composer *comp = gfx_dev->composer;
+
+	dpu_pr_info("comp get edid display support timing start");
+	if (!comp->get_edid_display_support_timing) {
+		dpu_pr_info("comp get edid display timing function is nullptr");
+		return 0;
+	}
+
+	ret = comp->get_edid_display_support_timing(comp, &timing_list);
+	if (unlikely(ret != 0)) {
+		dpu_pr_err("%s get edid display timing fail", comp->base.name);
+		return -1;
+	}
+
+	if (timing_list.support_timing_num  == 0) {
+		dpu_pr_warn("EDID resolution number of config support is 0");
+		return 0;
+	}
+
+	if (copy_to_user(argp, &timing_list, sizeof(timing_list)) != 0) {
+		dpu_pr_err("copy EDID support timing to user fail");
+		return -1;
+	}
+
+	return 0;
+}
+
 static int32_t dpu_gfx_get_product_config(struct device_gfx *gfx_dev, void __user *argp)
 {
 	int32_t ret = 0;
 	uint32_t i = 0;
+	uint8_t fps_i;
 	struct product_config config = {0};
 	struct composer *comp = gfx_dev->composer;
 
@@ -196,32 +242,48 @@ static int32_t dpu_gfx_get_product_config(struct device_gfx *gfx_dev, void __use
 	config.scene_info = comp->base.scene_info;
 	config.opr_policy = comp->base.opr_policy;
 	config.compose_policy = comp->base.compose_policy;
-	dpu_pr_info("%s comp scene_count:%u, scene_id[0]:%u, opr_policy[%#x] compose_policy[%#x]",
-		gfx_dev->pinfo->name, comp->base.scene_info.scene_count, comp->base.scene_info.scene_id[0],
-		comp->base.opr_policy, comp->base.compose_policy);
 
-	if ((strstr(gfx_dev->pinfo->name, DEV_NAME_DP) != NULL) || (strncmp(gfx_dev->pinfo->name, DEV_NAME_HDMI, 8) == 0)) {
+	if ((strstr(gfx_dev->pinfo->name, DEV_NAME_DP) != NULL) || (strncmp(gfx_dev->pinfo->name, DEV_NAME_HDMI, 8) == 0) ||
+		(strstr(gfx_dev->pinfo->name, DEV_NAME_GFX_MIPI) != NULL)) {
 		config.width = comp->base.width;
 		config.height = comp->base.height;
 		config.dim_info_count = 1;
 		config.dim_info[0].width = (int32_t)(comp->base.xres);
 		config.dim_info[0].height = (int32_t)(comp->base.yres);
-		config.fps_info_count = 1;
-		config.fps_info[0] = comp->base.fps;
+
+		config.fps_info_count = comp->base.fps_info_count;
+		dpu_pr_info("config.fps_info_count: %u", config.fps_info_count);
+
+		if (config.fps_info_count == 1) {
+			config.fps_info[0] = comp->base.fps;
+		} else {
+			for (fps_i = 0; (fps_i < config.fps_info_count) && (fps_i < FPS_LEVEL_MAX); fps_i++) {
+				config.fps_info[fps_i] = comp->base.dfr_fps[fps_i];
+				dpu_pr_info("config.fps_info[%hhu] = %u hz", fps_i, config.fps_info[fps_i]);
+			}
+		}
+
 		config.drv_feature.bits.is_pluggable = comp->base.is_pluggable; // hotpluggable
+		config.drv_feature.bits.is_dynamic_connect = comp->base.is_dynamic_connect;
+		config.is_primary_panel = comp->base.is_primary_panel;
+		config.is_send_pqdata = comp->base.is_send_pqdata;
+		config.drv_feature.bits.is_plugin = (uint8_t)(comp->base.is_plugin);
+		config.is_split_node_recognition_enable = comp->base.is_split_node_recognition_enable;
 
 		if (comp->base.display_num != 0)
 			config.display_count = (uint16_t)comp->base.display_num;
 
-		dpu_pr_info("sub dim info count: %u, pluggable: %lu",
-			comp->base.display_num, config.drv_feature.bits.is_pluggable);
+		dpu_pr_info("sub dim info count: %u, pluggable: %lu, is_plugin: %u",
+			comp->base.display_num, config.drv_feature.bits.is_pluggable, config.drv_feature.bits.is_plugin);
 		if (comp->base.display_num > 0 && comp->base.display_num < SPLIT_SCREEN_MAX) {
 			for (i = 0; i < comp->base.display_num; i++) {
 				config.sub_dim_info[i][DIMENSION_NORMAL].height = (int32_t)comp->base.display_info[i].yres;
 				config.sub_dim_info[i][DIMENSION_NORMAL].width = (int32_t)comp->base.display_info[i].xres;
-				dpu_pr_info("sub_dim_info[%d] : width: %d, hight: %d", i,
+                config.sub_dim_info[i][DIMENSION_NORMAL].link_id = comp->base.display_info[i].link_id;
+				dpu_pr_info("sub_dim_info[%d] : width: %d, hight: %d, link_id: %d", i,
 					config.sub_dim_info[i][DIMENSION_NORMAL].width,
-					config.sub_dim_info[i][DIMENSION_NORMAL].height);
+					config.sub_dim_info[i][DIMENSION_NORMAL].height,
+                    config.sub_dim_info[i][DIMENSION_NORMAL].link_id);
 			}
 		}
 		dpu_pr_info("%s comp get xres[%d] yres[%d] fps[%d]",
@@ -232,14 +294,19 @@ static int32_t dpu_gfx_get_product_config(struct device_gfx *gfx_dev, void __use
 		config.dim_info_count = 1;
 		config.dim_info[0].width = (int32_t)(comp->base.xres);
 		config.dim_info[0].height = (int32_t)(comp->base.yres);
+		config.drv_feature.bits.is_plugin = 1;
 		if (config.fps_info_count == 0) {
 			config.fps_info[0] = comp->base.fps;
 			config.fps_info_count = 1;
 		}
 		config.drv_feature.bits.is_pluggable = 0;
-
-		dpu_pr_info("builtin comp get xres[%d] yres[%d] fps[%d]",
-			comp->base.xres, comp->base.yres, comp->base.fps);
+		config.drv_feature.bits.is_dynamic_connect = 0;
+		dpu_pr_info("builtin comp get xres[%d] yres[%d] fps[%d] enable_scene_switch[%d] is_plugin: %u",
+			comp->base.xres, comp->base.yres, comp->base.fps,
+			config.feature_switch.bits.enable_scene_switch, config.drv_feature.bits.is_plugin);
+	} else if (strncmp(gfx_dev->pinfo->name, "gfx_offline", 11) == 0) {
+		dpu_pr_info("gfx_offline set plugin");
+		config.drv_feature.bits.is_plugin = 1;
 	}
 
 	if (copy_to_user(argp, &config, sizeof(config)) != 0) {
@@ -250,6 +317,36 @@ static int32_t dpu_gfx_get_product_config(struct device_gfx *gfx_dev, void __use
 	return 0;
 }
 
+static int32_t dpu_gfx_get_link_info(struct device_gfx *gfx_dev, void __user *argp)
+{
+	struct dpu_dp_hdmi_link_info link_info;
+	int32_t ret = 0;
+	struct composer *comp = gfx_dev->composer;
+	dpu_pr_info("dpu_gfx_get_link_info enter");
+	dpu_check_and_return(unlikely(!argp), -EINVAL, err, "argp is null pointer");
+	dpu_check_and_return(unlikely(!comp), -EINVAL, err, "comp is null");
+	dpu_check_and_return(unlikely(!comp->get_link_info), -EINVAL, warn, "comp get link info function is null");
+
+	if (copy_from_user((void *)&link_info, (void *)argp, sizeof(struct dpu_dp_hdmi_link_info)) != 0) {
+		dpu_pr_err(" get link info copy_from_user fail");
+		return -1;
+	}
+	dpu_check_and_return(unlikely(!link_info.edid), -EINVAL, err, "edid addr is null");
+
+	ret = comp->get_link_info(comp, &link_info);
+	if (unlikely(ret != 0)) {
+		dpu_pr_err("%s get link info fail", comp->base.name);
+		return -1;
+	}
+
+	ret = (int32_t)copy_to_user(argp, &link_info, sizeof(struct dpu_dp_hdmi_link_info));
+	if (ret) {
+		dpu_pr_err("dpu_gfx_get_link_info copy_to_user failed ret=%d.\n", ret);
+		return -1;
+	}
+	dpu_pr_info("dpu_gfx_get_link_info exit.link info edid_len is %u", link_info.edid_len);
+	return 0;
+}
 static int dpu_gfx_get_hdr_mean(struct device_gfx *gfx_dev, void __user *argp)
 {
 	int32_t ret = -1;
@@ -314,6 +411,40 @@ static int dpu_gfx_get_alsc_info(struct device_gfx *gfx_dev, void __user *argp)
 	return 0;
 }
 
+static int dpu_gfx_get_tui_level1_layer_info(struct device_gfx *gfx_dev, void __user *argp)
+{
+	int32_t ret = -1;
+	struct tui_level1_layer_info info;
+	struct composer *comp = gfx_dev->composer;
+	dpu_check_and_return(unlikely(!argp), -EINVAL, err, "argp is null pointer");
+	dpu_check_and_return(unlikely(!comp), -EINVAL, info, "comp is null");
+
+	if (!comp->power_on) {
+		dpu_pr_info("comp is poweroff! quit get layer info now");
+		return -1;
+	}
+
+	if (!comp->get_tui_level1_layer_info) {
+		dpu_pr_info("the comp %s get_tui_level1_layer_info failed", comp->base.name);
+		return 0;
+	}
+
+	dpu_pr_info("++");
+	ret = comp->get_tui_level1_layer_info(comp, &info);
+	if (unlikely(ret != 0)) {
+		dpu_pr_err("%s get tui level1 layer info fail", comp->base.name);
+		return -1;
+	}
+
+	ret = (int32_t)copy_to_user(argp, &info, sizeof(struct tui_level1_layer_info));
+	if (ret) {
+		dpu_pr_err("copy_to_user failed ret=%d.\n", ret);
+		return -1;
+	}
+
+	return 0;
+}
+
 static int32_t dpu_gfx_get_vscreen_info(struct device_gfx *gfx_dev, void __user *argp)
 {
 	struct fix_var_screeninfo *screen_info = get_fix_var_screeninfo();
@@ -323,7 +454,8 @@ static int32_t dpu_gfx_get_vscreen_info(struct device_gfx *gfx_dev, void __user 
 	if (unlikely(!argp || !comp || !screen_info || !pinfo))
 		return -EINVAL;
 
-	gfxdev_init_fbi_var_info(pinfo, &screen_info[GFXDEV_FORMAT_BGRA8888], &gfx_dev->gfx_var);
+	if (is_dp_panel(&comp->base) && (!gfx_dev->gfx_mem_acquired))
+		gfxdev_init_fbi_var_info(pinfo, &screen_info[GFXDEV_FORMAT_BGRA8888], &gfx_dev->gfx_var);
 
 	if (copy_to_user(argp, &gfx_dev->gfx_var, sizeof(gfx_dev->gfx_var)) != 0) {
 		dpu_pr_err("copy to user failed!");
@@ -349,17 +481,14 @@ static int32_t dpu_gfx_get_fscreen_info(struct device_gfx *gfx_dev, void __user 
 {
 	struct fix_var_screeninfo *screen_info = get_fix_var_screeninfo();
 	struct composer *comp = gfx_dev->composer;
-	int32_t ret;
 
 	if (unlikely(!argp || !comp || !screen_info))
 		return -EINVAL;
 
-	ret = gfxdev_init_fscreen_info(comp, &screen_info[GFXDEV_FORMAT_BGRA8888], &gfx_dev->gfx_fix);
-	if (ret != 0) {
-		dpu_pr_err("init fscreen info err");
-		return -1;
-	}
+	if (is_dp_panel(&comp->base) && (!gfx_dev->gfx_mem_acquired))
+		gfxdev_init_fbi_fix_info(comp, &screen_info[GFXDEV_FORMAT_BGRA8888], &gfx_dev->gfx_fix);
 
+	dpu_res_register_screen_info(comp->base.xres, comp->base.yres);
 	dpu_pr_info("get screen xres = %u, yres = %u", comp->base.xres, comp->base.yres);
 	if (copy_to_user(argp, &gfx_dev->gfx_fix, sizeof(gfx_dev->gfx_fix)) != 0) {
 		dpu_pr_err("copy to user failed!");
@@ -400,6 +529,19 @@ static int32_t dpu_gfx_hiace_get_hist(struct composer *comp, void __user *argp)
 	return comp->effect_hiace_get_hist(comp, argp);
 }
 
+static int32_t dpu_gfx_get_hdr_statistic(struct composer *comp, void __user *argp)
+{
+	dpu_check_and_return(unlikely(!comp), -EINVAL, err, "comp is null pointer");
+	dpu_check_and_return(unlikely(!argp), -EINVAL, err, "argp is null pointer");
+
+	if (!comp->get_hdr_statistic) {
+		dpu_pr_info("comp gfx hdr get gtm hist function is nullptr");
+		return -1;
+	}
+
+	return comp->get_hdr_statistic(comp, argp);
+}
+
 static int32_t dpu_gfx_hiace_set_lut(struct composer *comp, void __user *argp)
 {
 	dpu_check_and_return(unlikely(!comp), -EINVAL, err, "comp is null pointer");
@@ -425,29 +567,53 @@ static int32_t dpu_gfx_wake_up_hiace_hist(struct composer *comp)
 	return comp->effect_wake_up_hiace_hist(comp);
 }
 
-static int32_t dpu_gfx_hdcp_increase_counter(struct composer *comp)
+static int32_t dpu_gfx_rgb_hist_get_hist(struct composer *comp, void __user *argp)
 {
 	dpu_check_and_return(unlikely(!comp), -EINVAL, err, "comp is null pointer");
+	dpu_check_and_return(unlikely(!argp), -EINVAL, err, "argp is null pointer");
 
-	if (!comp->hdcp_increase_counter) {
-		dpu_pr_info("comp hdcp increase counter function is nullptr");
+	if (!comp->effect_rgb_hist_get_hist) {
+		dpu_pr_info("comp gfx rgb get hist function is nullptr");
 		return -1;
 	}
 
-	return comp->hdcp_increase_counter(comp);
+	return comp->effect_rgb_hist_get_hist(comp, argp);
 }
 
-static int32_t dpu_gfx_hdcp_decrease_counter(struct composer *comp)
+static int32_t dpu_gfx_wake_up_rgb_hist(struct composer *comp)
 {
 	dpu_check_and_return(unlikely(!comp), -EINVAL, err, "comp is null pointer");
 
-	if (!comp->hdcp_decrease_counter) {
-		dpu_pr_info("comp hdcp decrease counter function is nullptr");
+	if (!comp->effect_wake_up_rgb_hist) {
+		dpu_pr_info("comp wake up rgb hist function is nullptr");
 		return -1;
 	}
 
-	return comp->hdcp_decrease_counter(comp);
+	return comp->effect_wake_up_rgb_hist(comp);
 }
+
+#ifdef CONFIG_DKMD_DEBUG_ENABLE
+static int dpu_gfx_get_online_crc(struct composer *comp, void __user *argp)
+{
+	int32_t ret = -1;
+	uint32_t crc_value = 0;
+	dpu_check_and_return(unlikely(!argp), -EINVAL, err, "argp is null pointer");
+	if (!comp) {
+		dpu_pr_err("comp is nullptr");
+		return -1;
+	}
+
+	if (comp->get_online_crc)
+		comp->get_online_crc(comp, &crc_value);
+	
+	ret = (int32_t)copy_to_user(argp, &crc_value, sizeof(uint32_t));
+	if (ret) {
+		dpu_pr_err("copy_to_user failed ret=%d.\n", ret);
+		return -1;
+	}
+	return 0;
+}
+#endif
 
 static long dpu_gfx_ioctl(struct file *filp, uint32_t cmd, unsigned long arg)
 {
@@ -475,11 +641,17 @@ static long dpu_gfx_ioctl(struct file *filp, uint32_t cmd, unsigned long arg)
 	case DISP_RELEASE_FENCE:
 		ret = dpu_gfxdev_release_fence(gfx_dev->composer, argp);
 		break;
+	case DISP_NOTIFY_ABNORMAL_HANDLE:
+		ret = dpu_gfxdev_notify_abnormal_handle(gfx_dev->composer);
+		break;
 	case DISP_GET_PRODUCT_CONFIG:
 		ret = dpu_gfx_get_product_config(gfx_dev, argp);
 		break;
 	case DISP_GET_HDR_MEAN:
 		ret = dpu_gfx_get_hdr_mean(gfx_dev, argp);
+		break;
+	case DISP_GET_HDR_STATISTIC:
+		ret = dpu_gfx_get_hdr_statistic(gfx_dev->composer, argp);
 		break;
 	case DISP_GFX_GET_VAR_INFO:
 		mutex_lock(&gfx_dev->lock);
@@ -492,7 +664,9 @@ static long dpu_gfx_ioctl(struct file *filp, uint32_t cmd, unsigned long arg)
 		mutex_unlock(&gfx_dev->lock);
 		break;
 	case DISP_GFX_GET_FIX_INFO:
+		mutex_lock(&gfx_dev->lock);
 		ret = dpu_gfx_get_fscreen_info(gfx_dev, argp);
+		mutex_unlock(&gfx_dev->lock);
 		break;
 	case DISP_GFX_PAN_DISPLAY:
 		mutex_lock(&gfx_dev->lock);
@@ -501,6 +675,9 @@ static long dpu_gfx_ioctl(struct file *filp, uint32_t cmd, unsigned long arg)
 		break;
 	case DISP_GET_ALSC_INFO:
 		ret = dpu_gfx_get_alsc_info(gfx_dev, argp);
+		break;
+	case DISP_GET_TUI_LEVEL1_INFO:
+		ret = dpu_gfx_get_tui_level1_layer_info(gfx_dev, argp);
 		break;
 	case DISP_GET_HIACE_HIST:
 		ret = dpu_gfx_hiace_get_hist(gfx_dev->composer, argp);
@@ -514,14 +691,49 @@ static long dpu_gfx_ioctl(struct file *filp, uint32_t cmd, unsigned long arg)
 	case DISP_SAFE_FRM_RATE:
 		ret = dpu_gfxdev_set_safe_frm_rate(gfx_dev->composer, argp);
 		break;
-	case DISP_HDCP_IN:
-		ret = dpu_gfx_hdcp_increase_counter(gfx_dev->composer);
-		break;
-	case DISP_HDCP_OUT:
-		ret = dpu_gfx_hdcp_decrease_counter(gfx_dev->composer);
-		break;
 	case DISP_SET_ACTIVE_RECT:
 		ret = dpu_gfxdev_set_active_rect(gfx_dev->composer, argp);
+		break;
+	case DISP_SET_DISPLAY_ACTIVE_REGION:
+		ret = dpu_gfxdev_set_display_active_region(gfx_dev->composer, argp);
+		break;
+	case DISP_DEVICE_IOBLANK:
+		ret = dpu_gfxdev_blank(gfx_dev->composer, (int32_t)arg);
+		break;
+	case DISP_GET_DP_HDMI_LINK_INFO:
+		ret = dpu_gfx_get_link_info(gfx_dev, argp);
+		break;
+	case DISP_GET_PRODUCT_EXT_CONFIG:
+		ret = dpu_gfxdev_get_product_ext_config(gfx_dev->composer, argp);
+		break;
+	case DISP_GET_SUPPORT_DISPLAY_TIMING:
+		ret = dpu_gfxdev_get_support_display_timing(gfx_dev, argp);
+		break;
+	case DISP_SET_DISPLAY_TIMING:
+		ret = dpu_gfx_set_display_timing(gfx_dev, (uint32_t)arg);
+		break;
+	case DISP_DMD_REPORT:
+		ret = dpu_gfxdev_dmd_report(gfx_dev->composer, argp);
+		break;
+	case DISP_UPDATE_HARDWARE_CURSOR:
+		ret = dpu_gfxdev_update_hardware_cursor(gfx_dev->composer, argp);
+		break;
+	case DISP_TUNNEL_PRESENT:
+		ret = dpu_gfxdev_tunnel_present(gfx_dev->composer, argp);
+		break;
+	case DISP_CONNECT:
+		ret = dpu_gfxdev_connect(gfx_dev->composer, (int32_t)arg);
+		break;
+#ifdef CONFIG_DKMD_DEBUG_ENABLE
+	case DISP_GET_ONLINE_CRC:
+		ret = dpu_gfx_get_online_crc(gfx_dev->composer, argp);
+		break;
+#endif
+	case DISP_GET_RGB_HIST:
+		ret = dpu_gfx_rgb_hist_get_hist(gfx_dev->composer, argp);
+		break;
+	case DISP_WAKE_UP_RGB_HIST:
+		ret = dpu_gfx_wake_up_rgb_hist(gfx_dev->composer);
 		break;
 	default:
 		dpu_pr_info("unsupported cmd=%#x", cmd);
@@ -552,8 +764,9 @@ struct composer *get_comp_from_gfx_device(struct device *dev)
 int32_t gfx_device_register(struct composer *comp)
 {
 	struct device_gfx *gfx = NULL;
-	struct dkmd_attr *comp_attr = NULL;
+	struct ukmd_attr *comp_attr = NULL;
 	struct dkmd_object_info *pinfo = &comp->base;
+	struct fix_var_screeninfo *screen_info = get_fix_var_screeninfo();
 
 	if (g_gfx_devno_info_index >= DEVICE_COMP_MAX_COUNT) {
 		dpu_pr_err("g_gfx_devno_info_index=%u exceed max %d", g_gfx_devno_info_index, DEVICE_COMP_MAX_COUNT);
@@ -570,25 +783,29 @@ int32_t gfx_device_register(struct composer *comp)
 	gfx->index = comp->index;
 	gfx->composer = comp;
 	gfx->pinfo = pinfo;
+	gfx->screen_base = NULL;
 
 	/* init chrdev info */
 	gfx->chrdev.name = pinfo->name;
 	gfx->chrdev.fops = &dpu_gfx_fops;
 	gfx->chrdev.drv_data = gfx;
-	if (unlikely(dkmd_create_chrdev(&gfx->chrdev) != 0)) {
+	if (unlikely(ukmd_create_chrdev(&gfx->chrdev) != 0)) {
 		dpu_pr_err("create chr device failed");
 		kfree(gfx);
 		gfx = NULL;
 		return -EINVAL;
 	}
 
+	gfxdev_init_fbi_fix_info(comp, &screen_info[GFXDEV_FORMAT_BGRA8888], &gfx->gfx_fix);
+	gfxdev_init_fbi_var_info(pinfo, &screen_info[GFXDEV_FORMAT_BGRA8888], &gfx->gfx_var);
+
 	if (comp->get_sysfs_attrs) {
 		comp->get_sysfs_attrs(comp, &comp_attr);
 		if (comp_attr) {
 #ifdef CONFIG_DKMD_DEBUG_ENABLE
-			dkmd_sysfs_attrs_append(comp_attr, &dev_attr_gfx_debug.attr);
+			ukmd_sysfs_attrs_append(comp_attr, &dev_attr_gfx_debug.attr);
 #endif
-			dkmd_sysfs_create(gfx->chrdev.chr_dev, comp_attr);
+			ukmd_sysfs_create(gfx->chrdev.chr_dev, comp_attr);
 		}
 	}
 
@@ -603,7 +820,7 @@ int32_t gfx_device_register(struct composer *comp)
 void gfx_device_unregister(struct composer *comp)
 {
 	struct device_gfx *gfx = NULL;
-	struct dkmd_attr *comp_attr = NULL;
+	struct ukmd_attr *comp_attr = NULL;
 
 	dpu_pr_err("in gfx_device_unregister");
 	if (unlikely(!comp))
@@ -616,12 +833,30 @@ void gfx_device_unregister(struct composer *comp)
 	if (comp->get_sysfs_attrs) {
 		comp->get_sysfs_attrs(comp, &comp_attr);
 		if (comp_attr)
-			dkmd_sysfs_remove(gfx->chrdev.chr_dev, comp_attr);
+			ukmd_sysfs_remove(gfx->chrdev.chr_dev, comp_attr);
 	}
 	dpu_free_gfx_buffer(comp);
-	dkmd_destroy_chrdev(&gfx->chrdev);
+	ukmd_destroy_chrdev(&gfx->chrdev);
 
 	kfree(gfx);
 	gfx = NULL;
 	comp->device_data = NULL;
+}
+
+void gfx_device_shutdown(struct composer *comp)
+{
+	struct device_gfx *gfx = NULL;
+
+	if (!comp) {
+		dpu_pr_err("comp is null!");
+		return;
+	}
+
+	gfx = (struct device_gfx *)comp->device_data;
+	if (!gfx) {
+		dpu_pr_err("gfx is null!");
+		return;
+	}
+
+	dpu_gfxdev_blank(gfx->composer, DISP_BLANK_POWERDOWN);
 }

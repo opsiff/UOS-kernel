@@ -19,16 +19,26 @@ enum DVFS_VOTE_MODE {
 	DVFS_SW_CHN_MODE,
 };
 
-#define DVFS_IDLE_LEVEL 1
-
 void dpu_enable_core_clock(bool is_power_on);
-void dpu_disable_core_clock(void);
+void dpu_disable_core_clock(bool is_power_off);
+void dpu_enable_vivo_clock(bool is_power_on);
+void dpu_disable_vivo_clock(void);
 bool is_dpu_dvfs_enable(void);
 void dpu_qos_qic_media1_config(uint32_t level);
+void dpu_dvfs_ctrl(char __iomem *dpu_base);
 void dpu_dvfs_inter_process(uint32_t vote_level, bool is_inter_invoke);
-void dpu_dvfs_intra_process(struct intra_frame_dvfs_info *dvfs_info, bool inter_locked);
+void dpu_dvfs_intra_process(struct intra_frame_dvfs_info *dvfs_info, uint32_t vote_level, bool inter_locked, bool is_support_doze1);
 void dpu_legacy_inter_frame_dvfs_vote(uint32_t vote_level, bool need_config_qos);
+void dpu_legacy_inter_frame_vivo_vote(uint32_t vote_level, bool need_config_qos);
 void dpu_dvfs_direct_process(uint32_t vote_level, bool need_config_qos);
+void dpu_legacy_direct_process_power_on(uint32_t vote_level, bool need_config_qos);
+void dpu_legacy_direct_process_power_off(uint32_t vote_level, bool need_config_qos);
+uint64_t dpu_dvfs_freq_add_offline_axi(uint64_t freq);
 uint32_t dpu_config_get_perf_level(uint64_t freq);
+uint64_t dpu_config_get_core_rate(uint32_t level);
+uint64_t dpu_config_get_vivo_rate(uint32_t level);
+uint32_t dpu_get_record_level(void);
+void dpu_dvfs_notify_dacc_doze1_flag(bool is_support_doze1);
+uint32_t dpu_vivobus_get_level_from_bandwidth(uint64_t bandwidth);
 
 #endif /* DPU_DVFS_H */

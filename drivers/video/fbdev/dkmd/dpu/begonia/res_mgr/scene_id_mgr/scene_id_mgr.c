@@ -15,6 +15,7 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
+#include <securec.h>
 #include "res_mgr.h"
 #include "dkmd_log.h"
 
@@ -51,6 +52,57 @@ static void free_scene_id_list(struct list_head *scene_id_list)
 	}
 }
 
+static bool find_tgid(struct scene_id_node *node, int32_t tgid, int32_t *index)
+{
+	uint32_t i;
+
+	if (node->tgid_cnt == 0) {
+		*index = 0;
+		return false;
+	}
+
+	for (i = 0; i < SCENE_ID_USER_TGID_MAX; i++) {
+		if (node->user_tgid[i] == tgid) {
+			*index = i;
+			return true;
+		}
+
+		// empty index
+		if (node->user_tgid[i] == 0)
+			*index = i;
+	}
+	return false;
+}
+
+static void insert_tgid(struct scene_id_node *node, int32_t tgid)
+{
+	int32_t index = SCENE_ID_USER_TGID_MAX;
+
+	if (!find_tgid(node, tgid, &index)) {
+		if (index >= SCENE_ID_USER_TGID_MAX || index < 0) {
+			dpu_pr_err("insert tgid index is overflow %d", index);
+			return;
+		}
+
+		node->user_tgid[index] = tgid;
+		++node->tgid_cnt;
+		dpu_pr_debug("insert tgid %d at index %d", tgid, index);
+	}
+}
+
+static bool remove_tgid(struct scene_id_node *node, int32_t tgid)
+{
+	int32_t index = SCENE_ID_USER_TGID_MAX;
+
+	if (find_tgid(node, tgid, &index)) {
+		node->user_tgid[index] = 0;
+		--node->tgid_cnt;
+		dpu_pr_debug("remove tgid %d at index %d", tgid, index);
+		return true;
+	}
+	return false;
+}
+
 static void reset_scene_id_list(struct list_head *scene_id_list)
 {
 	struct scene_id_node *scene_id_node = NULL;
@@ -81,6 +133,9 @@ static struct scene_id_node* init_scene_id_node(uint32_t scene_id, int32_t scene
 	node->id_info.user.user_type = SCENE_USER_NONE;
 	node->id_info.user.scene_type = scene_type;
 	node->id_info.scene_id = (int32_t)scene_id;
+	node->tgid_cnt = 0;
+	node->req_cnt = 0;
+	memset_s(&node->user_tgid, SCENE_ID_USER_TGID_MAX * sizeof(int32_t), 0, SCENE_ID_USER_TGID_MAX * sizeof(int32_t));
 	return node;
 }
 
@@ -89,6 +144,8 @@ static int scene_id_mgr_request_scene_id(struct dpu_scene_id_mgr *scene_id_mgr, 
 	struct scene_id_info id_info = {0};
 	struct scene_id_node *scene_id_node = NULL;
 	struct scene_id_user *user = NULL;
+	bool sameUser = true;
+	dpu_pr_info("mdc request");
 
 	if (copy_from_user(&id_info, argp, sizeof(id_info)) != 0) {
 		dpu_pr_err("copy from user fail");
@@ -110,22 +167,36 @@ static int scene_id_mgr_request_scene_id(struct dpu_scene_id_mgr *scene_id_mgr, 
 		return -1;
 	}
 
+	// 1, effect(HDR2SDR) and mdc(camera) user can use the offline scene_id at sametime
+	// 2, HDM(display) can't be in conflict with effect and mdc
 	user = &scene_id_node->id_info.user;
 	if ((user->user_type != SCENE_USER_NONE) && (user->user_type != id_info.user.user_type)) {
 		dpu_pr_debug("scene_id = %d (user=%d, scene_type=%d) is mismatch with reqeust (user=%d, scene_type=%d)",
 				     scene_id_node->id_info.scene_id, user->user_type, user->scene_type,
 					 id_info.user.user_type, id_info.user.scene_type);
-		id_info.result = -1;
+		if ((user->user_type == SCENE_USER_HDM) || (id_info.user.user_type == SCENE_USER_HDM)) {
+			dpu_pr_debug("user type %d, request user type %d", user->user_type, id_info.user.user_type);
+			sameUser = false;
+			id_info.result = -1;
+		}
 
 		if ((user->user_type == SCENE_USER_HDM) && (id_info.user.user_type == SCENE_USER_MDC)) {
 			dpu_res_send_uevent(RES_EVENT_TURN_TO_CLIENT);
 			scene_id_mgr->has_turn_to_client = true;
-			dpu_pr_info("mdc find scene id %d fail, need turn to client", id_info.scene_id);
+			++scene_id_node->req_cnt;
+			if (scene_id_node->req_cnt > SCENE_ID_REQUEST_TIMES_MAX) {
+				dpu_pr_err("mdc find scene id %d continue fail", id_info.scene_id);
+			} else {
+				dpu_pr_info("mdc find scene id %d fail, need turn to client", id_info.scene_id);
+			}
 		}
-	} else {
+	}
+
+	if (sameUser) {
 		// Notice: offline currently is serial processed(blocked by offline lock), we can return
 		// success when two processes of SCENE_USER_MDC request same scene id
 		user->user_type = id_info.user.user_type;
+		insert_tgid(scene_id_node, current->tgid);
 		id_info.result = 0;
 		atomic_inc(&scene_id_node->ref_cnt);
 	}
@@ -140,9 +211,10 @@ static int scene_id_mgr_request_scene_id(struct dpu_scene_id_mgr *scene_id_mgr, 
 		scene_id_mgr->has_turn_to_client) {
 		dpu_res_send_uevent(RES_EVENT_TURN_TO_DEVICE);
 		scene_id_mgr->has_turn_to_client = false;
+		scene_id_node->req_cnt = 0;
 		dpu_pr_info("mdc request scene id %d succ, need turn to device", id_info.scene_id);
 	}
-
+	dpu_pr_debug("user->user_type = %d ref_cnt = %d", user->user_type, atomic_read(&scene_id_node->ref_cnt));
 	up(&scene_id_mgr->sem);
 	return 0;
 }
@@ -152,6 +224,7 @@ static int scene_id_mgr_release_scene_id(struct dpu_scene_id_mgr *scene_id_mgr, 
 	struct scene_id_info id_info;
 	struct scene_id_node *scene_id_node = NULL;
 	struct scene_id_user *user = NULL;
+	dpu_pr_info("mdc release");
 
 	if (copy_from_user(&id_info, argp, sizeof(id_info)) != 0) {
 		dpu_pr_err("copy from user fail");
@@ -173,7 +246,13 @@ static int scene_id_mgr_release_scene_id(struct dpu_scene_id_mgr *scene_id_mgr, 
 		return -1;
 	}
 
-	if (user->user_type == id_info.user.user_type) {
+	// user effect(hdr2sdr) and user mdc(camera) can use the scene_id at sametime,
+	// so can release the scene_id.
+	dpu_pr_debug("user type %d, Release user type %d, ref_cnt = %d",
+				 user->user_type, id_info.user.user_type, atomic_read(&scene_id_node->ref_cnt));
+	if ((user->user_type == id_info.user.user_type) ||
+	    ((user->user_type != SCENE_USER_HDM) && (id_info.user.user_type != SCENE_USER_HDM))) {
+		remove_tgid(scene_id_node, current->tgid);
 		if (atomic_dec_and_test(&scene_id_node->ref_cnt)) {
 			dpu_pr_debug("user %d release scene_id %d succ", user->user_type, id_info.scene_id);
 			user->user_type = SCENE_USER_NONE;
@@ -261,6 +340,36 @@ static void scene_id_mgr_reset(void *data)
 	up(&scene_id_mgr->sem);
 }
 
+static void scene_id_mgr_release(void *data)
+{
+	struct dpu_scene_id_mgr *scene_id_mgr = (struct dpu_scene_id_mgr *)data;
+	struct scene_id_node *scene_id_node = NULL;
+	struct scene_id_node *_node_ = NULL;
+	struct scene_id_info *id_info = NULL;
+
+	if (!scene_id_mgr)
+		return;
+
+	down(&scene_id_mgr->sem);
+	list_for_each_entry_safe(scene_id_node, _node_, &scene_id_mgr->scene_id_list, list_node) {
+		if (!scene_id_node)
+			continue;
+
+		if (!remove_tgid(scene_id_node, current->tgid)) {
+			dpu_pr_info("remove tgid fail");
+			continue;
+		}
+
+		id_info = &scene_id_node->id_info;
+		if (atomic_dec_and_test(&scene_id_node->ref_cnt)) {
+			dpu_pr_info("user %d release scene_id %d succ", id_info->user.user_type, id_info->scene_id);
+			id_info->user.user_type = SCENE_USER_NONE;
+		}
+	}
+
+	up(&scene_id_mgr->sem);
+}
+
 void dpu_res_register_scene_id_mgr(struct list_head *resource_head)
 {
 	struct dpu_res_resouce_node *scene_mgr_node = kzalloc(sizeof(struct dpu_res_resouce_node), GFP_KERNEL);
@@ -274,6 +383,7 @@ void dpu_res_register_scene_id_mgr(struct list_head *resource_head)
 	scene_mgr_node->deinit = scene_id_mgr_deinit;
 	scene_mgr_node->reset = scene_id_mgr_reset;
 	scene_mgr_node->ioctl = scene_id_mgr_ioctl;
+	scene_mgr_node->release = scene_id_mgr_release;
 
 	list_add_tail(&scene_mgr_node->list_node, resource_head);
 	dpu_pr_info("dpu_res_register_opr_mgr success!");

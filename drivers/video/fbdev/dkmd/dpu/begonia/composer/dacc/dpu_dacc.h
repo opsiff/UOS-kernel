@@ -16,7 +16,7 @@
 
 #include <linux/types.h>
 
-void dpu_dacc_load(void);
+void dpu_dacc_load(char __iomem *dpu_base);
 void dpu_dacc_config_scene(char __iomem *dpu_base, uint32_t scene_id, bool enable_cmdlist);
 uint32_t dpu_dacc_handle_clear(char __iomem *dpu_base, uint32_t scene_id);
 

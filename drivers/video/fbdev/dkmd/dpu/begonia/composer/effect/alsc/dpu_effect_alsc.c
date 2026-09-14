@@ -110,7 +110,6 @@ void dpu_effect_update_alsc_coord(struct dpu_alsc *alsc)
 	struct dpu_composer *dpu_comp = NULL;
 	struct composer *comp = NULL;
 	struct dkmd_rect_coord *record_coord = NULL;
-	struct dpu_ppc_config_id_rect_info ppc_rect_info[PPC_CONFIG_ID_CNT] = {0};
 
 	dpu_check_and_no_retval(!alsc, err, "alsc is null!");
 
@@ -130,11 +129,7 @@ void dpu_effect_update_alsc_coord(struct dpu_alsc *alsc)
 
 	pinfo = dpu_comp->conn_info;
 	dpu_check_and_no_retval(!pinfo, err, "pinfo is null!");
-	dpu_check_and_no_retval(!pinfo->get_panel_ppc_config_id_rect_info,
-		err, "get_panel_ppc_config_id_rect_info is null!");
-
-	pinfo->get_panel_ppc_config_id_rect_info(pinfo, ppc_rect_info);
-	record_coord = &ppc_rect_info[pinfo->ppc_config_id_record].rect;
+	record_coord = &pinfo->ppc_rect_info[pinfo->ppc_config_id_record].rect;
 
 	x = (uint32_t)(alsc->alsc_phy_rect.x);
 	y = (uint32_t)(alsc->alsc_phy_rect.y);
@@ -335,6 +330,9 @@ static void dpu_alsc_send_data_work_func(struct work_struct *work)
 	struct dpu_alsc *alsc = container_of(work, struct dpu_alsc, alsc_send_data_work);
 	struct dpu_alsc_data *node = NULL;
 	struct alsc_noise data_to_send;
+	ktime_t kt1;
+	ktime_t kt2;
+	ktime_t kt3;
 
 	if (!alsc) {
 		dpu_pr_err("[ALSC]alsc is NULL\n");
@@ -342,6 +340,7 @@ static void dpu_alsc_send_data_work_func(struct work_struct *work)
 	}
 
 	mutex_lock(&(alsc->alsc_lock));
+	kt1 = ktime_get();
 	node = alsc->data_tail;
 	if (!node) {
 		dpu_pr_err("[ALSC]ALSC data node is NULL\n");
@@ -359,9 +358,17 @@ static void dpu_alsc_send_data_work_func(struct work_struct *work)
 	/* data tail node move */
 	alsc->data_tail = alsc->data_tail->next;
 	mutex_unlock(&(alsc->alsc_lock));
-
+	kt2 = ktime_get();
 	if (alsc->cb_func.send_data_func)
 		alsc->cb_func.send_data_func(&data_to_send, alsc->panel_id);
+	kt3 = ktime_get();
+
+	// most time less 1 us, if more than 10 us, print warning
+	if (((uint64_t)ktime_to_us(kt2) - (uint64_t)ktime_to_us(kt1)) > ALSC_LOCK_TIMEOUT)
+		dpu_pr_warn("[ALSC] dss_lock time more 10us:%llu us\n", ((uint64_t)ktime_to_us(kt2) - (uint64_t)ktime_to_us(kt1)));
+	// most time less 0.5 ms, if more than 1 ms, print warning
+	if (((uint64_t)ktime_to_us(kt3) - (uint64_t)ktime_to_us(kt2)) > ALSC_DATA_SEND_TIMEOUT)
+		dpu_pr_warn("[ALSC] data send time more 1ms:%llu us\n", ((uint64_t)ktime_to_us(kt3) - (uint64_t)ktime_to_us(kt2)));
 }
 
 static void alsc_bl_param_set_reg(const struct dpu_alsc *alsc)
@@ -500,7 +507,7 @@ static void update_alsc_with_dirty_region(struct dpu_alsc *alsc, const struct dk
 	}
 
 	dpu_pr_debug("[ALSC]ALSC dirty limit en=%u, addr=0x%x, size=0x%x,"
-		" dirty region[%u %u %u %u]\n",
+		" dirty region[%d %d %u %u]\n",
 		alsc->alsc_en_by_dirty_region_limit, alsc->dkmd_alsc.addr, alsc->dkmd_alsc.size,
 		dirty_rect->x, dirty_rect->y, dirty_rect->w, dirty_rect->h);
 }
@@ -540,6 +547,11 @@ static int32_t alsc_set_reg(struct dpu_alsc *alsc, const void *data)
 	alsc_param_debug_print(alsc);
 
 	alsc->action = ALSC_NO_ACTION;
+
+	/* Ensure that the flag for reporting HAL is cleared
+	 * only after ALSC takes effect once and the parameters are updated
+	 */
+	alsc->bl_update_to_hwc = 0;
 
 	return 0;
 }
@@ -785,8 +797,6 @@ int32_t dpu_effect_get_alsc_info(struct composer *comp, struct alsc_info *info)
 	dpu_pr_debug("[ALSC]en addr size bl_update=[%u %u %u %u]\n",
 		info->alsc_en, info->alsc_addr, info->alsc_size, info->bl_update);
 
-	dpu_comp->alsc->bl_update_to_hwc = 0;
-
 	return 0;
 }
 
@@ -904,3 +914,10 @@ int32_t dkmd_alsc_register_cb_func(void (*func)(struct alsc_noise*, uint32_t),
 
 	return 0;
 }
+
+#ifdef CONFIG_DKMD_DEBUG_ENABLE
+EXPORT_SYMBOL(dkmd_alsc_register_cb_func);
+EXPORT_SYMBOL(dkmd_alsc_update_degamma_coef);
+EXPORT_SYMBOL(dkmd_alsc_update_bl_param);
+EXPORT_SYMBOL(dkmd_alsc_param_init);
+#endif

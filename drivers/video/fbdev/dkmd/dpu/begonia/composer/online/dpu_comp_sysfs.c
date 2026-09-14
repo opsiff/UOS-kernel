@@ -59,7 +59,7 @@ static ssize_t check_lcd_status_show(struct device *dev, struct device_attribute
 
 static DEVICE_ATTR(check_lcd_status, 0440, check_lcd_status_show, NULL);
 
-void dpu_comp_add_attrs(struct dkmd_attr *attrs)
+void dpu_comp_add_attrs(struct ukmd_attr *attrs)
 {
-	dkmd_sysfs_attrs_append(attrs, &dev_attr_check_lcd_status.attr);
+	ukmd_sysfs_attrs_append(attrs, &dev_attr_check_lcd_status.attr);
 }

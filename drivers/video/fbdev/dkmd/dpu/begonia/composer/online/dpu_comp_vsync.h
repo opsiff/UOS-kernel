@@ -20,12 +20,11 @@
 #include <linux/notifier.h>
 #include <linux/kthread.h>
 
-#include "chrdev/dkmd_sysfs.h"
+#include "chrdev/ukmd_sysfs.h"
 
 #define VSYNC_IDLE_EXPIRE_COUNT 4
-#define VSYNC_MAX_TIME_OFFSET 1500
 #define VSYNC_MAX_ERROR_TIMES 7
-
+#define RESET_TE_ISR_TIMES 3
 struct dpu_vsync {
 	wait_queue_head_t wait;
 	ktime_t timestamp;
@@ -44,6 +43,9 @@ struct dpu_vsync {
 
 	struct dpu_composer *dpu_comp;
 	int32_t vsync_not_match_times;
+	uint32_t report_idle_event_flag;
+	int32_t vsync_not_match_times_dmd;
+	bool vsync_is_correct;
 };
 
 static inline bool dpu_vsync_is_enabled(struct dpu_vsync *vsync_ctrl)
@@ -77,9 +79,10 @@ static inline void dpu_vsync_disable_routine(struct dpu_vsync *vsync_ctrl)
 	vsync_ctrl->routine_enabled = false;
 }
 
-void dpu_vsync_init(struct dpu_vsync *vsync_ctrl, struct dkmd_attr *attrs);
+void dpu_vsync_init(struct dpu_vsync *vsync_ctrl, struct ukmd_attr *attrs);
 
 void dpu_comp_active_vsync(struct dpu_composer *dpu_comp);
 void dpu_comp_deactive_vsync(struct dpu_composer *dpu_comp);
+uint32_t get_enter_idle_level(void);
 
 #endif

@@ -137,7 +137,7 @@ static int32_t _request_opr(struct list_head *opr_list, struct res_opr_info *req
 		opr->scene_id = (uint32_t)req_cmd->scene_id;
 		opr->scene_type = req_cmd->scene_type;
 		opr->state = OPR_STATE_BUSY;
-		opr->user_tgid = task_tgid_vnr(current);
+		opr->user_tgid = current->tgid;
 
 		req_cmd->result = 0;
 		break;
@@ -308,7 +308,7 @@ static void opr_mgr_release(void *data)
 	struct dpu_opr_mgr *opr_mgr = (struct dpu_opr_mgr *)data;
 	struct opr *opr = NULL;
 	struct opr *_node_ = NULL;
-	int32_t tgid = task_tgid_vnr(current);
+	int32_t tgid = current->tgid;
 
 	if (!opr_mgr)
 		return;

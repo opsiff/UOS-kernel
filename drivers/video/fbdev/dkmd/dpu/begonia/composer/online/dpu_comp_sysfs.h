@@ -14,8 +14,8 @@
 #ifndef DPU_COMP_SYSFS_H
 #define DPU_COMP_SYSFS_H
 
-#include "dkmd_sysfs.h"
+#include "ukmd_sysfs.h"
 
-void dpu_comp_add_attrs(struct dkmd_attr *attrs);
+void dpu_comp_add_attrs(struct ukmd_attr *attrs);
 
 #endif

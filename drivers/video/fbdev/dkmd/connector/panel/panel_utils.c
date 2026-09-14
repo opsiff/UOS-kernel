@@ -19,13 +19,15 @@
 #include "dpu_conn_mgr.h"
 #include "mipi_dsi_dev.h"
 
-#define LCD_POWER_STATUS 0x9c
+#define C08_LCD_POWER_STATUS 0x9c
+#define HO1_LCD_POWER_STATUS 0x1c
 
 int32_t lcd_check_power_status(struct dpu_connector *connector)
 {
 	int32_t ret;
 	uint32_t lcd_state_value = 0;
 	char __iomem *dsi_base = NULL;
+	struct dfr_info *dfr_info = NULL;
 	char lcd_cmd[] = {0x0A};
 	struct dsi_cmd_desc lcd_state_dsi_cmd = {DTYPE_DCS_READ, 0, 10, WAIT_TYPE_US, sizeof(lcd_cmd), lcd_cmd};
 
@@ -39,5 +41,17 @@ int32_t lcd_check_power_status(struct dpu_connector *connector)
 		return ret;
 	}
 	dpu_pr_info("Power State = 0x%x", lcd_state_value);
-	return ((lcd_state_value & LCD_POWER_STATUS) == LCD_POWER_STATUS) ? 0 : -1;
+ 
+	dpu_check_and_return(!connector->conn_info, -EINVAL, err, "connector->conn_info is NULL!");
+	dfr_info = dkmd_get_dfr_info(connector->conn_info);
+ 
+	dpu_check_and_return(!dfr_info, -EINVAL, err, "dfr_info is NULL!");
+	dpu_pr_info("dfr_info->ddic_type = 0x%x", dfr_info->ddic_type);
+ 
+	if (dfr_info->ddic_type == DDIC_TYPE_H01)
+		return ((lcd_state_value & HO1_LCD_POWER_STATUS) == HO1_LCD_POWER_STATUS) ? 0 : -1;
+	if (dfr_info->ddic_type == DDIC_TYPE_C08 || dfr_info->ddic_type == DDIC_TYPE_F01)
+		return ((lcd_state_value & C08_LCD_POWER_STATUS) == C08_LCD_POWER_STATUS) ? 0 : -1;
+ 
+	return -1;
 }

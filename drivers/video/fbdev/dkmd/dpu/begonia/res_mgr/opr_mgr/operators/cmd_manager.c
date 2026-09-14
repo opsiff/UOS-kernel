@@ -12,6 +12,7 @@
  */
 
 #include <linux/module.h>
+#include <cmdlist_interface.h>
 #include "cmd_manager.h"
 #include "cmd_manager_impl.h"
 #include "dkmd_log.h"
@@ -52,6 +53,7 @@ int32_t generate_network_cmd(struct dkmd_base_frame *frame, struct dkmd_network 
 		if (unlikely(gen_pre_pipeline_cmd(frame, network, &network->pre_pipelines[i],
 						network->post_pipelines, network->post_pipeline_num) != 0)) {
 			dpu_pr_err("generator pre pipeline cmd fail");
+			ukmd_cmdlist_release_locked(CMDLIST_DEV_ID_DPU, frame->scene_id, frame->reg_cmdlist_id);
 			return -1;
 		}
 	}
@@ -60,14 +62,17 @@ int32_t generate_network_cmd(struct dkmd_base_frame *frame, struct dkmd_network 
 	for (i = 0; i < network->post_pipeline_num; ++i) {
 		if (unlikely(gen_post_pipeline_cmd(frame, network, pre_pipeline_last_opr_id, &network->post_pipelines[i]) != 0)) {
 			dpu_pr_err("generator post pipeline cmd fail");
+			ukmd_cmdlist_release_locked(CMDLIST_DEV_ID_DPU, frame->scene_id, frame->reg_cmdlist_id);
 			return -1;
 		}
 	}
 
 	set_frame_cmd_data(frame, network);
 
-	if (unlikely(append_reg_client(frame, network) != 0))
+	if (unlikely(append_reg_client(frame, network) != 0)) {
+		ukmd_cmdlist_release_locked(CMDLIST_DEV_ID_DPU, frame->scene_id, frame->reg_cmdlist_id);
 		return -1;
+	}
 
 	flush_all_cmdlist_client(frame, network);
 

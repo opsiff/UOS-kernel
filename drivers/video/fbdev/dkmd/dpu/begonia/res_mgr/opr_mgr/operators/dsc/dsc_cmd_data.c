@@ -20,6 +20,7 @@
 #include "cmdlist_interface.h"
 #include "smmu/dpu_comp_smmu.h"
 #include "dkmd_log.h"
+#include "dkmd_rect.h"
 
 struct opr_cmd_data *init_dsc_cmd_data(union dkmd_opr_id id)
 {
@@ -62,10 +63,11 @@ static void set_dsc_out_common_data(const struct dkmd_base_layer *base_layer, st
 
 static void opr_set_dsc_cfg_data(const struct opr_cmd_data_base *data)
 {
-	dkmd_set_reg((uint32_t)data->scene_id, data->reg_cmdlist_id,
+	uint32_t cmdlist_dev_id = CMDLIST_DEV_ID_DPU;
+	ukmd_set_reg(cmdlist_dev_id, (uint32_t)data->scene_id, data->reg_cmdlist_id,
 		DPU_DSC_REG_CTRL_ADDR(data->module_offset), data->scene_id);
 
-	dkmd_set_reg((uint32_t)data->scene_id, data->reg_cmdlist_id,
+	ukmd_set_reg(cmdlist_dev_id, (uint32_t)data->scene_id, data->reg_cmdlist_id,
 		DPU_DSC_REG_CTRL_FLUSH_EN_ADDR(data->module_offset), 1);
 }
 
@@ -105,7 +107,8 @@ int32_t opr_set_dsc_data(struct opr_cmd_data *cmd_data, const struct dkmd_base_l
 
 	dsc_info->dsc_sel.reg.dsc_sel = BIT(cmd_data->data->opr_id.info.ins);
 	dsc_info->dsc_sel.reg.dsc_order1 = OPR_INVALID;
-	dsc_info->dsc_sel.reg.dsc_order0 = (uint32_t)opr_dpu_to_soc_type(next_cmd_datas[0]->data->opr_id.info.type);
+	dsc_info->dsc_sel.reg.dsc_order0 = get_opr_oder(next_cmd_datas[0]->data->opr_id.info.type,
+		next_cmd_datas[0]->data->opr_id.info.ins);
 	dsc_info->dsc_sel.reg.dsc_layer_id = POST_LAYER_ID;
 
 	dsc_info->dsc_reserved.reg.dsc_output_fmt = (uint32_t)dpu_fmt_to_sdma(cmd_data->data->out_common_data.format);

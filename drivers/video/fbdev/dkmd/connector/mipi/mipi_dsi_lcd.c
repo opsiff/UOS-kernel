@@ -39,77 +39,6 @@ static bool check_mipi_status(struct dpu_connector *connector)
 	return true;
 }
 
-static struct dpu_connector *get_real_connector(uint32_t raw_dsi_index, uint32_t panel_type)
-{
-	uint32_t real_dsi_idx;
-
-	if (raw_dsi_index != CONNECTOR_ID_DSI0)
-		real_dsi_idx = raw_dsi_index;
-	else
-		/* bit12: SECONDARY_PANEL_CMD_TYPE from lcdkit */
-		real_dsi_idx = (((panel_type & PANEL_EXTERNAL) != 0) ? CONNECTOR_ID_DSI0_BUILTIN : CONNECTOR_ID_DSI0);
-
-	return get_connector_by_id(real_dsi_idx);
-}
-
-static void mipi_dsi_tx_lp_mode_cfg(char __iomem *dsi_base)
-{
-	/*
-	 * gen short cmd read switch low-power,
-	 * include 0-parameter,1-parameter,2-parameter
-	 */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x7, 3, 8);
-	/* gen long cmd write switch low-power */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x1, 1, 14);
-	/*
-	 * dcs short cmd write switch high-speed,
-	 * include 0-parameter,1-parameter
-	 */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x3, 2, 16);
-}
-
-static void mipi_dsi_rx_lp_mode_cfg(char __iomem *dsi_base)
-{
-	/*
-	 * gen short cmd read switch low-power,
-	 * include 0-parameter,1-parameter,2-parameter
-	 */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x7, 3, 11);
-	/* dcs short cmd read switch low-power */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x1, 1, 18);
-	/* read packet size cmd switch low-power */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x1, 1, 24);
-}
-
-static void mipi_dsi_tx_hs_mode_cfg(char __iomem *dsi_base)
-{
-	/*
-	 * gen short cmd read switch low-power,
-	 * include 0-parameter,1-parameter,2-parameter
-	 */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 3, 8);
-	/* gen long cmd write switch high-speed */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 1, 14);
-	/*
-	 * dcs short cmd write switch high-speed,
-	 * include 0-parameter,1-parameter
-	 */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 2, 16);
-}
-
-static void mipi_dsi_rx_hs_mode_cfg(char __iomem *dsi_base)
-{
-	/*
-	 * gen short cmd read switch high-speed,
-	 * include 0-parameter,1-parameter,2-parameter
-	 */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 3, 11);
-	/* dcs short cmd read switch high-speed */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 1, 18);
-	/* read packet size cmd switch high-speed */
-	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 1, 24);
-}
-
 void mipi_dsi_set_lp_mode(uint32_t dsi_idx, uint32_t panel_type)
 {
 	struct dpu_connector *connector = NULL;
@@ -291,7 +220,7 @@ static int32_t mipi_dsi_set_cmds_rx_common(uint8_t *out,
 			return ret;
 		}
 		ret = mipi_dsi_get_read_value(cm, tmp, tmp_value, (uint32_t)out_len, little_endian_support);
-		if (ret) {
+		if (ret < 0) {
 			dpu_pr_err("get read value error\n");
 			return ret;
 		}

@@ -18,6 +18,7 @@
 #include "dkmd_bl_factory.h"
 #include "panel_mgr.h"
 #include "panel_utils.h"
+#include "securec.h"
 
 /*******************************************************************************
 ** LCD VCC
@@ -185,16 +186,17 @@ static struct panel_table s_lcd_tabel[] = {
 	{ PANEL_NT37701_BRQ_ID, DTS_COMP_PANEL_NT37701_BRQ, },
 	{ PANEL_NT37701A_ID, DTS_COMP_PANEL_NT37701A, },
 	{ PANEL_RM69091_ID, DTS_COMP_PANEL_RM69091, },
+	{ PANEL_RM6d030_ID, DTS_COMP_PANEL_RM6d030, },
 	{ PANEL_HX5293_ID, DTS_COMP_PANEL_HX5293, },
 	{ PANEL_NT36870_ID, DTS_COMP_PANEL_NT36870, },
-	{ PANEL_VISIONOX_6P39_ID, DTS_COMP_PANEL_VISIONOX_6P39, },
-	{ PANEL_BOE_6P39_ID, DTS_COMP_PANEL_BOE_6P39, },
-	{ PANEL_VISIONOX310_ID, DTS_COMP_PANEL_VISIONOX310, },
-	{ PANEL_BOE_7P847_ID, DTS_COMP_PANEL_BOE7P847, },
+	{ PANEL_VXN_6P69_ID, DTS_COMP_PANEL_VXN_6P69, },
+	{ PANEL_BOE_6P69_ID, DTS_COMP_PANEL_BOE_6P69, },
 	{ PANEL_MEDIABOX_DSI0_ID, DTS_COMP_PANEL_MEDIABOX_DSI0, },
 	{ PANEL_MEDIABOX_EDP0_ID, DTS_COMP_PANEL_MEDIABOX_EDP0, },
 	{ PANEL_MEDIABOX_EDP1_ID, DTS_COMP_PANEL_MEDIABOX_EDP1, },
 	{ PANEL_HX83121_ID, DTS_COMP_PANEL_HX83121, },
+	{ PANEL_RM692H5_ID, DTS_COMP_PANEL_RM692H5, },
+	{ DYNAMIC_FAKE_PANEL_ID, DTS_COMP_DYNAMIC_FAKE, },
 };
 
 void panel_drv_data_setup(struct panel_drv_private *priv, struct device_node *np)
@@ -525,6 +527,70 @@ static struct panel_handle_adapter g_panel_handle = {
 	.panel_ops_func_table = g_panel_ops_func_table,
 };
 
+/* get post_info while registering panel */
+static void lcd_update_panel_info(struct panel_drv_private *priv, struct dkmd_connector_info *pinfo)
+{
+	struct dpu_connector *connector = get_primary_connector(pinfo);
+	if (unlikely(!connector)) {
+		dpu_pr_err("connector id=%u is not available", pinfo->connector_idx[PRIMARY_CONNECT_CHN_IDX]);
+		return;
+	}
+
+	if (unlikely(connector->post_info[0] == NULL)) {
+		dpu_pr_err("post_info[0] is null, error");
+		return;
+	}
+
+	dpu_pr_info("update panel info ifbc + %d, %d, %d, %d", connector->post_info[0]->ifbc_type,
+		connector->post_info[0]->mipi.hsa, connector->post_info[0]->mipi.hbp, pinfo->spr_border_r_tb);
+
+	connector->post_info[0]->ifbc_type = pinfo->ifbc_type;
+	connector->post_info[0]->dfr_info = priv->dfr_info;
+
+	if (is_ifbc_vesa_panel(pinfo->ifbc_type)) {
+		if (connector->post_info[0]->dsc.dsc_en != 0)
+			dsc_calculation(&connector->post_info[0]->dsc, pinfo->ifbc_type);
+	}
+
+	connector->post_info[0]->dsc.dsc_info.output_width = \
+		get_dsc_out_width(&connector->post_info[0]->dsc, pinfo->ifbc_type, pinfo->base.xres, pinfo->base.xres);
+	connector->post_info[0]->dsc.dsc_info.output_height = \
+		get_dsc_out_height(&connector->post_info[0]->dsc, pinfo->ifbc_type, pinfo->base.yres);
+ 
+	connector->post_info[0]->spr.panel_xres = pinfo->base.xres;
+	connector->post_info[0]->spr.panel_yres = pinfo->base.yres;
+	connector->post_info[0]->spr.spr_ctrl.value = pinfo->spr_ctrl;
+	connector->post_info[0]->spr.spr_r_bordertb.value = pinfo->spr_border_r_tb;
+	connector->post_info[0]->spr.spr_g_bordertb.value = pinfo->spr_border_g_tb;
+	connector->post_info[0]->spr.spr_b_bordertb.value = pinfo->spr_border_b_tb;
+ 
+	dpu_pr_info("update panel info width + %d, %d",
+		connector->post_info[0]->dsc.dsc_info.output_width, connector->post_info[0]->dsc.dsc_info.output_height);
+	
+	if (!pinfo->dsc_switch_enable)
+		return;
+
+	connector->post_info[1] = devm_kzalloc(&priv->pdev->dev, sizeof(struct connector_post_info), GFP_KERNEL);
+	if (!connector->post_info[1]) {
+		dpu_pr_err("post_info[1] is null, error");
+		return;
+	}
+
+	connector->post_info[1]->ifbc_type = IFBC_TYPE_NONE;
+	connector->post_info[1]->mipi = connector->post_info[0]->mipi;
+	connector->post_info[1]->dsc.dsc_info.output_width = pinfo->base.xres;
+	connector->post_info[1]->dsc.dsc_info.output_height = pinfo->base.yres;
+	connector->post_info[1]->spr.panel_xres = pinfo->base.xres;
+	connector->post_info[1]->spr.panel_yres = pinfo->base.yres;
+	connector->post_info[1]->spr.spr_ctrl.value = pinfo->spr_ctrl;
+	connector->post_info[1]->spr.spr_r_bordertb.value = pinfo->spr_border_r_tb;
+	connector->post_info[1]->spr.spr_g_bordertb.value = pinfo->spr_border_g_tb;
+	connector->post_info[1]->spr.spr_b_bordertb.value = pinfo->spr_border_b_tb;
+
+	dpu_pr_info("update panel info ifbc - %d, %d, %d, %d", connector->post_info[1]->ifbc_type,
+		connector->post_info[1]->mipi.hsa, connector->post_info[1]->dsc.dsc_en, connector->post_info[1]->dsc.dsc_info.pic_height);
+}
+
 static int32_t prepare_panel_data(struct panel_drv_private *priv)
 {
 	const struct panel_match_data *data = NULL;
@@ -532,24 +598,50 @@ static int32_t prepare_panel_data(struct panel_drv_private *priv)
 
 	data = of_device_get_match_data(&priv->pdev->dev);
 	if (!data) {
-		dpu_pr_err("get panel match data failed!\n");
+		dpu_pr_err("get panel match data failed!");
 		return -1;
 	}
 
 	if (data->lcd_id < PANEL_MAX_ID)
-		dpu_pr_info("panel:%s !\n", s_lcd_tabel[data->lcd_id].panel_desc);
+		dpu_pr_info("panel:%s !", s_lcd_tabel[data->lcd_id].panel_desc);
 
 	if (data->of_device_setup && (data->of_device_setup(priv) != 0)) {
-		dpu_pr_err("device setup failed!\n");
+		dpu_pr_err("device setup failed!");
 		return -1;
 	}
+
 	pinfo = &priv->connector_info;
 	if (is_builtin_panel(&pinfo->base) && pinfo->base.fold_type == PANEL_FLIP) {
-		dpu_pr_info("builtin panel use itfch1\n");
+		dpu_pr_info("builtin panel use itfch1");
 		pinfo->base.pipe_sw_itfch_idx = PIPE_SW_PRE_ITFCH1;
 	}
 
+	pinfo->base.sw_dvfs_frm_rate = SW_DVFS_FRM_RATE_LIMIT;
+
+	dpu_pr_info("update_panel_info");
+	lcd_update_panel_info(priv, pinfo);
+
 	return 0;
+}
+
+int32_t register_customized_ops_handle(uint32_t ops_cmd_id, void *new_ops_func)
+{
+	uint32_t i;
+	struct panel_ops_func_map *ops_handle = NULL;
+
+	dpu_check_and_return(!new_ops_func, -1, err, "new_ops_func is null");
+	dpu_pr_debug("modify ops_func of ops_cmd_id = %d", ops_cmd_id);
+
+	for (i = 0; i < (uint32_t)PANEL_OPS_MAX; i++) {
+		ops_handle = &(g_panel_ops_func_table[i]);
+		if (ops_cmd_id == ops_handle->ops_cmd_id) {
+			ops_handle->handle_func = new_ops_func;
+			return 0;
+		}
+	}
+
+	dpu_pr_err("ops_cmd_id = %d is illegal", ops_cmd_id);
+	return -1;
 }
 
 int32_t panel_probe_sub(struct panel_drv_private *priv)
@@ -558,6 +650,7 @@ int32_t panel_probe_sub(struct panel_drv_private *priv)
 
 	dpu_check_and_return(!priv, -EINVAL, err, "priv is NULL!");
 	dpu_check_and_return(prepare_panel_data(priv) != 0, -1, err, "panel_probe failed");
+
 	register_panel_handle(g_panel_handle, g_panel_id);
 	g_panel_id++;
 

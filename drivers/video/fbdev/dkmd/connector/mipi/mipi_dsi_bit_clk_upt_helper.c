@@ -64,15 +64,6 @@ static bool mipi_dsi_check_ldi_vstate(const char __iomem* mipi_dsi_base, uint64_
 	return is_ready;
 }
 
-static void mipi_pll_cfg_for_clk_upt(char __iomem* mipi_dsi_base, struct mipi_dsi_phy_ctrl* phy_ctrl)
-{
-	/* PLL configuration III */
-	mipi_config_phy_test_code(
-		mipi_dsi_base, PLL_POS_DIV_ADDR, (phy_ctrl->rg_pll_posdiv << SHIFT_4BIT) | phy_ctrl->rg_pll_prediv);
-	/* PLL configuration IV */
-	mipi_config_phy_test_code(mipi_dsi_base, PLL_FBK_DIV_ADDR, (phy_ctrl->rg_pll_fbkdiv & PLL_FBK_DIV_MAX_VALUE));
-}
-
 static void mipi_dsi_set_cdphy_bit_clk_upt_cmd(
 	struct dpu_connector* connector, char __iomem* mipi_dsi_base, struct mipi_dsi_phy_ctrl* phy_ctrl)
 {
@@ -99,23 +90,13 @@ static void mipi_dsi_set_cdphy_bit_clk_upt_video(
 	bool is_ready = false;
 	struct mipi_dsi_timing timing;
 	struct mipi_panel_info* mipi = NULL;
-	struct dkmd_connector_info* pinfo = NULL;
 
-	mipi = &connector->mipi;
+	mipi = &connector->post_info[connector->active_idx]->mipi;
 	fpga_flag = connector->conn_info->base.fpga_flag;
-	pinfo = connector->conn_info;
 	connector->dsi_phy_ctrl = *phy_ctrl;
 
 	/* PLL configuration */
-	mipi_pll_cfg_for_clk_upt(mipi_dsi_base, phy_ctrl);
-
-	/* PLL update control */
-	mipi_config_phy_test_code(mipi_dsi_base, PLL_UPT_CTRL_ADDR, 0x1);
-
-	if (mipi->phy_mode == CPHY_MODE)
-		mipi_config_cphy_spec1v0_parameter(phy_ctrl, mipi, mipi_dsi_base, (int32_t)fpga_flag);
-	else
-		mipi_config_dphy_spec1v2_parameter(phy_ctrl, mipi, mipi_dsi_base);
+	mipi_pll_cfg_for_clk_upt(connector, phy_ctrl, mipi_dsi_base);
 
 	is_ready = mipi_phy_status_check(mipi_dsi_base, PHY_LOCK_STANDARD_STATUS);
 	if (!is_ready)
@@ -193,29 +174,30 @@ int mipi_dsi_bit_clk_upt(struct dpu_connector* connector, const void* value)
 
 	dpu_check_and_return(!connector, 0, err, "connector is NULL!\n");
 	conn_info = connector->conn_info;
-	dsi_bit_clk_upt = connector->mipi.dsi_bit_clk_upt;
+	dsi_bit_clk_upt = connector->post_info[connector->active_idx]->mipi.dsi_bit_clk_upt;
 	dpu_check_and_return(
 		connector->connector_id != CONNECTOR_ID_DSI0 &&
 		connector->connector_id != CONNECTOR_ID_DSI0_BUILTIN &&
+		connector->connector_id != CONNECTOR_ID_DSI2_BUILTIN &&
 		connector->connector_id != CONNECTOR_ID_DSI2,
 		0, err, "connector %d, not support\n", connector->connector_id);
 
-	atomic_set(&connector->mipi.dsi_bit_clk_upt_flag, 1);
+	atomic_set(&connector->post_info[connector->active_idx]->mipi.dsi_bit_clk_upt_flag, 1);
 	esd_enable = conn_info->esd_enable;
-	if (dsi_bit_clk_upt == connector->mipi.dsi_bit_clk) {
-		atomic_set(&connector->mipi.dsi_bit_clk_upt_flag, 0);
+	if (dsi_bit_clk_upt == connector->post_info[connector->active_idx]->mipi.dsi_bit_clk) {
+		atomic_set(&connector->post_info[connector->active_idx]->mipi.dsi_bit_clk_upt_flag, 0);
 		dpu_pr_debug("mipi_dsi_bit_clk_upt not need change");
 		return 0;
 	}
 
-	dpu_pr_debug("Mipi clk need change from %d M switch to %d M\n", connector->mipi.dsi_bit_clk, dsi_bit_clk_upt);
-	if (connector->mipi.phy_mode == CPHY_MODE)
+	dpu_pr_info("Mipi clk need change from %d M switch to %d M\n", connector->post_info[connector->active_idx]->mipi.dsi_bit_clk, dsi_bit_clk_upt);
+	if (connector->post_info[connector->active_idx]->mipi.phy_mode == CPHY_MODE)
 		get_dsi_cphy_ctrl(connector, &phy_ctrl);
 	else
 		get_dsi_dphy_ctrl(connector, &phy_ctrl);
 
 	lane_byte_clk = connector->dsi_phy_ctrl.lane_byte_clk;
-	if (connector->mipi.phy_mode == CPHY_MODE)
+	if (connector->post_info[connector->active_idx]->mipi.phy_mode == CPHY_MODE)
 		lane_byte_clk = connector->dsi_phy_ctrl.lane_word_clk;
 
 	if (is_mipi_video_panel(&conn_info->base) && conn_info->disable_ldi) {
@@ -230,16 +212,16 @@ int mipi_dsi_bit_clk_upt(struct dpu_connector* connector, const void* value)
 			conn_info->enable_ldi(conn_info);
 		}
 		dpu_pr_debug("PERI_STAT0 or ldi vstate is not ready\n");
-		atomic_set(&connector->mipi.dsi_bit_clk_upt_flag, 0);
+		atomic_set(&connector->post_info[connector->active_idx]->mipi.dsi_bit_clk_upt_flag, 0);
 		return 0;
 	}
 
 	mipi_set_cdphy_bit_clk(connector, &phy_ctrl, conn_info, esd_enable);
-	dpu_pr_info("Mipi clk success changed from %d M switch to %d M\n", connector->mipi.dsi_bit_clk, dsi_bit_clk_upt);
+	dpu_pr_info("Mipi clk success changed from %d M switch to %d M\n", connector->post_info[connector->active_idx]->mipi.dsi_bit_clk, dsi_bit_clk_upt);
 
 	connector->dsi_phy_ctrl = phy_ctrl;
-	connector->mipi.dsi_bit_clk = dsi_bit_clk_upt;
-	atomic_set(&connector->mipi.dsi_bit_clk_upt_flag, 0);
+	connector->post_info[connector->active_idx]->mipi.dsi_bit_clk = dsi_bit_clk_upt;
+	atomic_set(&connector->post_info[connector->active_idx]->mipi.dsi_bit_clk_upt_flag, 0);
 	return 0;
 }
 
@@ -256,13 +238,13 @@ int wait_for_mipi_resource_available(struct dpu_connector* connector)
 	int flag_tmp = 0;
 
 	dpu_check_and_return(!connector, -1, err, "connector is NULL!\n");
-	flag = atomic_read(&connector->mipi.dsi_bit_clk_upt_flag);
+	flag = atomic_read(&connector->post_info[connector->active_idx]->mipi.dsi_bit_clk_upt_flag);
 	if (flag == 1) {
 		flag_tmp = flag;
 		while ((flag_tmp == 1) && (wait_count < MIPI_CLK_UPDT_TIMEOUT)) {
 			wait_count++;
 			usleep_range(1000, 1100); /* sleep range from 1000us to 1100us */
-			flag_tmp = atomic_read(&connector->mipi.dsi_bit_clk_upt_flag);
+			flag_tmp = atomic_read(&connector->post_info[connector->active_idx]->mipi.dsi_bit_clk_upt_flag);
 		}
 		dpu_pr_debug("wait flag 0x%x, cost time %d ms", flag, wait_count);
 	}

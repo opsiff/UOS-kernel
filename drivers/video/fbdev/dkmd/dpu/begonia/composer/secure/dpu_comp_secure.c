@@ -51,6 +51,11 @@ static void dpu_drm_layer_dacc_prop_config(uint32_t layer_id, uint32_t scene_id)
 	configure_dss_service_security(FID_BL31_DISPLAY_DACC_LAYER_PROP_SEC_CONFIG, layer_id, scene_id, 0);
 }
 
+static void dpu_drm_layer_dacc_prop_clear(uint32_t layer_id, uint32_t scene_id)
+{
+	configure_dss_service_security(FID_BL31_DISPLAY_DACC_LAYER_PROP_SEC_DECONFIG, layer_id, scene_id, 0);
+}
+
 void dpu_online_drm_layer_config(struct disp_frame *prev_prev_frame,
 		struct disp_frame *prev_frame, struct disp_frame *curr_frame)
 {
@@ -78,8 +83,10 @@ void dpu_online_drm_layer_config(struct disp_frame *prev_prev_frame,
 		dpu_drm_layer_dacc_prop_config(curr_layers_id, (uint32_t)curr_frame->scene_id);
 	}
 
-	if (mmu_proc_clear_layer_id != 0) // clear prev_prev_frame drm layer protect_en config
+	if (mmu_proc_clear_layer_id != 0) { // clear prev_prev_frame drm layer protect_en config
 		dpu_drm_layer_mmu_proc_clear(mmu_proc_clear_layer_id, (uint32_t)prev_prev_frame->scene_id);
+		dpu_drm_layer_dacc_prop_clear(mmu_proc_clear_layer_id, (uint32_t)prev_prev_frame->scene_id);
+	}
 
 	return;
 }

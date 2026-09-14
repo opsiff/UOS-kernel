@@ -14,7 +14,7 @@
 #ifndef DPU_GFX_H
 #define DPU_GFX_H
 
-#include "dkmd_chrdev.h"
+#include "ukmd_chrdev.h"
 #include "dkmd_comp.h"
 #include "gfxdev_pandisplay_utils.h"
 
@@ -25,10 +25,11 @@ struct device_gfx {
 	bool be_connected; /* for dp device */
 	bool gfx_mem_acquired;
 
-	struct dkmd_chrdev chrdev;
+	struct ukmd_chrdev chrdev;
 	struct sg_table *gfx_sg_table;
 	gfxdev_fix_screeninfo gfx_fix;
 	gfxdev_var_screeninfo gfx_var;
+	char __iomem *screen_base;
 
 	/* for protected buffer mmap,
 	 * one thread may is freeing the buffer, and another thread
@@ -42,4 +43,6 @@ struct device_gfx {
 struct composer *get_comp_from_gfx_device(struct device *dev);
 int32_t gfx_device_register(struct composer *comp);
 void gfx_device_unregister(struct composer *comp);
+void gfx_device_shutdown(struct composer *comp);
+
 #endif

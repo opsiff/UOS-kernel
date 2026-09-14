@@ -18,7 +18,6 @@
 #include "peri/dkmd_peri.h"
 #include "dkmd_bl_factory.h"
 #include "dkmd_user_panel_info.h"
-#include "dkmd_user_panel_info.h"
 #include "dkmd_lcd_interface.h"
 
 #define LCD_BL_TYPE_NAME "lcd-bl-type"
@@ -39,6 +38,7 @@ struct panel_drv_private {
 
 	/* Local refresh screen constraints */
 	struct user_panel_info user_pinfo;
+	struct ppu_config_info ppu_cfg_info;
 
 	struct dpu_ppc_config_id_dsi_cmds ppc_config_id_dsi_cmds[PPC_CONFIG_ID_CNT][PPC_CONFIG_ID_DSI_CNT];
 
@@ -109,4 +109,5 @@ static inline struct panel_drv_private *to_panel_private(struct dkmd_connector_i
 
 int32_t panel_base_of_device_setup(struct panel_drv_private *priv);
 void panel_base_of_device_release(struct panel_drv_private *priv);
+void base_panel_connector_id_convert(struct dkmd_connector_info *pinfo);
 #endif

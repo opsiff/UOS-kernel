@@ -467,7 +467,7 @@ static int32_t panel_of_device_setup(struct panel_drv_private *priv)
 	/* 2. config connector info
 	 * would be used for dsi & composer setup
 	 */
-	mipi_lcd_init_dsi_param(pinfo, &get_primary_connector(pinfo)->mipi);
+	mipi_lcd_init_dsi_param(pinfo, &get_primary_connector(pinfo)->post_info[0]->mipi);
 
 	/* dsi or composer need this param */
 	pinfo->dirty_region_updt_support = 1;

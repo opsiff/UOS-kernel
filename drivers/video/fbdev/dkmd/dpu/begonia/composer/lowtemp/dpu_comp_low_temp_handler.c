@@ -69,8 +69,12 @@ static void dpu_low_temp_handle(struct work_struct *work)
 	struct dpu_low_temp_ctrl* low_temp_ctrl = NULL;
 	uint32_t low_temp_now = false;
 
+	dpu_check_and_no_retval(!work, err, "work is null pointer");
+
 	low_temp_ctrl = container_of(work, struct dpu_low_temp_ctrl, low_temp_work);
+	dpu_check_and_no_retval(!low_temp_ctrl, err, "low_temp_ctrl is null pointer");
 	dpu_comp = low_temp_ctrl->dpu_comp;
+	dpu_check_and_no_retval(!dpu_comp, err, "dpu_comp is null pointer");
 	low_temp_now = check_low_temperature();
 	dpu_temp_change_event(&dpu_comp->comp, "low_temp_change", low_temp_now);
 	low_temp_ctrl->low_temp_state_pre = low_temp_now;
@@ -78,12 +82,12 @@ static void dpu_low_temp_handle(struct work_struct *work)
 
 static int32_t dpu_low_temp_handle_isr_handle(struct notifier_block *self, unsigned long action, void *data)
 {
-	struct dkmd_listener_data *listener_data = NULL;
+	struct ukmd_listener_data *listener_data = NULL;
 	struct dpu_composer *dpu_comp = NULL;
 	struct dpu_low_temp_ctrl* low_temp_ctrl = NULL;
 	uint32_t low_temp_now = false;
 
-	listener_data = (struct dkmd_listener_data *)data;
+	listener_data = (struct ukmd_listener_data *)data;
 	dpu_check_and_return(!listener_data, 0, err, "listener_data is NULL\n");
 	dpu_comp = (struct dpu_composer *)(listener_data->data);
 	dpu_check_and_return(!dpu_comp, 0, err, "dpu_comp is NULL\n");
@@ -100,14 +104,14 @@ static struct notifier_block dpu_low_temp_handle_isr_notifier = {
 	.notifier_call = dpu_low_temp_handle_isr_handle,
 };
 
-static void dpu_low_temp_irq_init(struct dkmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit)
+static void dpu_low_temp_irq_init(struct ukmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit)
 {
-	dkmd_isr_register_listener(isr_ctrl, &dpu_low_temp_handle_isr_notifier, listening_bit, dpu_comp);
+	ukmd_isr_register_listener(isr_ctrl, &dpu_low_temp_handle_isr_notifier, listening_bit, dpu_comp);
 }
 
-static void dpu_low_temp_irq_deinit(struct dkmd_isr *isr_ctrl, uint32_t listening_bit)
+static void dpu_low_temp_irq_deinit(struct ukmd_isr *isr_ctrl, uint32_t listening_bit)
 {
-	dkmd_isr_unregister_listener(isr_ctrl, &dpu_low_temp_handle_isr_notifier, listening_bit);
+	ukmd_isr_unregister_listener(isr_ctrl, &dpu_low_temp_handle_isr_notifier, listening_bit);
 }
 
 
@@ -115,7 +119,7 @@ void dpu_low_temp_register(struct dpu_composer *dpu_comp, struct comp_online_pre
 {
 	uint32_t te_bit;
 	uint32_t vsync_bit;
-	struct dkmd_isr *isr_ctrl = NULL;
+	struct ukmd_isr *isr_ctrl = NULL;
 	struct dkmd_connector_info *pinfo = NULL;
 	struct dpu_comp_dfr_ctrl* dfr_ctrl = NULL;
 	struct dpu_low_temp_ctrl* low_temp_ctrl = NULL;
@@ -137,6 +141,8 @@ void dpu_low_temp_register(struct dpu_composer *dpu_comp, struct comp_online_pre
 		break;
 	case DFR_MODE_TE_SKIP_BY_MCU:
 	case DFR_MODE_LONGH_TE_SKIP_BY_MCU:
+	case DFR_MODE_LONGV_BY_MCU:
+	case DFR_MODE_LONGH_BY_MCU:
 		vsync_bit = NOTIFY_BOTH_VSYNC_TIMELINE;
 		isr_ctrl = &dpu_comp->comp_mgr->mdp_isr_ctrl;
 		break;
@@ -163,7 +169,7 @@ void dpu_low_temp_register(struct dpu_composer *dpu_comp, struct comp_online_pre
 
 void dpu_low_temp_unregister(struct dpu_composer *dpu_comp, struct comp_online_present *present)
 {
-	struct dkmd_isr *isr_ctrl = NULL;
+	struct ukmd_isr *isr_ctrl = NULL;
 	struct dkmd_connector_info *pinfo = NULL;
 	struct dpu_comp_dfr_ctrl* dfr_ctrl = NULL;
 	struct dpu_low_temp_ctrl* low_temp_ctrl = NULL;
@@ -187,6 +193,8 @@ void dpu_low_temp_unregister(struct dpu_composer *dpu_comp, struct comp_online_p
 		break;
 	case DFR_MODE_TE_SKIP_BY_MCU:
 	case DFR_MODE_LONGH_TE_SKIP_BY_MCU:
+	case DFR_MODE_LONGV_BY_MCU:
+	case DFR_MODE_LONGH_BY_MCU:
 		vsync_bit = NOTIFY_BOTH_VSYNC_TIMELINE;
 		isr_ctrl = &dpu_comp->comp_mgr->mdp_isr_ctrl;
 		break;

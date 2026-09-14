@@ -1,4 +1,4 @@
-/* Copyright (c) , Huawei Tech. Co., Ltd. All rights reserved.
+/* Copyright (c) 2022-2023 Huawei Device Co., Ltd.
 *
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License version 2 and
@@ -34,9 +34,14 @@
 #include <linux/platform_device.h>
 #include <linux/pm_wakeup.h>
 #include <asm/fb.h>
-#include <linux/dma-buf.h>
 #include <linux/dma-mapping.h>
+#include <platform_include/smart/linux/iomcu_ipc.h>
+#ifdef CONFIG_DMABUF_MM
+#include <linux/dmabuf/mm_dma_heap.h>
+#endif
 #include "dpu_aod_device.h"
+#include "dpu_aod_device_struct.h"
+
 #include "securec.h"
 #include <platform_include/smart/linux/base/ap/protocol.h>
 #include "dpu_sh_aod.h"
@@ -44,12 +49,28 @@
 #include "contexthub_recovery.h"
 #include "contexthub_pm.h"
 #include "contexthub_route.h"
+#ifdef CONFIG_DKMD_DPU_AOD
+#include "dkmd_dpu.h"
+#include "dpu_sh_aod.h"
+#else
+#include "dpu_fb.h"
+#include "dpu_enum.h"
+#endif
 #include <asm/cacheflush.h>
 #include <securec.h>
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
 #include <asm/cachetype.h>
 #endif
 #include "shmem/shmem.h"
+#ifdef CONFIG_DKMD_AOD_DEBUG
+#include <linux/fs.h>
+#include <platform_include/basicplatform/linux/fs/vendor_fs_interface.h>
+#endif
+#include <fs_adapter/iomcu_fs_adapter.h>
+#ifdef CONFIG_CONTEXTHUB_MINIFS
+#include <platform_include/smart/linux/base/ap/minifs/minifs.h>
+#include "mlps_channel.h"
+#endif
 
 #define DPU_AOD_ION_CLIENT_NAME	"dpu_aod_ion"
 
@@ -59,10 +80,18 @@
 #define IPC_MAX_SIZE 128
 #define MAX_AOD_GEN_EVENT 100
 #define MAX_ALLOC_SIZE 100000
-#define PAUSE_DATA_SIZE 12
-#define DEFAULT_PAUSE_DATA_NUM 3
+#define PAUSE_DATA_SIZE 16
 #define MAX_MULTI_GMP_SIZE 3
 #define DUAL_PANEL_TYPE 3
+#define SUB_CMD_AOD_SET_LCD_PRE_ON_OFF 0x38
+#define SUB_CMD_AOD_SET_TCU_CFG 0x3c
+#define SUB_CMD_AOD_POST_HANDLE 0x3f
+#define SUB_CMD_AOD_RELEASE_RENDER_BUFFER 0x44
+#define UI_FT_LIB_MAX 6
+
+
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 static int g_iom3_state_aod = 0;
 static struct mutex g_lock;
@@ -72,12 +101,21 @@ struct timer_list my_timer;
 static struct aod_common_data *g_aod_common_data = NULL;
 static struct aod_common_data *g_aod_gmp_data = NULL;
 struct fb_list *g_ion_fb_config = NULL;
+aod_render_buffer_data_mcu_t *g_buffer_list = NULL;
+struct fb_buf_list *g_fb_dma_buf = NULL;
+struct fb_buf_list *g_render_dma_buf = NULL;
 static struct aod_general_data *g_aod_gen_data[MAX_AOD_GEN_EVENT] = {NULL};
 static struct aod_general_data *g_aod_pause_data = NULL;
 static struct aod_general_data *g_aod_pos_data = NULL;
 static struct aod_general_data *g_aod_bl_data = NULL;
+static struct aod_general_data *g_aod_screen_status_data = NULL;
 static struct aod_multi_gmp_data *g_aod_multi_gmp_data[MAX_MULTI_GMP_SIZE] = {NULL};
 static struct aod_common_data *g_aod_sfr_data = NULL;
+aod_template_data_t post_handle;
+aod_template_data_t *g_aod_push_model;
+aod_template_data_t *g_pcm_data;
+aod_template_data_t *g_map_data;
+aod_font_lib_data_t *g_font_list = NULL;
 
 uint32_t dpu_aod_msg_level = 2;
 int aod_support = 0;
@@ -93,13 +131,11 @@ static unsigned long g_aod_jiffies = 0;
 static struct workqueue_struct *g_aod_wq = NULL;
 static struct work_struct g_aod_worker;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
 extern struct ion_client *dpu_ion_client_create(const char *name);
-extern int write_customize_cmd(const struct write_info *wr, struct read_info *rd, bool is_lock);
+#endif
 
 static struct completion iom3_status_completion;
-extern int register_iom3_recovery_notifier(struct notifier_block *nb);
-extern int send_cmd_from_kernel_nolock(unsigned char cmd_tag,
-	unsigned char cmd_type, unsigned int subtype, const char *buf, size_t count);
 static int dpu_aod_sensorhub_cmd_req(enum obj_cmd cmd);
 static int dpu_aod_set_display_space_req(aod_display_spaces_mcu_t *display_spaces);
 static void dpu_aod_set_config_init(struct aod_data_t *aod_data);
@@ -108,8 +144,12 @@ static int dpu_aod_set_time_req(aod_time_config_mcu_t *time_config);
 static int dpu_aod_start_req(aod_start_config_mcu_t *start_config);
 extern int dpu_sensorhub_aod_unblank(uint32_t msg_no);
 extern int dpu_sensorhub_aod_blank(uint32_t msg_no);
-static int dpu_aod_fold_info_req(aod_fold_info_config_mcu_t *aod_fold_info);
+static int dpu_aod_fold_info_req(aod_fold_info_config_mcu_t *fold_info_config);
 static int dpu_aod_set_vivobus_level_req(aod_set_vivobus_level_data_mcu_t *vivobus_level_mcu);
+#ifdef CONFIG_DKMD_AOD_DEBUG
+static void dpu_dump_aod_mem_info(unsigned int dump_addr, unsigned int length, unsigned int idx, unsigned int cma_flag);
+static int64_t g_dump_aod_timecost = 0;
+#endif
 
 void sh_recovery_handler(void);
 static int dpu_free_buffer(struct aod_data_t *aod_data, void __user *arg);
@@ -119,6 +159,14 @@ static void aod_multi_gmp_data_to_sensorhub(void);
 uint32_t get_lcd_always_on(void)
 {
 	return set_lcd_always_on;
+}
+
+uint32_t get_lpm_on(void)
+{
+	if (g_aod_pause_data)
+		return g_aod_pause_data->data[LPM_ON];
+	else
+		return AOD_LPM_OFF;
 }
 
 int get_aod_support(void)
@@ -213,10 +261,6 @@ static int dpuf_aod_ion_phys(int shared_fd, struct device *dev, unsigned long *a
 	return 0;
 }
 
-#if defined(CONFIG_DPU_FB_AOD) || defined(CONFIG_DKMD_DPU_AOD)
-extern void dpu_aod_schedule_wq(void);
-#endif
-
 static int dpu_aod_send_cmd_to_sensorhub(struct write_info *wr,
 	struct read_info *rd, bool is_lock)
 {
@@ -238,6 +282,58 @@ static int dpu_aod_send_cmd_to_sensorhub(struct write_info *wr,
 		DPU_AOD_ERR("cmd:tag is %d, cmd is %d\n",
 			pkg_ap->tag, pkg_ap->cmd);
 
+	return ret;
+}
+
+static int dpu_aod_template_req(void *buf, uint32_t size)
+{
+	int ret;
+	struct write_info pkg_ap;
+
+	DPU_AOD_INFO("+\n");
+
+	(void)memset_s(&pkg_ap, sizeof(pkg_ap), 0, sizeof(pkg_ap));
+	pkg_ap.tag = TAG_AOD;
+	pkg_ap.cmd = CMD_CMN_CONFIG_REQ;
+	pkg_ap.wr_buf = (const void *)buf; // addr: start addr of subtype
+	pkg_ap.wr_len = size;
+	/* 1 for lock */
+	ret = dpu_aod_send_cmd_to_sensorhub(&pkg_ap, NULL, 1);
+	if (ret) {
+		DPU_AOD_ERR("tag is %d, cmd is %d\n", pkg_ap.tag, pkg_ap.cmd);
+		return ret;
+	}
+
+	DPU_AOD_INFO("-\n");
+	return ret;
+}
+
+static int dpu_aod_template_req_with_resp(void *buf, uint32_t size)
+{
+	int ret;
+	struct write_info pkg_ap;
+	struct read_info pkg_mcu;
+
+	DPU_AOD_INFO("+\n");
+
+	(void)memset_s(&pkg_ap, sizeof(pkg_ap), 0, sizeof(pkg_ap));
+	(void)memset_s(&pkg_mcu, sizeof(pkg_mcu), 0, sizeof(pkg_mcu));
+	pkg_ap.tag = TAG_AOD;
+	pkg_ap.cmd = CMD_CMN_CONFIG_REQ;
+	pkg_ap.wr_buf = (const void *)buf; // addr: start addr of subtype
+	pkg_ap.wr_len = size;
+	/* 1 for lock */
+	ret = dpu_aod_send_cmd_to_sensorhub(&pkg_ap, &pkg_mcu, 1);
+	if (ret) {
+		DPU_AOD_ERR("tag is %d, cmd is %d\n", pkg_ap.tag, pkg_ap.cmd);
+		return ret;
+	}
+
+	if (pkg_mcu.errno != 0) {
+		DPU_AOD_ERR("errno = %d \n", pkg_mcu.errno);
+		return -1;
+	}
+	DPU_AOD_INFO("-\n");
 	return ret;
 }
 
@@ -286,6 +382,30 @@ static int dpu_aod_start_recovery_init(struct aod_data_t *aod_data)
 		ret = dpu_aod_set_vivobus_level_req(&aod_data->vivobus_level_mcu);
 		if (ret) {
 			DPU_AOD_ERR("dpu_aod_set_vivobus_level_req fail\n");
+			return ret;
+		}
+	}
+
+	if (g_aod_push_model != NULL) {
+		ret = dpu_aod_template_req(&(g_aod_push_model->sub_cmd), g_aod_push_model->size - sizeof(uint32_t));
+		if (ret) {
+			DPU_AOD_ERR("dpu_aod_template_req for g_aod_push_model fail\n");
+			return ret;
+		}
+	}
+
+	if (g_font_list != NULL) {
+		ret = dpu_aod_template_req(&(g_font_list->sub_cmd), g_font_list->size - sizeof(uint32_t));
+		if (ret) {
+			DPU_AOD_ERR("dpu_aod_template_req for g_font_list fail\n");
+			return ret;
+		}
+	}
+
+	if (g_map_data != NULL) {
+		ret = dpu_aod_template_req(&(g_map_data->sub_cmd), g_map_data->size - sizeof(uint32_t));
+		if (ret) {
+			DPU_AOD_ERR("dpu_aod_template_req for g_map_data fail\n");
 			return ret;
 		}
 	}
@@ -459,6 +579,51 @@ static void aod_sfr_data(void)
 #endif
 }
 
+static int dpu_aod_set_render_buffer_req(aod_render_buffer_data_mcu_t *render_buffer_mcu)
+{
+	int ret;
+	struct write_info pkg_ap;
+
+	DPU_AOD_INFO("+\n");
+	(void)memset_s(&pkg_ap, sizeof(pkg_ap), 0, sizeof(pkg_ap));
+	pkg_ap.tag = TAG_AOD;
+	pkg_ap.cmd = CMD_CMN_CONFIG_REQ;
+	pkg_ap.wr_buf = (const void *)render_buffer_mcu; // addr: start addr of subtype
+	pkg_ap.wr_len = sizeof(aod_render_buffer_data_mcu_t) + MIN(BUFFER_TYPE_MAX, g_buffer_list->buffer_list.count) * sizeof(struct buffer_info);
+	/* 1 for lock */
+	ret = dpu_aod_send_cmd_to_sensorhub(&pkg_ap, NULL, 1);
+	if (ret) {
+		DPU_AOD_ERR("tag is %d, cmd is %d\n", pkg_ap.tag, pkg_ap.cmd);
+		return ret;
+	}
+
+	DPU_AOD_INFO("-\n");
+	return ret;
+}
+
+static int dpu_aod_set_tcu_cfg_req(aod_tcu_cfg_data_mcu_t *tcu_cfg_mcu)
+{
+	int ret;
+	struct write_info pkg_ap;
+
+	DPU_AOD_INFO("+\n");
+
+	(void)memset_s(&pkg_ap, sizeof(pkg_ap), 0, sizeof(pkg_ap));
+	pkg_ap.tag = TAG_AOD;
+	pkg_ap.cmd = CMD_CMN_CONFIG_REQ;
+	pkg_ap.wr_buf = (const void *)tcu_cfg_mcu; // addr: start addr of subtype
+	pkg_ap.wr_len = sizeof(aod_tcu_cfg_data_mcu_t);
+	/* 1 for lock */
+	ret = dpu_aod_send_cmd_to_sensorhub(&pkg_ap, NULL, 1);
+	if (ret) {
+		DPU_AOD_ERR("tag is %d, cmd is %d\n", pkg_ap.tag, pkg_ap.cmd);
+		return ret;
+	}
+
+	DPU_AOD_INFO("-\n");
+	return ret;
+}
+
 static int dpu_aod_start_recovery_req(struct aod_data_t *aod_data)
 {
 	int ret;
@@ -486,6 +651,19 @@ static int dpu_aod_start_recovery_req(struct aod_data_t *aod_data)
 
 	mutex_lock(&aod_data->ioctl_lock);
 	aod_ion_fb_config();
+	DPU_AOD_INFO("send tcu_cfg\n");
+	ret = dpu_aod_set_tcu_cfg_req(&g_aod_data->tcu_cfg_mcu);
+	if (ret)
+		DPU_AOD_ERR("dpu_aod_set_tcu_cfg_req fail\n");
+	if (g_pcm_data != NULL) {
+		ret = dpu_aod_template_req(&(g_pcm_data->sub_cmd), g_pcm_data->size - sizeof(uint32_t));
+		if (ret) {
+			DPU_AOD_ERR("dpu_aod_template_req for g_pcm_data fail\n");
+			return ret;
+		}
+	}
+	if (g_buffer_list)
+		dpu_aod_set_render_buffer_req(g_buffer_list);
 #ifdef SHMEM_START_CONFIG
 	if (g_aod_common_data != NULL) {
 		offset = offsetof(struct aod_common_data, data);
@@ -526,6 +704,30 @@ static int dpu_aod_start_recovery_req(struct aod_data_t *aod_data)
 	return 0;
 }
 
+static void aod_device_get_smmu_info(void)
+{
+	struct smmu_init_info info;
+	(void)memset_s(&info, sizeof(struct smmu_init_info), 0, sizeof(struct smmu_init_info));
+	g_aod_data->tcu_cfg_mcu.sub_cmd = SUB_CMD_AOD_SET_TCU_CFG;
+	DPU_AOD_INFO("+\n");
+#if defined(CONFIG_SMMU_SUPPORT_AOD)
+	if (!mm_get_smmu_init_info(SMMU_MEDIA1, &info))
+		DPU_AOD_ERR("mm_get_ap_smmu_info MEDIA1 failed\n");
+	g_aod_data->tcu_cfg_mcu.smmu_info = info;
+
+	if (!mm_get_smmu_init_info(SMMU_MEDIA2, &info))
+		DPU_AOD_ERR("mm_get_ap_smmu_info MEDIA2 failed\n");
+	g_aod_data->tcu_cfg_mcu.smmu_info_jpegd = info;
+#endif
+	DPU_AOD_INFO("aod_device_get_smmu_info smmu_cfg_jpegd: 0x%llx, 0x%llx, 0x%llx, 0x%llx\n",
+				g_aod_data->tcu_cfg_mcu.smmu_info_jpegd.strtab_base,
+				g_aod_data->tcu_cfg_mcu.smmu_info_jpegd.strtab_base_cfg,
+				g_aod_data->tcu_cfg_mcu.smmu_info_jpegd.cmdq_q_qbase,
+				g_aod_data->tcu_cfg_mcu.smmu_info_jpegd.evtq_q_qbase);
+
+	DPU_AOD_INFO("-.\n");
+}
+
 static int sensorhub_recovery_notifier(struct notifier_block *nb, unsigned long action,
 								 void *bar)
 {
@@ -549,6 +751,7 @@ static int sensorhub_recovery_notifier(struct notifier_block *nb, unsigned long 
 			g_iom3_state_aod = 1;
 			sh_recovery_handler();
 			(void)dpu_aod_start_recovery_init(aod_start_data);
+			aod_device_get_smmu_info();
 		}
 		break;
 	case IOM3_RECOVERY_IDLE:
@@ -712,6 +915,8 @@ int dss_sr_of_sh_callback(const struct pkt_header *cmd)
 	msg_no = (ctrl_cmd->sub_cmd & 0xFFFF0000) >> 16;
 	msg_cmd = ctrl_cmd->sub_cmd & 0xFFFF;
 
+	DPU_AOD_DEBUG("dss_sr_of_sh_callback enter! %u, %u\n", msg_no, msg_cmd);
+
 	if (msg_cmd == SUB_CMD_AOD_DSS_ON_REQ) {
 		// call back dss on. wake_up lock, and start a timer of 1 s.
 		__pm_stay_awake(g_aod_data->wlock);
@@ -747,9 +952,7 @@ int dss_sr_of_sh_callback(const struct pkt_header *cmd)
 		}
 
 		mutex_unlock(&dss_on_off_lock);
-	}
-	else if (msg_cmd == SUB_CMD_AOD_DSS_OFF_REQ)
-	{
+	} else if (msg_cmd == SUB_CMD_AOD_DSS_OFF_REQ) {
 		// call back dss off. wake_unlock.
 		mutex_lock(&dss_on_off_lock);
 		if (!dss_on_status) {
@@ -779,6 +982,27 @@ int dss_sr_of_sh_callback(const struct pkt_header *cmd)
 		dss_off_status = 1;
 		mutex_unlock(&dss_on_off_lock);
 		__pm_relax(g_aod_data->wlock);
+	} else if (msg_cmd == SUB_CMD_AOD_DSS_VOTE_REQ) {
+		mutex_lock(&dss_on_off_lock);
+		if (!dss_on_status) {
+			DPU_AOD_INFO("dss on not run onetime!\n");
+			mutex_unlock(&dss_on_off_lock);
+			return -1;
+		}
+ 
+		if (!handle_sh_ipc) {
+			DPU_AOD_INFO("SUB_CMD_AOD_DSS_VOTE_REQ:handle_sh_ipc is false!\n");
+			mutex_unlock(&dss_on_off_lock);
+			return -1;
+		}
+ 
+		ret = dpu_sensorhub_aod_dvfs_vote(msg_no);
+		if (ret) {
+			DPU_AOD_INFO("dpu_sensorhub_aod_dvfs_fail: is false!\n");
+			mutex_unlock(&dss_on_off_lock);
+			return -1;
+		}
+		mutex_unlock(&dss_on_off_lock);
 	}
 
 	DPU_AOD_DEBUG("dss_sr_of_sh_callback exit!\n");
@@ -788,11 +1012,12 @@ int dss_sr_of_sh_callback(const struct pkt_header *cmd)
 /*lint -e455, -e456*/
 void aod_off_handle(struct work_struct *work)
 {
+	int ret;
+
 #ifdef CONFIG_DKMD_DPU_AOD
 	DPU_AOD_INFO("aod_timer_process ignore!\n");
 	return;
 #endif
-	int ret;
 
 	DPU_AOD_INFO("aod_timer_process enter!\n");
 
@@ -837,7 +1062,7 @@ void aod_timer_process(unsigned long data)
 #else
 void aod_timer_process(struct timer_list *timer_lt)
 {
-	(void*)timer_lt;
+	(void)timer_lt;
 #endif
 	queue_work(g_aod_wq, &g_aod_worker);
 }
@@ -880,9 +1105,9 @@ void sh_recovery_handler(void)
 
 static void dpu_dump_time_config(aod_time_config_mcu_t *time_config)
 {
-	DPU_AOD_DEBUG("curr_tm %llu, tm_zone %d, sec_tm_zone %d, tm_fmt %d\n",
+	DPU_AOD_DEBUG("curr_tm %llu, tm_zone %d, sec_tm_zone %d, tm_fmt %d multi_color %d\n",
 		time_config->curr_time, time_config->time_zone,
-		time_config->sec_time_zone, time_config->time_format);
+		time_config->sec_time_zone, time_config->time_format, time_config->multi_color);
 }
 
 static void dpu_dump_display_space(aod_display_spaces_mcu_t *display_space)
@@ -915,11 +1140,12 @@ static void dpu_dump_start_config(const aod_start_config_mcu_t *start_config)
 		start_config->intelli_switching);
 	DPU_AOD_DEBUG("aod_type is %d\n", start_config->aod_type);
 	DPU_AOD_DEBUG("fp_mode is %d\n", start_config->fp_mode);
-	DPU_AOD_INFO("dynamic_fb %u, ext_fb %u, face_id %u, pd_logo %u\n",
+	DPU_AOD_INFO("dynamic_fb %u, ext_fb %u, face_id %u, pd_logo %u utc_cnt %u\n",
 		start_config->dynamic_fb_count,
 		start_config->dynamic_ext_fb_count,
 		start_config->face_id_fb_count,
-		start_config->pd_logo_fb_count);
+		start_config->pd_logo_fb_count,
+		start_config->utc_cnt);
 	count = start_config->dynamic_fb_count +
 		start_config->dynamic_ext_fb_count +
 		start_config->face_id_fb_count +
@@ -1154,6 +1380,7 @@ static int dpu_aod_set_time_req(aod_time_config_mcu_t *time_config)
 	pkt.time_param.sec_time_zone = time_config->sec_time_zone;
 	pkt.time_param.time_format = time_config->time_format;
 	pkt.time_param.time_zone = time_config->time_zone;
+	pkt.time_param.multi_color = time_config->multi_color;
 
 	dpu_dump_time_config(&pkt.time_param);
 
@@ -1192,6 +1419,10 @@ static int dpu_aod_start_req(aod_start_config_mcu_t *start_config)
 			aod_data->no_need_enter_aod = false;
 			aod_data->start_req_faster = false;
 		}
+		return -EAGAIN;
+	}
+	if (aod_data->ion_dynamic_update_flag == false) {
+		DPU_AOD_INFO("ion_dynamic_update_flag is false.\n");
 		return -EAGAIN;
 	}
 	aod_data->start_req_faster = false;
@@ -1334,6 +1565,7 @@ void default_aod_pause_data(void)
 	g_aod_pause_data->size = sizeof(uint32_t) * DEFAULT_PAUSE_DATA_NUM;
 	g_aod_pause_data->data[SUB_CMD_TYPE] = SUB_CMD_AOD_STOP_REQ;
 	g_aod_pause_data->data[SCREEN_STATE] = DISPALY_SCREEN_OFF;
+	g_aod_pause_data->data[LPM_ON] = AOD_LPM_OFF;
 }
 
 int dpu_send_aod_stop(void)
@@ -1359,6 +1591,9 @@ int dpu_send_aod_stop(void)
 	}
 	if(ret) {
 		DPU_AOD_ERR("dpu_aod_stop_req fail\n");
+		down(&(aod_data->aod_status_sem));
+		aod_data->aod_status = false;
+		up(&(aod_data->aod_status_sem));
 		return -1;
 	}
 	down(&(aod_data->aod_status_sem));
@@ -1370,7 +1605,7 @@ int dpu_send_aod_stop(void)
 	return 0;
 }
 
-static int dpu_aod_end_updating_req(aod_display_pos_t *pos_data, uint32_t aod_type)
+static int dpu_aod_end_updating_req(aod_display_pos_t *pos_data, uint32_t aod_type, uint32_t utc_cnt)
 {
 	int ret = 0;
 	struct write_info pkg_ap;
@@ -1395,14 +1630,17 @@ static int dpu_aod_end_updating_req(aod_display_pos_t *pos_data, uint32_t aod_ty
 	pkt.end_updating_data_to_sensorhub.aod_pos.x_start = pos_data->x_start;
 	pkt.end_updating_data_to_sensorhub.aod_pos.y_start = pos_data->y_start;
 	pkt.end_updating_data_to_sensorhub.aod_type = aod_type;
-
-	DPU_AOD_DEBUG("display_pos:x_start %d, y_start %d; aod_type %u\n",
+	pkt.end_updating_data_to_sensorhub.utc_cnt = utc_cnt;
+ 
+	DPU_AOD_INFO("display_pos:x_start %d, y_start %d; aod_type %u; utc_cnt %u\n",
 		pkt.end_updating_data_to_sensorhub.aod_pos.x_start,
 		pkt.end_updating_data_to_sensorhub.aod_pos.y_start,
-		pkt.end_updating_data_to_sensorhub.aod_type);
-
+		pkt.end_updating_data_to_sensorhub.aod_type,
+		pkt.end_updating_data_to_sensorhub.utc_cnt);
+ 
 	pkg_ap.wr_buf = &hd[1];
 	pkg_ap.wr_len = sizeof(pkt) - sizeof(pkt.hd);
+ 
 	/* 1 for lock */
 	ret = dpu_aod_send_cmd_to_sensorhub(&pkg_ap, &pkg_mcu, 1);
 	if (ret) {
@@ -1572,10 +1810,11 @@ static int dpu_set_time(struct aod_data_t *aod_data, const void __user* arg)
 	aod_data->time_config_mcu.sec_time_zone = time_config.sec_time_zone;
 	aod_data->time_config_mcu.time_format = time_config.time_format;
 	aod_data->time_config_mcu.time_zone = time_config.time_zone;
+	aod_data->time_config_mcu.multi_color = time_config.multi_color;
 
-	DPU_AOD_DEBUG("curr_tm %llu, tm_zone %d, sec_tm_zone %d, tm_fmt %d\n",
-			time_config.curr_time, time_config.time_zone,
-			time_config.sec_time_zone, time_config.time_format);
+	DPU_AOD_INFO("curr_tm %llu, tm_zone %d, sec_tm_zone %d, tm_fmt %d, tm_color %d\n",
+			time_config.curr_time, time_config.time_zone, time_config.sec_time_zone,
+			time_config.time_format, time_config.multi_color);
 
 	ret = dpu_aod_set_time_req(&aod_data->time_config_mcu);
 	if(ret) {
@@ -1718,7 +1957,6 @@ static int dpu_aod_start(struct aod_data_t *aod_data, const void __user* arg)
 		return -EINVAL;
 	}
 
-
 	aod_data->aod_digits_addr = start_config.bitmaps_offset;
 	aod_data->set_config_mcu.fp_offset = start_config.fp_offset;
 	aod_data->set_config_mcu.fp_count = start_config.fp_count;
@@ -1735,6 +1973,7 @@ static int dpu_aod_start(struct aod_data_t *aod_data, const void __user* arg)
 	aod_data->start_config_mcu.intelli_switching = start_config.intelli_switching;
 	aod_data->start_config_mcu.aod_type = start_config.aod_type;
 	aod_data->start_config_mcu.fp_mode = start_config.fp_mode;
+	aod_data->start_config_mcu.utc_cnt = start_config.utc_cnt;
 	ret = dpu_aod_start_req(&aod_data->start_config_mcu);
 	if(ret) {
 		DPU_AOD_ERR("dpu_aod_start_req fail\n");
@@ -1746,13 +1985,91 @@ static int dpu_aod_start(struct aod_data_t *aod_data, const void __user* arg)
 	return 0;
 }
 
-static void aod_mem_free()
+static void g_ion_fb_dmabuf_unmap(void)
+{
+	uint64_t count;
+	uint32_t i;
+
+	if (g_ion_fb_config == NULL || g_fb_dma_buf == NULL) {
+		DPU_AOD_INFO("already released\n");
+		return;
+	}
+	count = g_ion_fb_config->dynamic_fb_count;
+#if defined(CONFIG_DKMD_DPU_AOD)
+	for (i = 0; i < count; i++) {
+		if (g_ion_fb_config->fb[i].is_via_smmu) {
+			dpu_sh_dmabuf_unmap_iova(g_ion_fb_config->fb[i].addr, g_fb_dma_buf->dma[i]);
+			dma_buf_put(g_fb_dma_buf->dma[i]);
+		}
+	}
+#endif
+	kfree(g_fb_dma_buf);
+	g_fb_dma_buf = NULL;
+}
+
+static void g_render_dmabuf_put(void)
+{
+	uint32_t i;
+	int ret;
+
+	if (g_buffer_list == NULL || g_render_dma_buf == NULL) {
+		DPU_AOD_INFO("already released\n");
+		return;
+	}
+	post_handle.sub_cmd = SUB_CMD_AOD_POST_HANDLE;
+	ret = dpu_aod_template_req_with_resp((void *)(&post_handle.sub_cmd), sizeof(uint32_t));
+	if (ret)
+		DPU_AOD_ERR("dpu_aod_post_handle fail\n");
+
+	for (i = 0; i < SECURE_BUFFER_MAX && i < g_buffer_list->buffer_list.count; i++) {
+		if (g_buffer_list->buffer_list.buffer[i].used) {
+			dma_buf_put(g_render_dma_buf->dma[i]);
+			DPU_AOD_INFO("dma_buf_put index %d\n", i);
+		}
+	}
+	kfree(g_render_dma_buf);
+	g_render_dma_buf = NULL;
+}
+
+static void aod_mem_free(void)
 {
 	int i;
+	g_ion_fb_dmabuf_unmap();
+	g_render_dmabuf_put();
 
 	if (g_ion_fb_config != NULL) {
 		kfree(g_ion_fb_config);
 		g_ion_fb_config = NULL;
+	}
+	if (g_buffer_list != NULL) {
+#ifdef CONFIG_FS_ADAPTER
+		if (g_buffer_list->buffer_list.buffer[FILE_CACHE].used)
+			iomcu_sh_file_free_cma_addr();
+#endif
+#ifdef CONFIG_CONTEXTHUB_MINIFS
+		if (g_buffer_list->buffer_list.buffer[FILE_LIST_TLV].used)
+			push_delete_file_info_list();
+		if (g_buffer_list->buffer_list.buffer[FILE_SYS_BUFF].used)
+			release_cma_only(g_buffer_list->buffer_list.buffer[FILE_SYS_BUFF].addr, g_buffer_list->buffer_list.buffer[FILE_SYS_BUFF].size);
+#endif
+		kfree(g_buffer_list);
+		g_buffer_list = NULL;
+	}
+	if (g_aod_push_model != NULL) {
+		kfree(g_aod_push_model);
+		g_aod_push_model = NULL;
+	}
+	if (g_font_list != NULL) {
+		kfree(g_font_list);
+		g_font_list = NULL;
+	}
+	if (g_pcm_data != NULL) {
+		kfree(g_pcm_data);
+		g_pcm_data = NULL;
+	}
+	if (g_map_data != NULL) {
+		kfree(g_map_data);
+		g_map_data = NULL;
 	}
 	for (i = 0; i < MAX_AOD_GEN_EVENT; i++) {
 		if (g_aod_gen_data[i] != NULL) {
@@ -1873,6 +2190,9 @@ static int dpu_aod_pause_new(struct aod_data_t *aod_data, void __user *arg)
 		DPU_AOD_ERR("dpu_aod_pause_new_req fail\n");
 		kfree(g_aod_pause_data);
 		g_aod_pause_data = NULL;
+		down(&(aod_data->aod_status_sem));
+		aod_data->aod_status = false;
+		up(&(aod_data->aod_status_sem));
 		return ret;
 	}
 	down(&(aod_data->aod_status_sem));
@@ -2058,14 +2378,21 @@ static int dpu_aod_pause_new_req(void)
 	ret = dpu_aod_send_cmd_to_sensorhub(&pkg_ap, &pkg_mcu, 0);
 	if (ret) {
 		DPU_AOD_ERR("aod stop failed! retry (tag is %d, cmd is %d)\n", pkg_ap.tag, pkg_ap.cmd);
+		mdelay(100);
 		ret = dpu_aod_send_cmd_to_sensorhub(&pkg_ap, &pkg_mcu, 0);
 	}
-	if (pkg_mcu.errno != 0) {
-		DPU_AOD_ERR("errno = %d \n", pkg_mcu.errno);
+	if (pkg_mcu.errno != 0 || ret != 0) {
+		DPU_AOD_ERR("ret = %d errno = %d \n", ret, pkg_mcu.errno);
 	} else {
-		(void)memcpy_s(g_aod_pause_data->data, pkg_mcu.data_length,
-			(const void *)(pkg_mcu.data), pkg_mcu.data_length);
-		ret = DPU_AOD_OK;
+		if (g_aod_pause_data->size - sizeof(struct aod_general_data) < pkg_mcu.data_length) {
+			DPU_AOD_ERR("out-of-bounds memory access, g_aod_pause_data size = %d, pkg_mcu size =%d\n",
+			g_aod_pause_data->size, pkg_mcu.data_length);
+		} else {			
+			(void)memcpy_s(g_aod_pause_data->data, pkg_mcu.data_length,
+				(const void *)(pkg_mcu.data), pkg_mcu.data_length);
+			DPU_AOD_INFO("screen_state %d lpm_on %d\n", g_aod_pause_data->data[SCREEN_STATE], g_aod_pause_data->data[LPM_ON]);
+			ret = DPU_AOD_OK;
+		}
 	}
 	dpu_disable_sh_ipc_and_blank();
 	mutex_unlock(&(g_aod_data->aod_lock));
@@ -2145,6 +2472,7 @@ static int dpu_aod_get_dynamic_fb(struct aod_data_t *aod_data, const void __user
 	}
 	if (aod_data->ion_dynamic_alloc_flag != false) {
 		DPU_AOD_ERR("Memory has been allocated!\n");
+		aod_data->ion_dynamic_update_flag = false;
 		return -EINVAL;
 	}
 	for (i = 0; i < count; i++) {
@@ -2188,6 +2516,7 @@ static int dpu_aod_get_dynamic_fb(struct aod_data_t *aod_data, const void __user
 		aod_data->ion_dyn_handle[i] = handle;
 		aod_data->start_config_mcu.dynamic_fb_addr[i] = (uint32_t)buf_addr;
 		aod_data->ion_dynamic_alloc_flag = true;
+		aod_data->ion_dynamic_update_flag = true;
 	}
 	aod_data->start_config_mcu.dynamic_fb_count =
 		ion_fb_config.dynamic_fb_count;
@@ -2211,6 +2540,54 @@ static int dpu_aod_get_dynamic_fb(struct aod_data_t *aod_data, const void __user
 	return 0;
 }
 
+static int dynamic_fb_dma_check(void)
+{
+	uint32_t size;
+	uint64_t buf_addr;
+	struct dma_buf *buf = NULL;
+	int i;
+
+	size = sizeof(struct fb_buf_list) + sizeof(struct dma_buf *) * g_ion_fb_config->dynamic_fb_count;
+	if (size > MAX_ALLOC_SIZE) {
+		DPU_AOD_ERR("size > MAX_ALLOC_SIZE\n");
+		return DPU_AOD_FAIL;
+	}
+	g_fb_dma_buf = kzalloc(size, GFP_KERNEL);
+	if (!g_fb_dma_buf) {
+		DPU_AOD_ERR("alloc memory failed\n");
+		return -ENOMEM;
+	}
+	/*
+	 * save dma_buf pointer in g_fb_dma_buf
+	 * use nullpointer judgment of g_fb_dma_buf
+	 * to make sure dma_buf_get() and dma_buf_put() comes in a pair.
+	 */
+#if defined(CONFIG_DKMD_DPU_AOD)
+	for (i = 0; i < g_ion_fb_config->dynamic_fb_count; i++) {
+		if (g_ion_fb_config->fb[i].is_via_smmu) {
+			buf = dma_buf_get(g_ion_fb_config->fb[i].addr);
+			if (IS_ERR(buf)) {
+				DPU_AOD_ERR("Invalid file handle %d\n", g_ion_fb_config->fb[i].addr);
+				return -EFAULT;
+			}
+			g_fb_dma_buf->dma[i] = buf;
+			if (dpu_sh_dmabuf_map_iova(&buf_addr, buf, g_ion_fb_config->fb[i].size)) {
+				DPU_AOD_ERR("dpu_sh_dmabuf_map_iova fail\n");
+				return -EFAULT;
+			}
+			g_ion_fb_config->fb[i].addr = buf_addr;
+			DPU_AOD_INFO("phys addr(0x%lx), iova %u, size %u, index %u!\n",
+					buf_addr, g_ion_fb_config->fb[i].addr,
+					g_ion_fb_config->fb[i].size, i);
+#ifdef CONFIG_DKMD_AOD_DEBUG
+			dpu_dump_aod_mem_info(buf_addr, g_ion_fb_config->fb[i].size, i, 0x0);
+#endif
+		}
+	}
+#endif
+	return 0;
+}
+
 static int dynamic_fb_data_check(struct aod_data_t *aod_data,
 	const void __user *arg, uint32_t *len)
 {
@@ -2222,6 +2599,7 @@ static int dynamic_fb_data_check(struct aod_data_t *aod_data,
 	}
 	DPU_AOD_INFO("len is %d\n", *len);
 	if (g_ion_fb_config != NULL) {
+		g_ion_fb_dmabuf_unmap();
 		kfree(g_ion_fb_config);
 		g_ion_fb_config = NULL;
 	}
@@ -2236,12 +2614,14 @@ static int dynamic_fb_data_check(struct aod_data_t *aod_data,
 	}
 	if (copy_from_user(g_ion_fb_config, arg, *len)) {
 		DPU_AOD_ERR("copy_from user failed\n");
+		g_ion_fb_dmabuf_unmap();
 		kfree(g_ion_fb_config);
 		g_ion_fb_config = NULL;
 		return -EFAULT;
 	}
 	if (g_ion_fb_config->size != *len) {
 		DPU_AOD_ERR("err size=%u, *len=%u\n", g_ion_fb_config->size, *len);
+		g_ion_fb_dmabuf_unmap();
 		kfree(g_ion_fb_config);
 		g_ion_fb_config = NULL;
 		return -EFAULT;
@@ -2251,11 +2631,12 @@ static int dynamic_fb_data_check(struct aod_data_t *aod_data,
 	DPU_AOD_INFO("max_count is %u\n", max_count);
 	if (g_ion_fb_config->dynamic_fb_count > max_count) {
 		DPU_AOD_ERR("dynamic_fb_count > max_count\n");
+		g_ion_fb_dmabuf_unmap();
 		kfree(g_ion_fb_config);
 		g_ion_fb_config = NULL;
 		return DPU_AOD_FAIL;
 	}
-	return 0;
+	return dynamic_fb_dma_check();
 }
 
 static int ion_fb_config_send(uint32_t len)
@@ -2307,6 +2688,83 @@ static int ion_fb_config_send(uint32_t len)
 	return ret;
 }
 
+#ifdef CONFIG_DKMD_AOD_DEBUG
+#define MAX_FILE_NAME_LEN      512
+#define AOD_DUMP_DATA_DIR      "/data/vendor/log/sensorhub"
+#define AOD_DUMP_DATA_FILE     "/data/vendor/log/sensorhub/aod_mem_info_%u.data"
+
+static int64_t get_time_stamp(void)
+{
+	struct timespec64 ts;
+	ktime_get_boottime_ts64(&ts);
+
+	/* timevalToNano */
+	return ts.tv_sec * 1000000000LL + ts.tv_nsec;
+}
+
+static void dpu_clear_aod_mem_info(void)
+{
+	int ret;
+
+	g_dump_aod_timecost = 0;
+	ret = (int)vendor_access(AOD_DUMP_DATA_DIR, 0);
+	if (ret)
+		return;
+	ret = (int)vendor_rmdir(AOD_DUMP_DATA_DIR);
+	if (ret)
+		DPU_AOD_ERR("clear %s failed, dump data maybe inauthentic\n", AOD_DUMP_DATA_DIR);
+}
+
+static void dpu_dump_aod_mem_info(unsigned int dump_addr, unsigned int length, unsigned int idx, unsigned int cma_flag)
+{
+	static mm_segment_t old_fs;
+	struct file *fp = NULL;
+	struct file *pfile = NULL;
+	void *virt_addr = NULL;
+	char filename[MAX_FILE_NAME_LEN] = {0};
+	int ret;
+	int64_t ts = get_time_stamp();
+
+	old_fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	/* mkdir aod mem data dir */
+	ret = (int)vendor_access(AOD_DUMP_DATA_DIR, 0);
+	if (ret) {
+		ret = vendor_mkdir(AOD_DUMP_DATA_DIR, 0770); /* 0770: dir rights */
+		if (ret < 0) {
+			DPU_AOD_ERR("create %s failed, ret = %d\n", AOD_DUMP_DATA_DIR, ret);
+			set_fs(old_fs);
+			return;
+		}
+		DPU_AOD_INFO("create dir %s successed, %d\n", AOD_DUMP_DATA_DIR, ret);
+	}
+	/* write content */
+	ret = snprintf_s(filename, MAX_FILE_NAME_LEN, MAX_FILE_NAME_LEN - 1, AOD_DUMP_DATA_FILE, idx);
+	if (ret < 0) {
+		DPU_AOD_ERR("snprintf_s failed\n");
+		set_fs(old_fs);
+		return;
+	}
+	fp = filp_open(filename, O_CREAT | O_WRONLY | O_TRUNC, FILE_LIMIT);
+	if (IS_ERR(fp)) {
+		DPU_AOD_ERR("open %s fail\n", filename);
+		set_fs(old_fs);
+		return;
+	}
+	if (cma_flag != 0)
+		virt_addr = phys_to_virt(dump_addr);
+	else
+		virt_addr = (void *)dump_addr;
+	vfs_write(fp, virt_addr, length, &(fp->f_pos));
+	filp_close(fp, NULL);
+
+	set_fs(old_fs);
+	g_dump_aod_timecost += get_time_stamp() - ts;
+	DPU_AOD_INFO("total cost %d ns\n", g_dump_aod_timecost);
+}
+#endif
+
 static int dpu_aod_get_dynamic_fb_new(struct aod_data_t *aod_data,
 	const void __user *arg)
 {
@@ -2323,6 +2781,7 @@ static int dpu_aod_get_dynamic_fb_new(struct aod_data_t *aod_data,
 
 	if (aod_data->ion_dynamic_alloc_flag != false) {
 		DPU_AOD_ERR("Memory has been allocated!\n");
+		aod_data->ion_dynamic_update_flag = false;
 		return -EINVAL;
 	}
 
@@ -2332,28 +2791,44 @@ static int dpu_aod_get_dynamic_fb_new(struct aod_data_t *aod_data,
 
 	count = g_ion_fb_config->dynamic_fb_count;
 	DPU_AOD_INFO("count is %d\n", count);
+#ifdef CONFIG_DKMD_AOD_DEBUG
+	dpu_clear_aod_mem_info();
+#endif
 	for (i = 0; i < count; i++) {
-		ret = dpuf_aod_ion_phys(g_ion_fb_config->fb[i].addr,
+		if (!g_ion_fb_config->fb[i].is_via_smmu) {
+			ret = dpuf_aod_ion_phys(g_ion_fb_config->fb[i].addr,
 			aod_data->dev, &buf_addr);
-		if (ret < 0) {
-			DPU_AOD_ERR("ion_phys fail, ion_buf_fb %u, size %u, index %u!\n",
-				g_ion_fb_config->fb[i].addr,
-				g_ion_fb_config->fb[i].size, i);
-			continue;
+			if (ret < 0) {
+				DPU_AOD_ERR("ion_phys fail, ion_buf_fb %u, size %u, index %u!\n",
+					g_ion_fb_config->fb[i].addr,
+					g_ion_fb_config->fb[i].size, i);
+				continue;
+			}
+			if (buf_addr > MAX_ADDR_FOR_SENSORHUB) {
+				DPU_AOD_ERR("phys addr(0x%lx) invalid, ion_buf_fb %u, size %u, index %u!\n",
+					buf_addr, g_ion_fb_config->fb[i].addr,
+					g_ion_fb_config->fb[i].size, i);
+				continue;
+			}
+			g_ion_fb_config->fb[i].addr = buf_addr;
+			DPU_AOD_INFO("phys addr(0x%lx), ion_buf_fb %u, size %u, index %u!\n",
+					buf_addr, g_ion_fb_config->fb[i].addr,
+					g_ion_fb_config->fb[i].size, i);
+#ifdef CONFIG_DKMD_AOD_DEBUG
+			dpu_dump_aod_mem_info(buf_addr, g_ion_fb_config->fb[i].size, i, 0x1);
+#endif
 		}
-		if (buf_addr > MAX_ADDR_FOR_SENSORHUB) {
-			DPU_AOD_ERR("phys addr(0x%lx) invalid, ion_buf_fb %u, size %u, index %u!\n",
-				buf_addr, g_ion_fb_config->fb[i].addr,
-				g_ion_fb_config->fb[i].size, i);
-			continue;
-		}
-		g_ion_fb_config->fb[i].addr = buf_addr;
-		DPU_AOD_INFO("phys addr(0x%lx), ion_buf_fb %u, size %u, index %u!\n",
-				buf_addr, g_ion_fb_config->fb[i].addr,
-				g_ion_fb_config->fb[i].size, i);
 	}
 	aod_data->ion_dynamic_alloc_flag = true;
+	aod_data->ion_dynamic_update_flag = true;
+
+	DPU_AOD_INFO("send tcu_cfg\n");
+	ret = dpu_aod_set_tcu_cfg_req(&g_aod_data->tcu_cfg_mcu);
+	if (ret)
+		DPU_AOD_ERR("dpu_aod_set_tcu_cfg_req fail\n");
+
 	ret = ion_fb_config_send(len);
+	
 	return ret;
 }
 
@@ -2361,6 +2836,7 @@ static int dpu_aod_free_dynamic_fb_new(struct aod_data_t *aod_data, void __user 
 {
 	uint32_t i;
 
+	DPU_AOD_INFO("+\n");
 	if (aod_data == NULL) {
 		DPU_AOD_ERR("aod_data NULL Pointer!\n");
 		return -EINVAL;
@@ -2382,6 +2858,7 @@ static int dpu_aod_free_dynamic_fb_new(struct aod_data_t *aod_data, void __user 
 	}
 	g_ion_fb_config->dynamic_fb_count = 0;
 	aod_data->ion_dynamic_alloc_flag = false;
+	DPU_AOD_INFO("-\n");
 	return 0;
 }
 
@@ -2390,6 +2867,7 @@ static int dpu_aod_free_dynamic_fb(struct aod_data_t *aod_data, void __user* arg
 	uint32_t i;
 	uint64_t count;
 
+	DPU_AOD_INFO("+\n");
 	if (NULL == aod_data) {
 		DPU_AOD_ERR("aod_data NULL Pointer!\n");
 		return -EINVAL;
@@ -2432,9 +2910,9 @@ static int dpu_aod_free_dynamic_fb(struct aod_data_t *aod_data, void __user* arg
 	aod_data->start_config_mcu.dynamic_reserve_count = 0;
 #endif
 	aod_data->ion_dynamic_alloc_flag = false;
+	DPU_AOD_INFO("-\n");
 	return 0;
 }
-
 
 static int dpu_aod_resume(struct aod_data_t *aod_data, const void __user* arg)
 {
@@ -2476,6 +2954,7 @@ static int dpu_aod_resume(struct aod_data_t *aod_data, const void __user* arg)
 	aod_data->start_config_mcu.intelli_switching = resume_config.intelli_switching;
 	aod_data->start_config_mcu.aod_type = resume_config.aod_type;
 	aod_data->start_config_mcu.fp_mode = resume_config.fp_mode;
+	aod_data->start_config_mcu.utc_cnt = resume_config.utc_cnt;
 
 	ret = dpu_aod_start_req(&aod_data->start_config_mcu);
 	if(ret) {
@@ -2567,7 +3046,7 @@ static int dpu_end_updating(struct aod_data_t *aod_data, const void __user* arg)
 	aod_data->pos_data.x_start = end_updating_pos.aod_pos.x_start;
 	aod_data->pos_data.y_start = end_updating_pos.aod_pos.y_start;
 
-	ret = dpu_aod_end_updating_req(&aod_data->pos_data, end_updating_pos.aod_type);
+	ret = dpu_aod_end_updating_req(&aod_data->pos_data, end_updating_pos.aod_type, end_updating_pos.utc_cnt);
 	if(ret) {
 		DPU_AOD_ERR("dpu_aod_end_updating_req fail\n");
 		return ret;
@@ -2603,6 +3082,9 @@ static int dpu_aod_stop(struct aod_data_t *aod_data, void __user* arg)
 	ret = dpu_aod_stop_req(&aod_data->pos_data);
 	if(ret) {
 		DPU_AOD_ERR("dpu_aod_stop_req fail\n");
+		down(&(aod_data->aod_status_sem));
+		aod_data->aod_status = false;
+		up(&(aod_data->aod_status_sem));
 		return ret;
 	}
 
@@ -2887,13 +3369,13 @@ static int gen_info_send_to_sensorhub(uint32_t length,
 static int aod_gen_data_process(struct aod_general_data *aod_gen_data,
 	uint32_t length)
 {
+	uint32_t cmd_type;
+
 	if (aod_gen_data == NULL) {
 		DPU_AOD_ERR("aod_gen_data is NULL\n");
 		return -EINVAL;
 	}
-
-	uint32_t cmd_type = aod_gen_data->data[0];
-
+	cmd_type = aod_gen_data->data[0];
 	if (cmd_type >= MAX_AOD_GEN_EVENT) {
 		DPU_AOD_ERR("cmd_type is too big\n");
 		return -EINVAL;
@@ -3146,8 +3628,6 @@ static int dpu_aod_set_multi_gmp_info(struct aod_data_t *aod_data, const void __
 
 static int aod_bl_data_receive(uint32_t *len, void __user *arg)
 {
-	uint32_t i;
-
 	if (copy_from_user(len, arg, sizeof(uint32_t))) {
 		DPU_AOD_ERR("copy_from_user failed\n");
 		return -EFAULT;
@@ -3157,8 +3637,10 @@ static int aod_bl_data_receive(uint32_t *len, void __user *arg)
 		g_aod_bl_data = NULL;
 	}
 	DPU_AOD_INFO("receive ap length = %u\n", *len);
-	if ((*len < sizeof(struct aod_general_data)) || (*len > MAX_ALLOC_SIZE)) {
-		DPU_AOD_ERR("len < 4 or > MAX_ALLOC_SIZE\n");
+
+	if (*len != sizeof(struct aod_general_data) + sizeof(struct aod_general_ioctl_data) +
+				sizeof(struct aod_ioctl_data_last_backlight)) {
+		DPU_AOD_ERR("len unexpect\n");
 		return DPU_AOD_FAIL;
 	}
 	g_aod_bl_data = kzalloc(*len, GFP_KERNEL);
@@ -3220,12 +3702,11 @@ static int dpu_aod_bl_data_req(void)
 
 static int dpu_aod_get_last_backlight(struct aod_data_t *aod_data, void __user *arg)
 {
-	DPU_AOD_INFO("+\n");
-	uint32_t *p;
-	uint8_t *pp;
+	struct aod_ioctl_data_last_backlight *last_backlight;
 	uint32_t length = 0;
 	int ret;
 
+	DPU_AOD_INFO("+\n");
 	if ((!arg) || (!aod_data)) {
 		DPU_AOD_ERR("arg NULL Pointer!\n");
 		return -EINVAL;
@@ -3243,10 +3724,9 @@ static int dpu_aod_get_last_backlight(struct aod_data_t *aod_data, void __user *
 		g_aod_bl_data = NULL;
 		return ret;
 	}
-	pp = (uint8_t *)(void *)g_aod_bl_data;
-	pp += sizeof(uint32_t) * BL_DATA_SHIFT;
-	p = (uint32_t *)(void *)pp;
-	DPU_AOD_INFO("g_aod_bl_data->data:%d\n", *p);
+	last_backlight = (struct aod_ioctl_data_last_backlight *)((char *)g_aod_bl_data +
+						sizeof(struct aod_general_data) + sizeof(struct aod_general_ioctl_data));
+	DPU_AOD_INFO("g_aod_bl_data->data:%d\n", last_backlight->bl);
 
 	if (copy_to_user(arg, g_aod_bl_data, length)) {
 		DPU_AOD_ERR("copy_to_user failed\n");
@@ -3256,6 +3736,574 @@ static int dpu_aod_get_last_backlight(struct aod_data_t *aod_data, void __user *
 	}
 	DPU_AOD_INFO("-\n");
 	return DPU_AOD_OK;
+}
+
+static int aod_screen_status_receive(uint32_t *len, void __user *arg)
+{
+	if (copy_from_user(len, arg, sizeof(uint32_t))) {
+		DPU_AOD_ERR("copy_from_user failed\n");
+		return -EFAULT;
+	}
+	if (g_aod_screen_status_data != NULL) {
+		kfree(g_aod_screen_status_data);
+		g_aod_screen_status_data = NULL;
+	}
+	DPU_AOD_INFO("receive ap length = %u\n", *len);
+	if (*len != sizeof(struct aod_general_data) + sizeof(struct aod_general_ioctl_data) +
+				sizeof(struct aod_ioctl_data_screen_status)) {
+		DPU_AOD_ERR("len unexpect\n");
+		return DPU_AOD_FAIL;
+	}
+	g_aod_screen_status_data = kzalloc(*len, GFP_KERNEL);
+	if (!g_aod_screen_status_data) {
+		DPU_AOD_ERR("alloc memory failed\n");
+		return -ENOMEM;
+	}
+	if (copy_from_user(g_aod_screen_status_data, arg, *len)) {
+		DPU_AOD_ERR("copy_from_user failed\n");
+		kfree(g_aod_screen_status_data);
+		g_aod_screen_status_data = NULL;
+		return -EFAULT;
+	}
+	if (g_aod_screen_status_data->size != *len) {
+		DPU_AOD_ERR("err size=%u, *len=%u\n", g_aod_screen_status_data, *len);
+		kfree(g_aod_screen_status_data);
+		g_aod_screen_status_data = NULL;
+		return -EFAULT;
+	}
+	return DPU_AOD_OK;
+}
+
+static int dpu_aod_screen_status_data_req(void)
+{
+	int ret;
+	struct write_info pkg_ap;
+	struct read_info pkg_mcu;
+
+	DPU_AOD_INFO("+\n");
+	if (!g_aod_screen_status_data) {
+		DPU_AOD_ERR("g_aod_pos_data is NULL Pointer\n");
+		return DPU_AOD_FAIL;
+	}
+	(void)memset_s(&pkg_ap, sizeof(pkg_ap), 0, sizeof(pkg_ap));
+	(void)memset_s(&pkg_mcu, sizeof(pkg_mcu), 0, sizeof(pkg_mcu));
+	pkg_ap.tag = TAG_AOD;
+	pkg_ap.cmd = CMD_CMN_CONFIG_REQ;
+	pkg_ap.wr_buf = (const void *)(g_aod_screen_status_data->data);
+	pkg_ap.wr_len = g_aod_screen_status_data->size - sizeof(uint32_t);
+	/* set is_lock be false to avoid blocking face lock, 0 for nolock */
+	ret = dpu_aod_send_cmd_to_sensorhub(&pkg_ap, &pkg_mcu, 0);
+	if (ret)
+		DPU_AOD_ERR("tag is %d, cmd is %d\n", pkg_ap.tag, pkg_ap.cmd);
+	if (pkg_mcu.errno != 0) {
+		DPU_AOD_ERR("errno = %d\n", pkg_mcu.errno);
+	} else {
+		if (pkg_ap.wr_len < pkg_mcu.data_length) {
+			DPU_AOD_ERR("pkg_mcu.data_length is too big\n");
+			ret = DPU_AOD_FAIL;
+		} else {
+			(void)memcpy_s(g_aod_screen_status_data->data, pkg_mcu.data_length,
+				(const void *)(pkg_mcu.data), pkg_mcu.data_length);
+			ret = DPU_AOD_OK;
+		}
+	}
+	DPU_AOD_INFO("-\n");
+	return ret;
+}
+
+static int dpu_aod_get_last_screen_status(struct aod_data_t *aod_data, void __user *arg)
+{
+	struct aod_general_ioctl_data *ioctl_data;
+	struct aod_ioctl_data_screen_status *screen_status;
+	uint32_t length = 0;
+	int ret;
+
+	DPU_AOD_INFO("+\n");
+	if ((!arg) || (!aod_data)) {
+		DPU_AOD_ERR("arg NULL Pointer!\n");
+		return -EINVAL;
+	}
+	ret = aod_screen_status_receive(&length, arg);
+	if (ret) {
+		DPU_AOD_ERR("aod_screen_status_receive fail!\n");
+		return ret;
+	}
+
+	ret = dpu_aod_screen_status_data_req();
+	if (ret) {
+		DPU_AOD_ERR("dpu_aod_screen_status_data_req fail\n");
+		kfree(g_aod_screen_status_data);
+		g_aod_screen_status_data = NULL;
+		return ret;
+	}
+	ioctl_data = (struct aod_general_ioctl_data *)((char *)g_aod_screen_status_data + sizeof(struct aod_general_data));
+	screen_status = (struct aod_ioctl_data_screen_status *)((char *)ioctl_data + sizeof(struct aod_general_ioctl_data));
+	DPU_AOD_INFO("result_status:%d, aod_status:%d, screen_status:%d,\n",
+				ioctl_data->result_status, screen_status->aod_status, screen_status->screen_status);
+	if (copy_to_user(arg, g_aod_screen_status_data, length)) {
+		DPU_AOD_ERR("copy_to_user failed\n");
+		kfree(g_aod_screen_status_data);
+		g_aod_screen_status_data = NULL;
+		return -EFAULT;
+	}
+	DPU_AOD_INFO("-\n");
+	return DPU_AOD_OK;
+}
+
+static int dpuf_aod_secure_phys(int shared_fd, size_t *size, uint32_t index, unsigned long *addr)
+{
+	struct dma_buf *buf = NULL;
+	buf = dma_buf_get(shared_fd);
+	if (IS_ERR(buf)) {
+		DPU_AOD_ERR("Invalid file handle %d\n", shared_fd);
+		return -EFAULT;
+	}
+	g_render_dma_buf->dma[index] = buf;
+	DPU_AOD_INFO("render buffer dma_buf_get index %d\n", index);
+#ifdef CONFIG_DMABUF_MM
+	int ret = mm_dma_heap_secmem_get_phys(buf, (phys_addr_t *)((void *)addr), size);
+	if (ret) {
+		DPU_AOD_ERR("mm_dma_heap_secmem_get_phys failed\n");
+		dma_buf_put(g_render_dma_buf->dma[index]);
+		return ret;
+	}
+#endif
+	return 0;
+}
+
+static int dpu_aod_render_buffer_phys(aod_render_buffer_data_t *aod_render_buffer)
+{
+	int ret;
+	size_t size;
+	unsigned long buf_addr;
+	int i;
+
+	g_buffer_list->sub_cmd = aod_render_buffer->sub_cmd;
+	g_buffer_list->buffer_list.count = aod_render_buffer->buffer_list.count;
+
+	size = sizeof(struct fb_buf_list) + BUFFER_TYPE_MAX * sizeof(struct dma_buf *);
+	g_render_dma_buf =  kzalloc(size, GFP_KERNEL);
+	if (!g_render_dma_buf) {
+		DPU_AOD_ERR("alloc memory failed\n");
+		return -ENOMEM;
+	}
+
+	DPU_AOD_INFO("count is %u\n", g_buffer_list->buffer_list.count);
+	for (i = 0; i < MIN(SECURE_BUFFER_MAX, g_buffer_list->buffer_list.count); i++) {
+		if (!aod_render_buffer->buffer_list.buffer[i].used)
+			continue;
+		size = aod_render_buffer->buffer_list.buffer[i].size;
+		DPU_AOD_INFO("fd %d\n", aod_render_buffer->buffer_list.buffer[i].addr);
+		ret = dpuf_aod_secure_phys(aod_render_buffer->buffer_list.buffer[i].addr, &size, i, &buf_addr);
+		if (ret < 0) {
+			DPU_AOD_ERR("ion_phys fail, fd %u, size %u, index %u!\n",
+				aod_render_buffer->buffer_list.buffer[i].addr,
+				aod_render_buffer->buffer_list.buffer[i].size, i);
+			continue;
+		}
+		if (buf_addr > MAX_ADDR_FOR_SENSORHUB) {
+			DPU_AOD_ERR("phys addr(0x%lx) invalid, ion_render_buf %u, size %u, index %u!\n",
+				buf_addr, aod_render_buffer->buffer_list.buffer[i].addr,
+				aod_render_buffer->buffer_list.buffer[i].size, i);
+			dma_buf_put(g_render_dma_buf->dma[i]);
+			continue;
+		}
+		g_buffer_list->buffer_list.buffer[i].addr = buf_addr;
+		g_buffer_list->buffer_list.buffer[i].size = aod_render_buffer->buffer_list.buffer[i].size;
+		g_buffer_list->buffer_list.buffer[i].used = aod_render_buffer->buffer_list.buffer[i].used;
+		DPU_AOD_INFO("phys addr(0x%lx), ion_render_buf %u, size %u, index %u!\n",
+				buf_addr, aod_render_buffer->buffer_list.buffer[i].addr,
+				aod_render_buffer->buffer_list.buffer[i].size, i);
+	}
+	for (i = SECURE_BUFFER_MAX; i < MIN(BUFFER_TYPE_MAX, g_buffer_list->buffer_list.count); i++) {
+		if (!aod_render_buffer->buffer_list.buffer[i].used)
+			continue;
+		DPU_AOD_INFO("fd %d\n", aod_render_buffer->buffer_list.buffer[i].addr);
+		dpuf_aod_ion_phys(aod_render_buffer->buffer_list.buffer[i].addr,
+			g_aod_data->dev, &buf_addr);
+		g_buffer_list->buffer_list.buffer[i].addr = buf_addr;
+		g_buffer_list->buffer_list.buffer[i].size = aod_render_buffer->buffer_list.buffer[i].size;
+		g_buffer_list->buffer_list.buffer[i].used = aod_render_buffer->buffer_list.buffer[i].used;
+		DPU_AOD_INFO("phys addr(0x%lx), ion_render_buf %u, size %u, index %u!\n",
+				buf_addr, aod_render_buffer->buffer_list.buffer[i].addr,
+				aod_render_buffer->buffer_list.buffer[i].size, i);
+#ifdef CONFIG_FS_ADAPTER
+		if (i == FILE_CACHE) {
+			iomcu_sh_file_set_cma_addr(aod_render_buffer->buffer_list.buffer[i].addr, buf_addr,
+			aod_render_buffer->buffer_list.buffer[i].size);
+		}
+#endif
+#ifdef CONFIG_CONTEXTHUB_MINIFS
+		if (i == FILE_SYS_BUFF)
+			init_cma_only(buf_addr, g_buffer_list->buffer_list.buffer[i].size, aod_render_buffer->buffer_list.buffer[i].addr);
+		if (i == FILE_LIST_TLV) {
+			push_prase_file_info_list(buf_addr, g_buffer_list->buffer_list.buffer[i].size);
+		}
+#endif
+	}
+	return 0;
+}
+
+static int dpu_aod_set_render_buffer(struct aod_data_t *aod_data,
+	const void __user *arg)
+{
+	int ret;
+	aod_render_buffer_data_t *aod_render_buffer = NULL;
+	uint32_t len;
+	uint32_t count;
+
+	DPU_AOD_INFO("+.\n");
+
+	if (arg == NULL) {
+		DPU_AOD_ERR("arg NULL Pointer!\n");
+		return -EINVAL;
+	}
+	if (aod_data == NULL) {
+		DPU_AOD_ERR("aod_data NULL Pointer!\n");
+		return -EINVAL;
+	}
+	if (copy_from_user(&len, arg, sizeof(uint32_t))) {
+		DPU_AOD_ERR("copy_from_user failed\n");
+		return -EFAULT;
+	}
+	DPU_AOD_INFO("len is %d\n", len);
+	if (len > MAX_ALLOC_SIZE || len < sizeof(aod_render_buffer_data_t)) {
+		DPU_AOD_ERR("len is out of range\n");
+		return DPU_AOD_FAIL;
+	}
+	aod_render_buffer = kzalloc(len, GFP_KERNEL);
+	if (aod_render_buffer == NULL) {
+		DPU_AOD_ERR("kzalloc failed\n");
+		return -ENOMEM;
+	}
+	if (copy_from_user(aod_render_buffer, arg, len)) {
+		DPU_AOD_ERR("copy from user fail!\n");
+		kfree(aod_render_buffer);
+		return -EFAULT;
+	}
+
+	count = aod_render_buffer->buffer_list.count;
+	if (sizeof(aod_render_buffer_data_t) + count * sizeof(struct buffer_info) != len) {
+		DPU_AOD_ERR("count is not match len\n");
+		kfree(aod_render_buffer);
+		return DPU_AOD_FAIL;
+	}
+	if (g_buffer_list != NULL) {
+		g_render_dmabuf_put();
+		kfree(g_buffer_list);
+		g_buffer_list = NULL;
+	}
+	g_buffer_list = kzalloc(len, GFP_KERNEL);
+	if (!g_buffer_list) {
+		DPU_AOD_ERR("alloc memory failed\n");
+		kfree(aod_render_buffer);
+		return -ENOMEM;
+	}
+
+	ret = dpu_aod_render_buffer_phys(aod_render_buffer);
+	if (ret) {
+		// g_render_dma_buf alloc failed, only needs to free g_buffer_list
+		kfree(aod_render_buffer);
+		kfree(g_buffer_list);
+		g_buffer_list = NULL;
+		return ret;
+	}
+
+	ret = dpu_aod_set_render_buffer_req(g_buffer_list);
+	if (ret) {
+		DPU_AOD_ERR("dpu_aod_set_render_buffer_req fail\n");
+		kfree(aod_render_buffer);
+		return ret;
+	}
+
+	kfree(aod_render_buffer);
+	DPU_AOD_INFO("-.\n");
+	return 0;
+}
+
+static int dpu_aod_post_handle(struct aod_data_t *aod_data, const void __user *arg)
+{
+	int ret;
+
+	DPU_AOD_INFO("+.\n");
+
+	if (arg == NULL) {
+		DPU_AOD_ERR("arg NULL Pointer!\n");
+		return -EINVAL;
+	}
+	if (aod_data == NULL) {
+		DPU_AOD_ERR("aod_data NULL Pointer!\n");
+		return -EINVAL;
+	}
+
+	if (copy_from_user(&post_handle, arg, sizeof(post_handle))) {
+		DPU_AOD_INFO("copy from user fail!\n");
+		return -EFAULT;
+	}
+	if (post_handle.size != sizeof(post_handle)) {
+		DPU_AOD_ERR("post_handle wrong size!\n");
+		return -EFAULT;
+	}
+
+	ret = dpu_aod_template_req_with_resp((void *)(&post_handle.sub_cmd), sizeof(uint32_t));
+	if (ret) {
+		DPU_AOD_ERR("dpu_aod_post_handle_req fail\n");
+		return ret;
+	}
+	DPU_AOD_INFO("-.\n");
+	return 0;
+}
+
+static int dpu_aod_set_push_model(struct aod_data_t *aod_data, const void __user *arg)
+{
+	int ret = 0;
+	uint32_t length = 0;
+	DPU_AOD_INFO("+\n");
+
+	if ((!arg) || (!aod_data)) {
+		DPU_AOD_ERR("arg NULL Pointer!\n");
+		return -EINVAL;
+	}
+	if (copy_from_user(&length, arg, sizeof(uint32_t))) {
+		DPU_AOD_ERR("copy_from_user failed\n");
+		return -EFAULT;
+	}
+	if (g_aod_push_model != NULL) {
+		kfree(g_aod_push_model);
+		g_aod_push_model = NULL;
+	}
+	if ((length < sizeof(aod_template_data_t)) || (length > MAX_ALLOC_SIZE)) {
+		DPU_AOD_ERR("length < 8 or > MAX_ALLOC_SIZE\n");
+		return DPU_AOD_FAIL;
+	}
+	g_aod_push_model = kzalloc(length, GFP_KERNEL);
+	if (!g_aod_push_model) {
+		DPU_AOD_ERR("alloc memory failed\n");
+		return -ENOMEM;
+	}
+	if (copy_from_user(g_aod_push_model, arg, length)) {
+		DPU_AOD_ERR("copy_from_user failed\n");
+		kfree(g_aod_push_model);
+		g_aod_push_model = NULL;
+		return -EFAULT;
+	}
+	if (g_aod_push_model->size != length) {
+		DPU_AOD_ERR("err size=%u, length=%u\n", g_aod_push_model->size, length);
+		kfree(g_aod_push_model);
+		g_aod_push_model = NULL;
+		return -EFAULT;
+	}
+
+	ret = dpu_aod_template_req(&(g_aod_push_model->sub_cmd), length - sizeof(uint32_t));
+	if (ret)
+		DPU_AOD_ERR("template info send to iomcu fail, ret = %d\n", ret);
+	DPU_AOD_INFO("-\n");
+	return ret;
+}
+
+static int dpu_aod_load_font_lib(struct aod_data_t *aod_data, const void __user *arg)
+{
+	int ret = 0;
+	unsigned long buf_addr;
+	uint32_t count;
+	uint32_t len;
+	uint32_t i;
+	DPU_AOD_INFO("+.\n");
+
+	if ((arg == NULL) || (aod_data == NULL)) {
+		DPU_AOD_ERR("arg or aod_data is NULL Pointer!\n");
+		return -EINVAL;
+	}
+	if (copy_from_user(&len, arg, sizeof(uint32_t))) {
+		DPU_AOD_ERR("copy_from_user failed\n");
+		return -EFAULT;
+	}
+	DPU_AOD_INFO("len is %d\n", len);
+	if (len > MAX_ALLOC_SIZE || len < sizeof(aod_font_lib_data_t)) {
+		DPU_AOD_ERR("len is out of range\n");
+		return DPU_AOD_FAIL;
+	}
+
+	if (g_font_list != NULL) {
+		kfree(g_font_list);
+		g_font_list = NULL;
+	}
+	g_font_list = kzalloc(len, GFP_KERNEL);
+	if (g_font_list == NULL) {
+		DPU_AOD_ERR("kzalloc failed\n");
+		return -ENOMEM;
+	}
+	if (copy_from_user(g_font_list, arg, len)) {
+		DPU_AOD_ERR("copy from user fail!\n");
+		kfree(g_font_list);
+		g_font_list = NULL;
+		return -EFAULT;
+	}
+	count = g_font_list->font_list.count;
+	if (sizeof(aod_font_lib_data_t) + count * sizeof(struct buffer_info) != len) {
+		DPU_AOD_ERR("count is not match len\n");
+		kfree(g_font_list);
+		g_font_list = NULL;
+		return DPU_AOD_FAIL;
+	}
+	DPU_AOD_INFO("count is %d\n", count);
+	for (i = 0; i < count && i < UI_FT_LIB_MAX; i++) {
+		if (g_font_list->font_list.buffer[i].used) {
+			ret = dpuf_aod_ion_phys(g_font_list->font_list.buffer[i].addr,
+			aod_data->dev, &buf_addr);
+			if (ret < 0) {
+				DPU_AOD_ERR("ion_phys fail, ion_buf_fb %u, size %u, index %u!\n",
+					g_font_list->font_list.buffer[i].addr,
+					g_font_list->font_list.buffer[i].size, i);
+				continue;
+			}
+			if (buf_addr > MAX_ADDR_FOR_SENSORHUB) {
+				DPU_AOD_ERR("phys addr(0x%lx) invalid, ion_buf_fb %u, size %u, index %u!\n",
+					buf_addr, g_font_list->font_list.buffer[i].addr,
+					g_font_list->font_list.buffer[i].size, i);
+				continue;
+			}
+			g_font_list->font_list.buffer[i].addr = buf_addr;
+			DPU_AOD_INFO("phys addr(0x%lx), size %u, index %u!\n",
+					buf_addr, g_font_list->font_list.buffer[i].size, i);
+		}
+	}
+	ret = dpu_aod_template_req(&(g_font_list->sub_cmd), len - sizeof(uint32_t));
+	if (ret)
+		DPU_AOD_ERR("template info send to iomcu fail, ret = %d\n", ret);
+	DPU_AOD_INFO("-.\n");
+	return ret;
+}
+
+static int dpu_aod_set_pcm_data(struct aod_data_t *aod_data, const void __user *arg)
+{
+	int ret = 0;
+	uint32_t length = 0;
+	DPU_AOD_INFO("+\n");
+
+	if ((!arg) || (!aod_data)) {
+		DPU_AOD_ERR("arg NULL Pointer!\n");
+		return -EINVAL;
+	}
+	if (copy_from_user(&length, arg, sizeof(uint32_t))) {
+		DPU_AOD_ERR("copy_from_user failed\n");
+		return -EFAULT;
+	}
+	if (g_pcm_data != NULL) {
+		kfree(g_pcm_data);
+		g_pcm_data = NULL;
+	}
+	if ((length < sizeof(aod_template_data_t)) || (length > MAX_ALLOC_SIZE)) {
+		DPU_AOD_ERR("length < 8 or > MAX_ALLOC_SIZE\n");
+		return DPU_AOD_FAIL;
+	}
+	g_pcm_data = kzalloc(length, GFP_KERNEL);
+	if (!g_pcm_data) {
+		DPU_AOD_ERR("alloc memory failed\n");
+		return -ENOMEM;
+	}
+	if (copy_from_user(g_pcm_data, arg, length)) {
+		DPU_AOD_ERR("copy_from_user failed\n");
+		kfree(g_pcm_data);
+		g_pcm_data = NULL;
+		return -EFAULT;
+	}
+	if (g_pcm_data->size != length) {
+		DPU_AOD_ERR("err size=%u, length=%u\n", g_pcm_data->size, length);
+		kfree(g_pcm_data);
+		g_pcm_data = NULL;
+		return -EFAULT;
+	}
+
+	ret = dpu_aod_template_req(&(g_pcm_data->sub_cmd), length - sizeof(uint32_t));
+	if (ret)
+		DPU_AOD_ERR("template info send to iomcu fail, ret = %d\n", ret);
+	DPU_AOD_INFO("-\n");
+	return ret;
+}
+
+static int dpu_aod_set_map_config(struct aod_data_t *aod_data, const void __user *arg)
+{
+	int ret = 0;
+	uint32_t length = 0;
+	DPU_AOD_INFO("+\n");
+
+	if ((!arg) || (!aod_data)) {
+		DPU_AOD_ERR("arg NULL Pointer!\n");
+		return -EINVAL;
+	}
+	if (copy_from_user(&length, arg, sizeof(uint32_t))) {
+		DPU_AOD_ERR("copy_from_user failed\n");
+		return -EFAULT;
+	}
+	if (g_map_data != NULL) {
+		kfree(g_map_data);
+		g_map_data = NULL;
+	}
+	if ((length < sizeof(aod_template_data_t)) || (length > MAX_ALLOC_SIZE)) {
+		DPU_AOD_ERR("length < 8 or > MAX_ALLOC_SIZE\n");
+		return DPU_AOD_FAIL;
+	}
+	g_map_data = kzalloc(length, GFP_KERNEL);
+	if (!g_map_data) {
+		DPU_AOD_ERR("alloc memory failed\n");
+		return -ENOMEM;
+	}
+	if (copy_from_user(g_map_data, arg, length)) {
+		DPU_AOD_ERR("copy_from_user failed\n");
+		kfree(g_map_data);
+		g_map_data = NULL;
+		return -EFAULT;
+	}
+	if (g_map_data->size != length) {
+		DPU_AOD_ERR("err size=%u, length=%u\n", g_map_data->size, length);
+		kfree(g_map_data);
+		g_map_data = NULL;
+		return -EFAULT;
+	}
+
+	ret = dpu_aod_template_req(&(g_map_data->sub_cmd), length - sizeof(uint32_t));
+	if (ret)
+		DPU_AOD_ERR("template info send to iomcu fail, ret = %d\n", ret);
+	DPU_AOD_INFO("-\n");
+	return ret;
+}
+
+static int dpu_aod_release_render_buffer(struct aod_data_t *aod_data, const void __user *arg)
+{
+	if (aod_data->aod_status == true) {
+		DPU_AOD_ERR("aod_status is true\n");
+		return DPU_AOD_FAIL;
+	}
+	DPU_AOD_INFO("+\n");
+	int ret;
+
+	g_render_dmabuf_put();
+	if (g_buffer_list != NULL) {
+#ifdef CONFIG_FS_ADAPTER
+		if (g_buffer_list->buffer_list.buffer[FILE_CACHE].used)
+			iomcu_sh_file_free_cma_addr();
+#endif
+#ifdef CONFIG_CONTEXTHUB_MINIFS
+		if (g_buffer_list->buffer_list.buffer[FILE_LIST_TLV].used)
+			push_delete_file_info_list();
+		if (g_buffer_list->buffer_list.buffer[FILE_SYS_BUFF].used)
+			release_cma_only(g_buffer_list->buffer_list.buffer[FILE_SYS_BUFF].addr, g_buffer_list->buffer_list.buffer[FILE_SYS_BUFF].size);
+#endif
+		kfree(g_buffer_list);
+		g_buffer_list = NULL;
+	}
+
+	static aod_template_data_t release_buffer;
+	release_buffer.size = sizeof(aod_template_data_t);
+	release_buffer.sub_cmd = SUB_CMD_AOD_RELEASE_RENDER_BUFFER;
+	ret = dpu_aod_template_req(&(release_buffer.sub_cmd), release_buffer.size - sizeof(uint32_t));
+	if (ret) {
+		DPU_AOD_ERR("dpu_aod_template_req for render buffer release failed.\n");
+		return ret;
+	}
+	DPU_AOD_INFO("-\n");
+	return 0;
 }
 
 static int dpu_aod_set_display_param_req(aod_display_param_mcu_t *display_param_mcu)
@@ -3414,6 +4462,7 @@ static int sfr_info_send_to_sensorhub(uint32_t length, struct aod_common_data *s
 	DPU_AOD_INFO("sfr send to sensorhub end\n");
 	return ret;
 }
+
 static int dpu_aod_set_safe_frame_rate_info(struct aod_data_t *aod_data, const void __user *arg)
 {
 	int ret = 0;
@@ -3422,7 +4471,7 @@ static int dpu_aod_set_safe_frame_rate_info(struct aod_data_t *aod_data, const v
 	if (g_aod_sfr_data != NULL) {
 		DPU_AOD_INFO("free g_aod_sfr_data\n");
 		kfree(g_aod_sfr_data);
-		g_aod_gmp_data = NULL;
+		g_aod_sfr_data = NULL;
 	}
 
 	if ((!arg) || (!aod_data)) {
@@ -3435,6 +4484,10 @@ static int dpu_aod_set_safe_frame_rate_info(struct aod_data_t *aod_data, const v
 	}
 
 	DPU_AOD_INFO("length = %d\n", data.size);
+	if (data.size > MAX_ALLOC_SIZE || data.size < sizeof(struct aod_common_data)) {
+		DPU_AOD_ERR("size is out of range\n");
+		return DPU_AOD_FAIL;
+	}
 	g_aod_sfr_data = kzalloc(data.size, GFP_KERNEL);
 	if (!g_aod_sfr_data) {
 		DPU_AOD_ERR("alloc memory failed\n");
@@ -3617,6 +4670,30 @@ static long dpu_aod_ioctl(struct file* file, unsigned int cmd, unsigned long arg
 	case AOD_IOCTL_AOD_SET_VIVOBUS_LEVEL:
 		ret = dpu_aod_set_vivobus_level(aod_data, argp);
 		break;
+	case AOD_IOCTL_AOD_FULL_SCREEN_STATUS:
+		ret = dpu_aod_get_last_screen_status(aod_data, argp);
+		break;
+	case AOD_IOCTL_SET_RENDER_BUFFER:
+		ret = dpu_aod_set_render_buffer(aod_data, argp);
+		break;
+	case AOD_IOCTL_AOD_POST_HANDLE:
+		ret = dpu_aod_post_handle(aod_data, argp);
+		break;
+	case AOD_IOCTL_AOD_SET_PUSH_MODEL:
+		ret = dpu_aod_set_push_model(aod_data, argp);
+		break;
+	case AOD_IOCTL_AOD_LOAD_FONT_LIB:
+		ret = dpu_aod_load_font_lib(aod_data, argp);
+		break;
+	case AOD_IOCTL_AOD_SET_PCM_DATA:
+		ret = dpu_aod_set_pcm_data(aod_data, argp);
+		break;
+	case AOD_IOCTL_AOD_SET_MAP_CFG:
+		ret = dpu_aod_set_map_config(aod_data, argp);
+		break;
+	case AOD_IOCTL_AOD_RELEASE_RENDER_BUFFER:
+		ret = dpu_aod_release_render_buffer(aod_data, argp);
+		break;
 	default:
 		DPU_AOD_ERR("unsupported ioctl (%x)\n", cmd);
 		ret = -ENOSYS;
@@ -3742,6 +4819,72 @@ void dpu_aod_wait_stop_nolock(void)
 	}
 }
 
+static int dpu_aod_set_lcd_pre_on_off_req(aod_lcd_pre_on_off_data_mcu_t *lcd_pre_on_off_mcu)
+{
+	int ret;
+	struct write_info pkg_ap;
+
+	DPU_AOD_INFO("+\n");
+
+	(void)memset_s(&pkg_ap, sizeof(pkg_ap), 0, sizeof(pkg_ap));
+	pkg_ap.tag = TAG_AOD;
+	pkg_ap.cmd = CMD_CMN_CONFIG_REQ;
+	pkg_ap.wr_buf = (const void *)lcd_pre_on_off_mcu; // addr: start addr of subtype
+	pkg_ap.wr_len = sizeof(aod_lcd_pre_on_off_data_mcu_t);
+	/* 1 for lock */
+	ret = dpu_aod_send_cmd_to_sensorhub(&pkg_ap, NULL, 1);
+	if (ret) {
+		DPU_AOD_ERR("tag is %d, cmd is %d\n", pkg_ap.tag, pkg_ap.cmd);
+		return ret;
+	}
+
+	DPU_AOD_INFO("-\n");
+	return ret;
+}
+
+static uint32_t transfer_disp_blank_mode(int blank_mode)
+{
+#if defined(CONFIG_DKMD_DPU_AOD)
+	if (blank_mode == DISP_BLANK_PERI_UNBLANK)
+		return DISP_BLANK_UNBLANK;
+
+	return DISP_BLANK_POWERDOWN;
+#else
+    if (blank_mode == FB_BLANK_PERI_UNBLANK)
+		return FB_BLANK_UNBLANK;
+
+	return FB_BLANK_POWERDOWN;
+#endif
+}
+
+int dpu_aod_panel_handle(uint32_t panel_id, int blank_mode)
+{
+	int ret;
+	struct aod_data_t *aod_data = g_aod_data;
+
+	if (!g_aod_data)
+		return -1;
+	down(&(g_aod_data->aod_status_sem));
+	if (!g_aod_data->aod_status) {
+		ret = dpu_sensorhub_peri_handle(panel_id, blank_mode);
+		up(&(g_aod_data->aod_status_sem));
+		return ret;
+	}
+	up(&(g_aod_data->aod_status_sem));
+
+	DPU_AOD_INFO("+.\n");
+	aod_data->lcd_pre_on_off_mcu.sub_cmd = SUB_CMD_AOD_SET_LCD_PRE_ON_OFF;
+	aod_data->lcd_pre_on_off_mcu.blank_mode = transfer_disp_blank_mode(blank_mode);
+	DPU_AOD_INFO("dpu_aod_panel_handle blank_mode %u.\n", blank_mode);
+	ret = dpu_aod_set_lcd_pre_on_off_req(&aod_data->lcd_pre_on_off_mcu);
+	if (ret) {
+		DPU_AOD_ERR("dpu_aod_set_lcd_pre_on_off_req fail\n");
+		return ret;
+	}
+	DPU_AOD_INFO("-.\n");
+	return 0;
+}
+
 /*lint -e454, -e455*/
 //lint -efunc(456,455,454,*)
 int dpu_aod_set_blank_mode(int blank_mode)
@@ -3802,6 +4945,7 @@ int dpu_aod_set_blank_mode(int blank_mode)
 
 	return 0;
 }
+
 //lint +efunc(456,455,454,*)
 /*lint +e454, +e455*/
 
@@ -3881,6 +5025,11 @@ static int dpu_aod_release(struct inode* inode, struct file* file)
 		(void)dpu_send_aod_stop();
 		(void)dpu_aod_sensorhub_cmd_req(CMD_CMN_CLOSE_REQ);
 		(void)dpu_aod_free_dynamic_fb(aod_data, NULL);
+		if (g_buffer_list != NULL) {
+			g_render_dmabuf_put();
+			kfree(g_buffer_list);
+			g_buffer_list = NULL;
+		}
 		mutex_lock(&aod_data->mm_lock);
 		(void)dpu_free_buffer(aod_data, NULL);
 		mutex_unlock(&aod_data->mm_lock);
@@ -3898,7 +5047,6 @@ static struct file_operations dpu_aod_fops = {
 	.open = dpu_aod_open,
 	.release = dpu_aod_release,
 	.read = dpu_aod_read,
-	.mmap = dpu_aod_mmap,
 	.unlocked_ioctl = dpu_aod_ioctl,
 };
 
@@ -3936,6 +5084,7 @@ static int dpu_aod_probe(struct platform_device *pdev)
 
 	aod_data->fb_mem_alloc_flag = false;
 	aod_data->ion_dynamic_alloc_flag = false;
+	aod_data->ion_dynamic_update_flag = false;
 	aod_data->aod_dev_class = class_create(THIS_MODULE, "aod_device");
 	if (IS_ERR(aod_data->aod_dev_class)) {
 		DPU_AOD_ERR("Unable to create aod class; errno = %ld\n", PTR_ERR(aod_data->aod_dev_class));
@@ -4061,8 +5210,9 @@ static int dpu_aod_probe(struct platform_device *pdev)
 	atomic_set(&(aod_data->atomic_v), 0);
 
 	g_aod_data = aod_data;
-	register_iom3_recovery_notifier(&recovery_notify);
+	aod_device_get_smmu_info();
 
+	register_iom3_recovery_notifier(REC_USR_AOD, &recovery_notify);
 	return 0;
 
 alloc_fb_fail:

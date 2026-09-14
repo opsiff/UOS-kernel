@@ -18,15 +18,19 @@
 #include "panel_mgr.h"
 #include "dpu_conn_mgr.h"
 #include "mipi_dsi_dev.h"
+#include "cmdlist_interface.h"
+#include "ukmd_cmdlist.h"
 #ifdef CONFIG_POWER_DUBAI
 #include <huawei_platform/log/hwlog_kernel.h>
 #endif
+#include "config/dpu_comp_dfr_config_utils.h"
 
 struct dfr_ltps_longh_ctrl {
 	bool inited;
 	bool te_isr_routine_enabled;
 	bool vactive_isr_routine_enabled;
 	bool commit_skip_flag;
+	bool first_frame;
 	spinlock_t commit_flag_spin_lock;
 	uint32_t pre_frm_rate;
 	uint32_t pfm_mode_status;
@@ -37,6 +41,7 @@ struct dfr_ltps_longh_ctrl {
 	spinlock_t cur_frm_rate_spin_lock;
 	struct dpu_comp_dfr_ctrl *dfr_ctrl;
 	struct kthread_work te_mode_swicth_work;
+	struct cmdlist_config cmdlist;
 };
 
 enum PFM_MODE_STATUS {
@@ -140,7 +145,7 @@ static inline void set_dfr_cur_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl,
 	spin_unlock_irqrestore(&priv->cur_frm_rate_spin_lock, flags);
 }
 
-int32_t dfr_ltps_longh_switch_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl,
+static int32_t dfr_ltps_longh_switch_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl,
 	uint32_t frame_rate)
 {
 	struct dfr_ltps_longh_ctrl *priv = NULL;
@@ -172,32 +177,81 @@ static int32_t dfr_ltps_set_skip_frm_num(struct dpu_comp_dfr_ctrl *dfr_ctrl,
 	return 0;
 }
 
-int32_t dfr_ltps_longh_update_frm_rate_isr_handler(struct dpu_comp_dfr_ctrl *dfr_ctrl)
+static int32_t dfr_ltps_longh_by_mcu_set_skip_frm_num(struct dpu_comp_dfr_ctrl *dfr_ctrl,
+	struct dpu_panel_info *pannel_info, struct dfr_ltps_longh_ctrl *priv)
+{
+	int skip_num = 0;
+	/* longH high to low fps change need skip one frm */
+	if (dfr_ctrl->pre_frm_rate > dfr_ctrl->cur_frm_rate) {
+		dpu_pr_info("vactive isr %u -> %u, te mode switch, te need skip",
+			dfr_ctrl->pre_frm_rate, dfr_ctrl->cur_frm_rate);
+
+		skip_num = SKIP_ONE_FRM;
+
+		/* panel te mode change need skip two frm */
+		if (pannel_info->panel_spcl_cfg.lcd_updt_fps_te_support)
+			skip_num = SKIP_TWO_FRM;
+		
+		/* prevent collection point before avtive_end */
+		skip_num++;
+		dpu_pr_info("priv->te_need_skip_num = %u", priv->te_need_skip_num);
+	}
+	set_priv_te_need_skip_num(priv, skip_num);
+	return 0;
+}
+
+static void update_frame_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl)
+{
+	struct dkmd_connector_info *pinfo = dfr_ctrl->dpu_comp->conn_info;
+	struct dpu_panel_ops *pops = get_panel_ops(pinfo->base.id);
+	struct dpu_connector *connector = get_primary_connector(pinfo);
+	struct dpu_panel_info *pannel_info = pops->get_panel_info();
+	struct dfr_ltps_longh_ctrl *priv = (struct dfr_ltps_longh_ctrl *)dfr_ctrl->priv_data;
+	char __iomem *dpu_base = dfr_ctrl->dpu_comp->comp_mgr->dpu_base;;
+
+	mipi_dsi_dfr_update(connector, dfr_ctrl->cur_frm_rate, dfr_ctrl->mode);
+
+	if (dfr_ctrl->porch_fps != dfr_ctrl->cur_frm_rate) {
+		dfr_ctrl->porch_fps = dfr_ctrl->cur_frm_rate;
+		queue_work(dfr_ctrl->dfr_dvfs_notice_wq, &dfr_ctrl->dfr_dvfs_notice_work);
+	}
+
+	if (pops->update_lcd_fps)
+		pops->update_lcd_fps(dfr_ctrl->cur_frm_rate);
+
+	if (pannel_info->panel_spcl_cfg.lcd_updt_fps_te_support &&
+		pops->update_fps_te_mode)
+		kthread_queue_work(&dfr_ctrl->dpu_comp->handle_worker,
+			&priv->te_mode_swicth_work);
+
+	dfr_ctrl->pre_frm_rate = dfr_ctrl->cur_frm_rate;
+
+	/* force update data in mcu mode during startup finshed */
+	dpu_dacc_set_need_wait_te_num(dpu_base, priv->te_need_skip_num);
+	dpu_dacc_update_frame_rate_info(dpu_base, dfr_ctrl->cur_frm_rate, dfr_ctrl->cur_frm_rate, 0);
+}
+
+static int32_t dfr_ltps_longh_update_frm_rate_isr_handler(struct dpu_comp_dfr_ctrl *dfr_ctrl)
 {
 	struct dpu_panel_ops *pops = NULL;
-	struct dpu_connector *connector = NULL;
 	struct dkmd_connector_info *pinfo = NULL;
-	struct dpu_panel_info *dpinfo = NULL;
-	struct dfr_ltps_longh_ctrl *priv = NULL;
+	struct dpu_panel_info *pannel_info = NULL;
+	struct dfr_ltps_longh_ctrl *priv = (struct dfr_ltps_longh_ctrl *)dfr_ctrl->priv_data;;
 
-	dpu_check_and_return(!dfr_ctrl, -1, err, "dfr ctrl is null");
-	dpu_check_and_return(!dfr_ctrl->dpu_comp, -1, err, "dpu_comp is null");
 	pinfo = dfr_ctrl->dpu_comp->conn_info;
 	dpu_check_and_return(!pinfo, -1, err, "pinfo is null");
 
 	pops = get_panel_ops(pinfo->base.id);
 	dpu_check_and_return(!pops, -1, err, "panel ops is null");
 
-	dpinfo = pops->get_panel_info();
-	dpu_check_and_return(!dpinfo, -1, err, "dpinfo is null");
+	pannel_info = pops->get_panel_info();
+	dpu_check_and_return(!pannel_info, -1, err, "pannel_info is null");
+	dpu_check_and_return(!dfr_ctrl->dpu_comp->comp_mgr, -1, err, "comp_mgr is null\n");
 
-	dpu_check_and_return(!dfr_ctrl->priv_data, -1, err,
-		"dfr_ctrl->priv_data is null");
-	priv = (struct dfr_ltps_longh_ctrl *)dfr_ctrl->priv_data;
 	/* vactive end */
 	set_priv_vactive_status(priv, VACTIVE_END);
 
-	if (dpinfo->panel_spcl_cfg.lcd_updt_fps_pfm_support &&
+	if (pannel_info->panel_spcl_cfg.lcd_updt_fps_pfm_support &&
 		pops->update_fps_pfm_mode) {
 		if (dfr_ltps_updt_pfm_mode(dfr_ctrl, pops, priv))
 			return 0;
@@ -208,7 +262,10 @@ int32_t dfr_ltps_longh_update_frm_rate_isr_handler(struct dpu_comp_dfr_ctrl *dfr
 		return 0;
 	}
 
-	dfr_ltps_set_skip_frm_num(dfr_ctrl, dpinfo, priv);
+	if (dfr_ctrl->mode == DFR_MODE_LONGH_BY_MCU)
+		dfr_ltps_longh_by_mcu_set_skip_frm_num(dfr_ctrl, pannel_info, priv);
+	else
+		dfr_ltps_set_skip_frm_num(dfr_ctrl, pannel_info, priv);
 
 	dpu_pr_info("frame rate change from %u to %u", dfr_ctrl->pre_frm_rate,
 		dfr_ctrl->cur_frm_rate);
@@ -217,21 +274,8 @@ int32_t dfr_ltps_longh_update_frm_rate_isr_handler(struct dpu_comp_dfr_ctrl *dfr
 	HWDUBAI_LOGE("DUBAI_TAG_EPS_LCD_FREQ", "sourcerate=%u targetrate=%u",
 		dfr_ctrl->pre_frm_rate, dfr_ctrl->cur_frm_rate);
 #endif
+	update_frame_rate(dfr_ctrl);
 
-	connector = get_primary_connector(pinfo);
-	dpu_check_and_return(!connector, -1, err, "connector is null");
-
-	mipi_dsi_dfr_update(connector, dfr_ctrl->cur_frm_rate, dfr_ctrl->mode);
-
-	if (pops->update_lcd_fps)
-		pops->update_lcd_fps(dfr_ctrl->cur_frm_rate);
-
-	if (dpinfo->panel_spcl_cfg.lcd_updt_fps_te_support &&
-		pops->update_fps_te_mode)
-		kthread_queue_work(&dfr_ctrl->dpu_comp->handle_worker,
-			&priv->te_mode_swicth_work);
-
-	dfr_ctrl->pre_frm_rate = dfr_ctrl->cur_frm_rate;
 	return 0;
 }
 
@@ -286,7 +330,7 @@ static bool is_need_skip_commit(struct dpu_comp_dfr_ctrl *dfr_ctrl,
 	return false;
 }
 
-int32_t dfr_ltps_longh_commit(struct dpu_comp_dfr_ctrl *dfr_ctrl)
+static int32_t dfr_ltps_longh_commit(struct dpu_comp_dfr_ctrl *dfr_ctrl)
 {
 	struct dfr_ltps_longh_ctrl *priv = NULL;
 
@@ -296,6 +340,7 @@ int32_t dfr_ltps_longh_commit(struct dpu_comp_dfr_ctrl *dfr_ctrl)
 	dpu_check_and_return(!dfr_ctrl->dpu_comp, -1, err, "dpu_comp is null");
 	dpu_check_and_return(!dfr_ctrl->dpu_comp->conn_info, -1, err, "conn_info is null");
 
+	priv->first_frame = false;
 	if (is_need_skip_commit(dfr_ctrl, priv))
 		return 0;
 
@@ -347,12 +392,12 @@ static void dfr_te_skip_longh_enable_ldi(struct dpu_comp_dfr_ctrl *dfr_ctrl,
 static int32_t dfr_te_skip_longh_te_isr_notify(struct notifier_block *self,
 	unsigned long action, void *data)
 {
-	struct dkmd_listener_data *listener_data = NULL;
+	struct ukmd_listener_data *listener_data = NULL;
 	struct dpu_comp_dfr_ctrl *dfr_ctrl = NULL;
 	struct dfr_ltps_longh_ctrl *priv = NULL;
 
 	dpu_check_and_return(!data, -1, err, "data is null pointer");
-	listener_data = (struct dkmd_listener_data *)data;
+	listener_data = (struct ukmd_listener_data *)data;
 	dfr_ctrl = (struct dpu_comp_dfr_ctrl *)(listener_data->data);
 	dpu_check_and_return(!dfr_ctrl, -1, err, "dfr_ctrl is null");
 	priv = (struct dfr_ltps_longh_ctrl *)dfr_ctrl->priv_data;
@@ -387,42 +432,29 @@ static struct notifier_block g_te_isr_notifier = {
 static void dfr_te_skip_register_te_isr(struct dpu_comp_dfr_ctrl *dfr_ctrl)
 {
 	uint32_t dsi_te_id;
-	struct dkmd_isr *isr_ctrl = NULL;
+	struct ukmd_isr *isr_ctrl = NULL;
 	struct dkmd_connector_info *pinfo = NULL;
 
+	if (dfr_ctrl->mode == DFR_MODE_LONGH_BY_MCU)
+		return;
 	dpu_check_and_no_retval(!dfr_ctrl->dpu_comp, err, "dpu_comp is null");
 	pinfo = dfr_ctrl->dpu_comp->conn_info;
 	dpu_check_and_no_retval(!pinfo, err, "pinfo is null");
 
 	isr_ctrl = &dfr_ctrl->dpu_comp->isr_ctrl;
 	dsi_te_id = pinfo->base.lcd_te_idx == 0 ? DSI_INT_LCD_TE0 : DSI_INT_LCD_TE1;
-	dkmd_isr_register_listener(isr_ctrl, &g_te_isr_notifier, dsi_te_id, dfr_ctrl);
-}
-
-static void dfr_te_skip_unregister_te_isr(struct dpu_comp_dfr_ctrl *dfr_ctrl)
-{
-	uint32_t dsi_te_id;
-	struct dkmd_isr *isr_ctrl = NULL;
-	struct dkmd_connector_info *pinfo = NULL;
-
-	dpu_check_and_no_retval(!dfr_ctrl->dpu_comp, err, "dpu_comp is null");
-	pinfo = dfr_ctrl->dpu_comp->conn_info;
-	dpu_check_and_no_retval(!pinfo, err, "pinfo is null");
-
-	isr_ctrl = &dfr_ctrl->dpu_comp->isr_ctrl;
-	dsi_te_id = pinfo->base.lcd_te_idx == 0 ? DSI_INT_LCD_TE0 : DSI_INT_LCD_TE1;
-	dkmd_isr_unregister_listener(isr_ctrl, &g_te_isr_notifier, dsi_te_id);
+	ukmd_isr_register_listener(isr_ctrl, &g_te_isr_notifier, dsi_te_id, dfr_ctrl);
 }
 
 static int32_t dfr_longh_vactive_start_isr_notify(struct notifier_block *self,
 	unsigned long action, void *data)
 {
-	struct dkmd_listener_data *listener_data = NULL;
+	struct ukmd_listener_data *listener_data = NULL;
 	struct dpu_comp_dfr_ctrl *dfr_ctrl = NULL;
 	struct dfr_ltps_longh_ctrl *priv = NULL;
 
 	dpu_check_and_return(!data, -1, err, "data is null pointer");
-	listener_data = (struct dkmd_listener_data *)data;
+	listener_data = (struct ukmd_listener_data *)data;
 	dfr_ctrl = (struct dpu_comp_dfr_ctrl *)(listener_data->data);
 	dpu_check_and_return(!dfr_ctrl, -1, err, "dfr_ctrl is null");
 	priv = (struct dfr_ltps_longh_ctrl *)dfr_ctrl->priv_data;
@@ -442,27 +474,16 @@ static struct notifier_block g_vactive_start_isr_notifier = {
 
 static void dfr_longh_register_vactive_start_isr(struct dpu_comp_dfr_ctrl *dfr_ctrl)
 {
-	struct dkmd_isr *isr_ctrl = NULL;
+	struct ukmd_isr *isr_ctrl = NULL;
 
 	dpu_check_and_no_retval(!dfr_ctrl->dpu_comp, err, "dpu_comp is null");
 
 	isr_ctrl = &dfr_ctrl->dpu_comp->isr_ctrl;
-	dkmd_isr_register_listener(isr_ctrl, &g_vactive_start_isr_notifier,
+	ukmd_isr_register_listener(isr_ctrl, &g_vactive_start_isr_notifier,
 		DSI_INT_VACT0_START, dfr_ctrl);
 }
 
-static void dfr_longh_unregister_vactive_start_isr(struct dpu_comp_dfr_ctrl *dfr_ctrl)
-{
-	struct dkmd_isr *isr_ctrl = NULL;
-
-	dpu_check_and_no_retval(!dfr_ctrl->dpu_comp, err, "dpu_comp is null");
-
-	isr_ctrl = &dfr_ctrl->dpu_comp->isr_ctrl;
-	dkmd_isr_unregister_listener(isr_ctrl, &g_vactive_start_isr_notifier,
-		DSI_INT_VACT0_START);
-}
-
-void dfr_ltps_longh_setup_priv_data(struct dpu_comp_dfr_ctrl *dfr_ctrl)
+static void dfr_ltps_longh_setup_priv_data(struct dpu_comp_dfr_ctrl *dfr_ctrl)
 {
 	struct dfr_ltps_longh_ctrl *priv = NULL;
 
@@ -480,6 +501,8 @@ void dfr_ltps_longh_setup_priv_data(struct dpu_comp_dfr_ctrl *dfr_ctrl)
 	priv->commit_skip_flag = false;
 	spin_lock_init(&(priv->commit_flag_spin_lock));
 	priv->dfr_ctrl = dfr_ctrl;
+	dfr_ctrl->vsync_offset_threshold = 1500;
+	priv->first_frame = true;
 
 	if (!priv->inited) {
 		priv->inited = true;
@@ -494,7 +517,16 @@ void dfr_ltps_longh_setup_priv_data(struct dpu_comp_dfr_ctrl *dfr_ctrl)
 	priv->vactive_isr_routine_enabled = true;
 }
 
-void dfr_ltps_longh_release_priv_data(struct dpu_comp_dfr_ctrl *dfr_ctrl)
+static void dfr_ltps_longh_setup_priv_data_by_mcu(struct dpu_comp_dfr_ctrl *dfr_ctrl)
+{
+	struct dfr_ltps_longh_ctrl *priv = NULL;
+
+	dfr_ltps_longh_setup_priv_data(dfr_ctrl);
+	priv = (struct dfr_ltps_longh_ctrl *)dfr_ctrl->priv_data;
+	dpu_dacc_setup_priv_data_by_mcu(dfr_ctrl, &priv->cmdlist);
+}
+
+static void dfr_ltps_longh_release_data(struct dpu_comp_dfr_ctrl *dfr_ctrl)
 {
 	struct dfr_ltps_longh_ctrl *priv = NULL;
 
@@ -510,4 +542,74 @@ void dfr_ltps_longh_release_priv_data(struct dpu_comp_dfr_ctrl *dfr_ctrl)
 
 	priv->te_isr_routine_enabled = false;
 	priv->vactive_isr_routine_enabled = false;
+}
+
+static void dfr_ltps_longh_release_data_by_mcu(struct dpu_comp_dfr_ctrl *dfr_ctrl)
+{
+	struct dfr_ltps_longh_ctrl *priv = (struct dfr_ltps_longh_ctrl *)dfr_ctrl->priv_data;
+	dfr_ltps_longh_release_data(dfr_ctrl);
+	dpu_dacc_release_data_by_mcu(dfr_ctrl, &priv->cmdlist);
+}
+
+static int32_t dfr_ltps_longh_commit_by_mcu(struct dpu_comp_dfr_ctrl *dfr_ctrl)
+{
+	struct dfr_ltps_longh_ctrl *priv = (struct dfr_ltps_longh_ctrl *)dfr_ctrl->priv_data;
+	priv->first_frame = false;
+	return dpu_dacc_commit_by_mcu(dfr_ctrl, &priv->cmdlist);
+}
+
+static int32_t dfr_ltps_longh_send_dcs_cmds(struct dpu_comp_dfr_ctrl *dfr_ctrl, struct disp_effect_params *effect_params)
+{
+	struct dkmd_connector_info *pinfo = NULL;
+	struct dpu_bl_ctrl *bl_ctrl = NULL;
+
+	dpu_check_and_return(!dfr_ctrl, -1, err, "dfr_ctrl is null");
+	dpu_check_and_return(!dfr_ctrl->dpu_comp, -1, err, "dpu_composer is null");
+	dpu_check_and_return(effect_params->effect_num > EFFECT_PARAMS_MAX_NUM, -1, err, "effect num exceeds max num");
+	if ((effect_params->delay != 0 || effect_params->effect_num == 0) && (g_debug_dpu_send_dcs_cmds == 0)) {
+		dpu_pr_debug("Nothing to send !\n");
+		return 0;
+	}
+
+	bl_ctrl = &dfr_ctrl->dpu_comp->bl_ctrl;
+	pinfo = dfr_ctrl->dpu_comp->conn_info;
+	dpu_check_and_return(!pinfo, -1, err, "pinfo is null");
+
+	dpu_pr_info("set bl_level level with frame+\n");
+	dpu_backlight_update_level(bl_ctrl, effect_params);
+	pipeline_next_ops_handle(pinfo->conn_device, pinfo, SET_BACKLIGHT, &bl_ctrl->bl_level);
+	dpu_pr_info("set bl_level level with frame-, bl_level is %u\n", bl_ctrl->bl_level);
+
+	return 0;
+}
+
+static bool dfr_ltps_is_fisrt_frame(struct dpu_comp_dfr_ctrl *dfr_ctrl)
+{
+	struct dfr_ltps_longh_ctrl *priv = dfr_ctrl->priv_data;
+	return priv->first_frame;
+}
+
+static struct dfr_ctrl_ops g_dfr_ctrl_ops = {
+	.switch_frm_rate = dfr_ltps_longh_switch_frm_rate,
+	.send_dcs_cmds_with_frm = dfr_ltps_longh_send_dcs_cmds,
+	.update_frm_rate_isr_handler = dfr_ltps_longh_update_frm_rate_isr_handler,
+	.is_fisrt_frame = dfr_ltps_is_fisrt_frame,
+};
+
+void dfr_ltps_longh_register_ops(struct dpu_comp_dfr_ctrl *dfr_ctrl)
+{
+	dpu_multi_present_init(&dfr_ctrl->dpu_comp->multi_present_ctrl, DFR_MODE_INVALID);
+	g_dfr_ctrl_ops.commit = dfr_ltps_longh_commit;
+	g_dfr_ctrl_ops.release_data = dfr_ltps_longh_release_data;
+	g_dfr_ctrl_ops.setup_data = dfr_ltps_longh_setup_priv_data,
+	dfr_ctrl->ops = &g_dfr_ctrl_ops;
+}
+
+void dfr_ltps_longh_register_ops_by_mcu(struct dpu_comp_dfr_ctrl *dfr_ctrl)
+{
+	dpu_multi_present_init(&dfr_ctrl->dpu_comp->multi_present_ctrl, dfr_ctrl->mode);
+	g_dfr_ctrl_ops.commit = dfr_ltps_longh_commit_by_mcu;
+	g_dfr_ctrl_ops.release_data = dfr_ltps_longh_release_data_by_mcu;
+	g_dfr_ctrl_ops.setup_data = dfr_ltps_longh_setup_priv_data_by_mcu;
+	dfr_ctrl->ops = &g_dfr_ctrl_ops;
 }

@@ -12,6 +12,7 @@
  */
 
 #include "dpu_conn_mgr.h"
+#include "dpu_conn_mgr_common.h"
 
 struct dpu_conn_manager *g_conn_manager = NULL;
 
@@ -57,6 +58,12 @@ static int32_t connector_manager_off(struct dkmd_connector_info *pinfo)
 		ret = connector->off_func(pinfo);
 
 	return ret;
+}
+
+static int32_t connector_manager_handle_event(struct dkmd_connector_info *pinfo, uint32_t event,
+	const void *data, bool is_isr_event)
+{
+	return pipeline_next_handle_event(pinfo->base.peri_device, pinfo, event, data, is_isr_event);
 }
 
 static int32_t connector_manager_ops_handle(struct dkmd_connector_info *pinfo,
@@ -109,28 +116,45 @@ int register_connector(struct dkmd_connector_info *pinfo)
 		dpu_pr_info("pinfo is null!\n");
 		return -EINVAL;
 	}
-	pinfo->conn_device = g_conn_manager->device;
+
 	connector = get_primary_connector(pinfo);
 	if (!connector) {
 		dpu_pr_err("connector_id=%u is not available!\n", pinfo->connector_idx[PRIMARY_CONNECT_CHN_IDX]);
 		return -EINVAL;
 	}
 
+	if (connector->conn_info != NULL) {
+		dpu_pr_err("connector_id=%u have been register", connector->connector_id);
+		return 0;
+	}
+	pinfo->conn_device = g_conn_manager->device;
+
 	connector->conn_info = pinfo;
+
+	/* init active_idx */
+	connector->active_idx = 0;
+	connector->need_check_mipi_connected = true;
 	bind_connector = connector->bind_connector;
 	if (bind_connector) {
 		bind_connector->conn_info = pinfo;
 		if ((connector->connector_id != CONNECTOR_ID_DP) &&
 			(connector->connector_id != CONNECTOR_ID_EDP)) {
-			bind_connector->mipi = connector->mipi;
+			bind_connector->post_info[bind_connector->active_idx]->mipi = connector->post_info[connector->active_idx]->mipi;
+			bind_connector->post_info[bind_connector->active_idx]->dsc = connector->post_info[connector->active_idx]->dsc;
 			for (i = 0; i < CLK_GATE_MAX_IDX; i++)
 				bind_connector->connector_clk[i] = connector->connector_clk[i];
 		}
 	}
 	dpu_connector_setup(connector);
-	calculate_dsc_spr_param(&connector->dsc, &connector->spr, pinfo);
+	/* use idx=0 to initialze */
+	calculate_dsc_spr_param(&connector->post_info[0]->dsc,
+		&connector->post_info[0]->spr, pinfo);
 
-	return register_composer(pinfo);
+	if (register_composer(pinfo) != 0) {
+		connector->conn_info = NULL;
+		return -1;
+	}
+	return 0;
 }
 
 int32_t unregister_connector(struct dkmd_connector_info *pinfo)
@@ -149,6 +173,7 @@ int32_t unregister_connector(struct dkmd_connector_info *pinfo)
 		dpu_pr_info("connector is not available!\n");
 		return -EINVAL;
 	}
+	dpu_connector_release(connector);
 	connector->conn_info = NULL;
 
 	return 0;
@@ -243,20 +268,26 @@ static int32_t dpu_conn_manager_parse_dt(struct dpu_conn_manager *conn_mgr,
 		dpu_pr_err("failed to get pctrl_base!\n");
 		return -ENXIO;
 	}
-
+	if (of_property_read_u32(parent_node, "max_connector_num", &conn_mgr->max_connector_num) != 0) {
+		conn_mgr->max_connector_num = 0;
+		dpu_pr_warn("get max_connector_num failed!\n");
+	}
+	mutex_init(&conn_mgr->connect_status_mutex);
 	return 0;
 }
 
 static void dpu_child_connector_parse_dt(struct dpu_connector *connector,
 	struct device_node *node)
 {
-	int32_t i;
+	uint32_t i;
+#ifdef CONFIG_DKMD_DPU_DP
 	int32_t ret;
+#endif
 
 	for (i = 0; i < CLK_GATE_MAX_IDX; i++) {
 		connector->connector_clk[i] = of_clk_get(node, i);
 		if (IS_ERR_OR_NULL(connector->connector_clk[i])) {
-			dpu_pr_info("of clk get %d failed, maybe have no clk!", i);
+			dpu_pr_info("of clk get %u failed, maybe have no clk!", i);
 			break;
 		}
 	}
@@ -268,37 +299,44 @@ static void dpu_child_connector_parse_dt(struct dpu_connector *connector,
 		return;
 
 #ifdef CONFIG_DKMD_DPU_DP
-	for (i = 0; i < DPTX_COMBOPHY_PARAM_NUM; i++) {
+	ret = of_property_read_u32(node, "combophy_param_num", &(connector->combophy_ctrl.dptx_combophy_param_num));
+	if (ret) {
+		dpu_pr_warn("[DP] phy_param_num is invalide : %u\n", connector->combophy_ctrl.dptx_combophy_param_num);
+		connector->combophy_ctrl.dptx_combophy_param_num = DPTX_COMBOPHY_PARAM_NUM_DEF;
+	}
+	dpu_pr_info("[DP] phy_param_num is %u\n", connector->combophy_ctrl.dptx_combophy_param_num);
+
+	for (i = 0; i < connector->combophy_ctrl.dptx_combophy_param_num; i++) {
 		ret = of_property_read_u32_index(node, "preemphasis_swing",
-			(uint32_t)i, &(connector->combophy_ctrl.combophy_pree_swing[DPTX_PREE_SWING_DEFAULT][i]));
+			i, &(connector->combophy_ctrl.combophy_pree_swing[DPTX_PREE_SWING_DEFAULT][i]));
 		if (ret) {
-			dpu_pr_info("[DP] preemphasis_swing[0][%d] is got fail!", i);
+			dpu_pr_info("[DP] preemphasis_swing[0][%u] is got fail!", i);
 			break;
 		}
-		dpu_pr_info("combophy_pree_swing[0][%d]=0x%x",
+		dpu_pr_info("[DP] combophy_pree_swing[0][%u]=0x%x",
 			i, connector->combophy_ctrl.combophy_pree_swing[DPTX_PREE_SWING_DEFAULT][i]);
 	}
 
-	for (i = 0; i < DPTX_COMBOPHY_PARAM_NUM; i++) {
+	for (i = 0; i < connector->combophy_ctrl.dptx_combophy_param_num; i++) {
 		ret = of_property_read_u32_index(node, "edp_preemphasis_swing",
-			(uint32_t)i, &(connector->combophy_ctrl.edp_combophy_pree_swing[DPTX_PREE_SWING_DEFAULT][i]));
+			i, &(connector->combophy_ctrl.edp_combophy_pree_swing[DPTX_PREE_SWING_DEFAULT][i]));
 		if (ret) {
-			dpu_pr_info("[DP] edp_preemphasis_swing[0][%d] is got fail!", i);
+			dpu_pr_info("[DP] edp_preemphasis_swing[0][%u] is got fail!", i);
 			break;
 		}
-		dpu_pr_info("edp_combophy_pree_swing[0][%d]=0x%x",
+		dpu_pr_info("[DP] edp_combophy_pree_swing[0][%u]=0x%x",
 			i, connector->combophy_ctrl.edp_combophy_pree_swing[DPTX_PREE_SWING_DEFAULT][i]);
 	}
 
 	/* parse ssc ppm configure values */
 	for (i = 0; i < DPTX_COMBOPHY_SSC_PPM_PARAM_NUM; i++) {
 		ret = of_property_read_u32_index(node, "ssc_ppm",
-			(uint32_t)i, &(connector->combophy_ctrl.combophy_ssc_ppm[i]));
+			i, &(connector->combophy_ctrl.combophy_ssc_ppm[i]));
 		if (ret) {
-			dpu_pr_info("[DP] combophy_ssc_ppm[%d] is got fail!", i);
+			dpu_pr_info("[DP] combophy_ssc_ppm[%u] is got fail!", i);
 			break;
 		}
-		dpu_pr_info("combophy_ssc_ppm[%d]=0x%x", i, connector->combophy_ctrl.combophy_ssc_ppm[i]);
+		dpu_pr_info("[DP] combophy_ssc_ppm[%u]=0x%x", i, connector->combophy_ctrl.combophy_ssc_ppm[i]);
 	}
 #endif
 }
@@ -339,9 +377,16 @@ static void dpu_conn_manager_parse_child_node(struct dpu_conn_manager *conn_mgr,
 		connector->connector_id = connector_id;
 		connector->conn_mgr = conn_mgr;
 		connector->is_vactive_end_recieved = VACTIVE_END_RECEIVED;
+		connector->is_vactive_start_missed = false;
 
 		dpu_child_connector_parse_dt(connector, node);
 		conn_mgr->connector[connector_id] = connector;
+		connector->active_idx = 0;
+		connector->post_info[0] = devm_kzalloc(&pdev->dev, sizeof(struct connector_post_info), GFP_KERNEL);
+		if (!connector->post_info[0]) {
+			dpu_pr_warn("alloc connector post_info failed!\n");
+		}
+		connector->post_info[1] = NULL;
 		dpu_pr_info("initailize connector connector_id=%u\n", connector_id);
 	}
 }
@@ -379,14 +424,17 @@ static int32_t dpu_conn_manager_probe(struct platform_device *pdev)
 	conn_ops->conn_info = NULL;
 	conn_ops->on_func = connector_manager_on;
 	conn_ops->off_func = connector_manager_off;
+	conn_ops->handle_event_func = connector_manager_handle_event;
 	conn_ops->ops_handle_func = connector_manager_ops_handle;
+	conn_ops->connect_func = connector_manager_connect;
+	conn_ops->disconnect_func = connector_manager_disconnect;
+	conn_ops->disconnect_post_handle_func = disconnect_post_handle;
 	/* add ops handle data to platform device */
 	if (platform_device_add_data(pdev, conn_ops, sizeof(*conn_ops)) != 0) {
 		dpu_pr_err("add conn_ops device data failed!\n");
 		return -EINVAL;
 	}
 	g_conn_manager = conn_mgr;
-
 	return 0;
 }
 

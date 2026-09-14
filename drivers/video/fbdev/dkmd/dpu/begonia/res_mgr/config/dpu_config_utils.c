@@ -24,6 +24,7 @@
 #include "dpu_config_utils.h"
 
 struct dpu_config g_dpu_config_data;
+static uint32_t g_line_limit_perlb[] = { 1, 2, 4, 8 };
 
 static void _config_get_ip_base(struct device_node *np, char __iomem *ip_base_addrs[], uint32_t ip_count)
 {
@@ -85,14 +86,25 @@ static void _config_get_dpu_version_value(struct device_node *np)
 {
 	int ret;
 	uint32_t is_fpga = 0;
+	uint32_t chip_type = 0;
 
 	ret = of_property_read_u32(np, "fpga_flag", &is_fpga);
 	if (ret != 0)
 		dpu_pr_err("failed to get fpga_flag.\n");
 
+	ret = of_property_read_u32(np, "chip_type", &chip_type);
+	if (ret != 0)
+		dpu_pr_warn("no chip_type, pls check.\n");
+
 	g_dpu_config_data.version.info.version = dpu_config_get_version();
 	g_dpu_config_data.version.info.hw_type = (is_fpga == 0) ? DPU_HW_TYPE_ASIC : DPU_HW_TYPE_FPGA;
-	dpu_pr_debug("dpu version 0x%llx", g_dpu_config_data.version.value);
+	g_dpu_config_data.version.info.soc_type = chip_type;
+	dpu_pr_debug("dpu version 0x%llx, chip_type %llu", g_dpu_config_data.version.value,
+		g_dpu_config_data.version.info.soc_type);
+	if (g_dpu_config_data.version.info.version == DPU_ACCEL_DPUV9200 ||
+		g_dpu_config_data.version.info.version == DPU_ACCEL_DPUV840) {
+		g_debug_dvfs_type = 2;
+	}	
 }
 
 static void _config_get_dvfs_config(struct device_node *np)
@@ -110,6 +122,10 @@ static void _config_get_dvfs_config(struct device_node *np)
 	g_dpu_config_data.clk_gate_edc = of_clk_get(np, 0);
 	if (IS_ERR(g_dpu_config_data.clk_gate_edc))
 		dpu_pr_err("failed to get clk_gate_edc!");
+
+	g_dpu_config_data.clk_gate_dss_vivo = of_clk_get(np, 1);
+	if (IS_ERR(g_dpu_config_data.clk_gate_dss_vivo))
+		dpu_pr_warn("failed to get clk_gate_dss_vivo!");
 }
 
 void dpu_config_dvfs_vote_exec(uint64_t clk_rate)
@@ -125,6 +141,21 @@ void dpu_config_dvfs_vote_exec(uint64_t clk_rate)
 
 	dpu_pr_info("set clk rate = %llu, get clk rate=%llu",
 			clk_rate, clk_get_rate(g_dpu_config_data.clk_gate_edc));
+}
+
+void dpu_config_vivo_vote_exec(uint64_t clk_rate)
+{
+	int ret = 0;
+
+	if (g_dpu_config_data.clk_gate_dss_vivo == NULL)
+		return;
+
+	ret = clk_set_rate(g_dpu_config_data.clk_gate_dss_vivo, clk_rate);
+	if (ret)
+		dpu_pr_err("set edc clk rate=%llu failed, error=%d!", clk_rate, ret);
+
+	dpu_pr_info("set clk rate = %llu, get clk rate=%llu",
+			clk_rate, clk_get_rate(g_dpu_config_data.clk_gate_dss_vivo));
 }
 
 int32_t dpu_init_config(struct platform_device *device)
@@ -145,6 +176,29 @@ int32_t dpu_init_config(struct platform_device *device)
 	_config_get_dpu_version_value(np);
 	_config_get_dvfs_config(np);
 	return _config_get_offline_scene_id_array(np);
+}
+
+uint32_t get_line_num_perlb(uint32_t width)
+{
+	uint32_t line_num;
+	uint32_t i = ARRAY_SIZE(g_line_limit_perlb);
+
+	if ((width == 0) || (width > LB_PIXEL_NUM_PERLB))
+		return 0;
+
+	if (width == LB_PIXEL_NUM_PERLB)
+		return 1;
+
+	line_num = LB_PIXEL_NUM_PERLB / width;
+	while (i > 0) {
+		i--;
+		if (line_num >= g_line_limit_perlb[i]) {
+			line_num = g_line_limit_perlb[i];
+			break;
+		}
+	}
+
+	return line_num;
 }
 
 MODULE_LICENSE("GPL");

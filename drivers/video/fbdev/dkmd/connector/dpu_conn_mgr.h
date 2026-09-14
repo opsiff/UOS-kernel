@@ -26,9 +26,11 @@
 #include <linux/regulator/consumer.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
+#include <linux/mutex.h>
 #include <dpu/soc_dpu_define.h>
 
 #include "dpu_connector.h"
+#include "dkmd_dp_interface.h"
 
 struct dpu_conn_manager {
 	/* private device data */
@@ -55,6 +57,11 @@ struct dpu_conn_manager {
 
 	/* Receive each connector registration */
 	struct dpu_connector *connector[CONNECTOR_ID_MAX];
+
+	// filter start 
+	struct dp_hook_ops *mgr_dp_hook_ops;
+	int max_connector_num;
+    struct mutex connect_status_mutex;
 };
 
 extern struct dpu_conn_manager *g_conn_manager;
@@ -81,6 +88,22 @@ static inline struct dpu_connector *get_connector_by_id(uint32_t connector_idx)
 static inline bool is_connector_manager_available(void)
 {
 	return (g_conn_manager != NULL);
+}
+
+static struct dpu_connector *get_real_connector(uint32_t raw_dsi_index, uint32_t panel_type)
+{
+	uint32_t real_dsi_idx;
+
+	if ((panel_type & PANEL_EXTERNAL) == 0)
+		real_dsi_idx = raw_dsi_index;
+	else if (panel_type & PANEL_MIPI2HDMI)
+		real_dsi_idx = CONNECTOR_ID_DSI0;
+	else if (raw_dsi_index == CONNECTOR_ID_DSI2)
+		real_dsi_idx = CONNECTOR_ID_DSI2_BUILTIN;
+	else
+		real_dsi_idx = CONNECTOR_ID_DSI0_BUILTIN;
+
+	return get_connector_by_id(real_dsi_idx);
 }
 
 #endif

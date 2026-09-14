@@ -3,16 +3,11 @@ GCOV_PROFILE := $(CONFIG_GCOV_KERNEL)
 
 dkmd_dksm-objs = \
 	dksm_debug.o \
+	dkmd_aod_itf.o \
 	buf_sync/dkmd_buf_sync.o \
-	chrdev/dkmd_sysfs.o \
-	chrdev/dkmd_chrdev.o \
-	fence/dkmd_fence_utils.o \
-	fence/dkmd_release_fence.o \
-	fence/dkmd_acquire_fence.o \
-	timeline/dkmd_timeline.o \
 	peri/dkmd_peri.o \
-	isr/dkmd_isr.o \
-	notify/dkmd_notify.o
+	notify/dkmd_notify.o \
+	mntn/dkmd_mntn_rdr.o
 
 ifeq ($(CONFIG_HUAWEI_OHOS_DSM),y)
 dkmd_dksm-objs += \
@@ -27,17 +22,22 @@ dkmd_dksm-objs += \
 	wlt/dpu_wlt.o
 endif
 
+dkmd_dksm-objs += \
+	dksm_utils.o
+
 EXTRA_CFLAGS += \
-	-I$(srctree)/include/platform_include/display/dkmd/ \
-	-I$(srctree)/drivers/video/fbdev/dkmd/cmdlist \
-	-I$(srctree)/drivers/video/fbdev/dkmd/cmdlist/include \
+	-I$(srctree)/include/platform_include/display/dkmd \
+	-I$(srctree)/include/platform_include/display/linux \
+	-I$(srctree)/drivers/video/fbdev/ukmd/cmdlist \
+	-I$(srctree)/drivers/video/fbdev/ukmd/cmdlist/include \
+	-I$(srctree)/drivers/video/fbdev/dkmd/aod \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/chrdev \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/timeline \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm\wlt \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/buf_sync \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/chrdev \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/fence \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/timeline \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/isr
+	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/mntn
 
 CFLAGS_MODULE += -Wdate-time -Wextra -Wfloat-equal -Wformat=2 -Wshadow
 # If you want to compile into modular drive, will need to decide

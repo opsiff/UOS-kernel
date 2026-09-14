@@ -16,7 +16,7 @@
 
 static int32_t dpu_comp_frame_start_isr_notify(struct notifier_block *self, unsigned long action, void *data)
 {
-	struct dkmd_listener_data *listener_data = (struct dkmd_listener_data *)data;
+	struct ukmd_listener_data *listener_data = (struct ukmd_listener_data *)data;
 	struct dpu_composer *dpu_comp = NULL;
 	struct comp_online_present *present = NULL;
 
@@ -41,6 +41,7 @@ static int32_t dpu_comp_frame_start_isr_notify(struct notifier_block *self, unsi
 
 	present->frame_start_flag = 1;
 	dpu_tui_frame_start_isr_handler(dpu_comp);
+
 	return 0;
 }
 
@@ -48,7 +49,7 @@ static struct notifier_block frame_start_isr_notifier = {
 	.notifier_call = dpu_comp_frame_start_isr_notify,
 };
 
-void dpu_comp_frame_start_isr_init(struct dkmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit)
+void dpu_comp_frame_start_isr_init(struct ukmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit)
 {
 	struct comp_online_present *present = NULL;
 	if (unlikely(!isr)) {
@@ -69,17 +70,17 @@ void dpu_comp_frame_start_isr_init(struct dkmd_isr *isr, struct dpu_composer *dp
 	}
 
 	present->frame_start_flag = 0;
-	dkmd_isr_register_listener(isr, &frame_start_isr_notifier, listening_bit, dpu_comp);
+	ukmd_isr_register_listener(isr, &frame_start_isr_notifier, listening_bit, dpu_comp);
 }
 
-void dpu_comp_frame_start_isr_deinit(struct dkmd_isr *isr, uint32_t listening_bit)
+void dpu_comp_frame_start_isr_deinit(struct ukmd_isr *isr, uint32_t listening_bit)
 {
-	dkmd_isr_unregister_listener(isr, &frame_start_isr_notifier, listening_bit);
+	ukmd_isr_unregister_listener(isr, &frame_start_isr_notifier, listening_bit);
 }
 
 static int32_t dpu_comp_frame_end_isr_notify(struct notifier_block *self, unsigned long action, void *data)
 {
-	struct dkmd_listener_data *listener_data = (struct dkmd_listener_data *)data;
+	struct ukmd_listener_data *listener_data = (struct ukmd_listener_data *)data;
 	struct dpu_composer *dpu_comp = NULL;
 	struct comp_online_present *present = NULL;
 
@@ -108,12 +109,12 @@ static struct notifier_block frame_end_isr_notifier = {
 	.notifier_call = dpu_comp_frame_end_isr_notify,
 };
 
-void dpu_comp_frame_end_isr_init(struct dkmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit)
+void dpu_comp_frame_end_isr_init(struct ukmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit)
 {
-	dkmd_isr_register_listener(isr, &frame_end_isr_notifier, listening_bit, dpu_comp);
+	ukmd_isr_register_listener(isr, &frame_end_isr_notifier, listening_bit, dpu_comp);
 }
 
-void dpu_comp_frame_end_isr_deinit(struct dkmd_isr *isr, uint32_t listening_bit)
+void dpu_comp_frame_end_isr_deinit(struct ukmd_isr *isr, uint32_t listening_bit)
 {
-	dkmd_isr_unregister_listener(isr, &frame_end_isr_notifier, listening_bit);
+	ukmd_isr_unregister_listener(isr, &frame_end_isr_notifier, listening_bit);
 }

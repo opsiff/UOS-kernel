@@ -16,6 +16,7 @@
 
 #include <linux/types.h>
 #include "dkmd_opr_id.h"
+#include "dkmd_user_panel_info.h"
 
 struct dkmd_base_layer;
 struct opr_cmd_data;
@@ -25,4 +26,11 @@ int32_t opr_set_sdma_data(struct opr_cmd_data *cmd_data, const struct dkmd_base_
 	const struct opr_cmd_data *pre_cmd_data, const struct opr_cmd_data **next_cmd_datas, uint32_t next_oprs_num);
 void opr_set_sdma_layer_fmt(uint32_t fmt, uint32_t compress_type, uint32_t dma_sel,
 	struct dpu_dm_layer_info *layer_info);
+int32_t get_rect_align_info(struct dkmd_rect_coord *rect, const struct dkmd_base_layer *layer);
+void set_layer_clip_info(struct dpu_dm_layer_info *layer_info,
+	const struct dkmd_rect_coord *src_rect, const struct dkmd_rect_coord *align_rect);
+void opr_set_sdma_config(struct opr_cmd_data *cmd_data);
+
+void set_scene_layer_rdfc(struct opr_cmd_data *cmd_data, int32_t format, uint32_t layer_id);
+
 #endif

@@ -55,3 +55,10 @@ config DKMD_DPU_OFFLINE
 	depends on DKMD_DPU_COMPOSER
 	help
 	  Choose this option if need offline driver support.
+
+config DKMD_DPU_DYNAMIC_FAKE_PANEL
+	bool "Enable support dynamic fake panel"
+	default n
+	depends on DKMD_DPU_COMPOSER
+	help
+	  Choose this option if need dynamic fake panel support.

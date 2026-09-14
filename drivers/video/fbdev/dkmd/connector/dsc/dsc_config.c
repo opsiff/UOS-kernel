@@ -19,9 +19,10 @@
 static void dss_dsc_version_cfg(char __iomem * dsc_base, struct dsc_calc_info *dsc)
 {
 	uint32_t version = (dsc->dsc_info.dsc_version_minor == DSC_V_1_2) ? 2 : 1;
-
 	set_reg(DPU_DSC_EN_ADDR(dsc_base), dsc->dsc_en, 3, 0);
 	set_reg(DPU_DSC_VERSION_ADDR(dsc_base), version, 4, 0);
+	dpu_pr_debug("dsc base 0x%x dsc en=0x%x version 0x%x",dsc_base,
+		inp32(DPU_DSC_EN_ADDR(dsc_base)), inp32(DPU_DSC_VERSION_ADDR(dsc_base)));
 }
 
 static void dss_dsc_ctrl_cfg(char __iomem * dsc_base, struct dsc_calc_info *dsc)
@@ -131,7 +132,7 @@ static void dss_dsc_rc_thresh_cfg(char __iomem * dsc_base, struct dsc_calc_info 
 		thresh0.reg.rc_buf_thresh1 = dsc->dsc_info.rc_buf_thresh[1 + i];
 		thresh0.reg.rc_buf_thresh0 = dsc->dsc_info.rc_buf_thresh[i];
 		set_reg((DPU_DSC_RC_BUF_THRESH0_ADDR(dsc_base) + i), thresh0.value, 32, 0);
-		dpu_pr_info("dsc rc_thresh[%d]=%d", (DPU_DSC_RC_BUF_THRESH0_ADDR(dsc_base) + i), thresh0.value);
+		dpu_pr_debug("rc_thresh[0x%llx]=0x%#x", (DPU_DSC_RC_BUF_THRESH0_ADDR(dsc_base) + i), thresh0.value);
 	}
 
 	/* config rc_thresh3 */
@@ -167,8 +168,28 @@ static void dss_dsc_rc_range_cfg(char __iomem * dsc_base, struct dsc_calc_info *
 
 static void dss_dsc_multi_slice_cfg(char __iomem * dsc_base, struct dsc_calc_info *dsc)
 {
-	/* slices_per_line = 0 and pic_line_grp_num no need to config */
-	set_reg(DPU_DSC_MULTI_SLICE_CTL_ADDR(dsc_base), 0, 1, 0);
+	uint32_t dual_dsc = (dsc->dual_dsc_en == 1 ? 2 : 1);
+	uint32_t slice_num = 0;
+	uint32_t slices_per_line = 0;
+
+	if (dsc->dsc_info.slice_width == 0) {
+		dpu_pr_warn("slice width = 0, set slices_per_line 0");
+		set_reg(DPU_DSC_MULTI_SLICE_CTL_ADDR(dsc_base), 0, 2, 0);
+		return ;
+	}
+	slice_num = dsc->dsc_info.pic_width / dsc->dsc_info.slice_width / dual_dsc;
+	/* when dual_dsc_en = 0, slices_per_line=0
+	   when dual_dsc_en = 1, 2 slices -> slices_per_line=0
+						     4 slices -> slices_per_line=1
+						     8 slices -> slices_per_line=2 
+	*/
+	while (slice_num > 1) {
+		slice_num /= 2;
+		slices_per_line++;
+	}
+	slices_per_line = (dsc->dual_dsc_en == 0 ? 0 : slices_per_line);
+	dpu_pr_info("slices_per_line:%u, dsc_width:%u\n", slices_per_line , dsc->dsc_info.slice_width);
+	set_reg(DPU_DSC_MULTI_SLICE_CTL_ADDR(dsc_base), slices_per_line, 2, 0);
 }
 
 static void dss_dsc_out_mode_cfg(char __iomem * dsc_base, struct dsc_calc_info *dsc)

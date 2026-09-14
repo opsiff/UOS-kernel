@@ -19,6 +19,7 @@
 #include <uapi/linux/sched/types.h>
 
 #include "dpu_comp_mgr.h"
+#include "effect/dpu_effect_init.h"
 #include "dpu_effect_hiace.h"
 #include "dpu_hiace_init.h"
 #include "dkmd_mipi_panel_info.h"
@@ -158,17 +159,6 @@ static void dpu_hist_status_update(struct dkmd_hiace_ctrl *hiace_ctrl)
 	}
 }
 
-static bool is_hist_read_intime(char __iomem *dpu_base)
-{
-	uint32_t vstate;
-
-	vstate = inp32(DPU_DSI_VSTATE_ADDR(dpu_base));
-	if (vstate & (LDI_VSTATE_VSW | LDI_VSTATE_VBP | LDI_VSTATE_VACTIVE0 | LDI_VSTATE_V_WAIT_TE0))
-		return false;
-
-	return true;
-}
-
 static uint32_t convert_cfg_2_mode(uint32_t ppc_config_id)
 {
 	switch (ppc_config_id) {
@@ -190,10 +180,10 @@ static int32_t update_hist_rect_info(struct dpu_composer *dpu_comp, struct dkmd_
 
 	pinfo = dpu_comp->conn_info;
 	dpu_check_and_return(!pinfo, -1, err, "pinfo is null");
-	// get_active_display_rect is null, when use dp panel
-	dpu_check_and_return(!pinfo->get_active_display_rect, -1, debug, "get_active_display_rect is null");
+	// get_display_rect_by_config_id is null, when use dp panel
+	dpu_check_and_return(!pinfo->get_display_rect_by_config_id, -1, debug, "get_display_rect_by_config_id is null");
 
-	if (pinfo->get_active_display_rect(pinfo, &active_rect) != 0) {
+	if (pinfo->get_display_rect_by_config_id(pinfo, pinfo->ppc_config_id_active, &active_rect) != 0) {
 		dpu_pr_err("get panel active rect failed");
 		return -1;
 	}
@@ -218,6 +208,7 @@ static void dpu_effect_hiace_handle_work(struct kthread_work *work)
 	char __iomem *hiace_base = NULL;
 	struct dpu_composer *dpu_comp = NULL;
 	struct dkmd_hiace_ctrl *hiace_ctrl = NULL;
+	uint32_t present_index;
 	DPU_HIACE_HALF_BLOCK_INFO_UNION half_block_info;
 
 	dpu_comp = container_of(work, struct dpu_composer, hiace_work);
@@ -227,12 +218,15 @@ static void dpu_effect_hiace_handle_work(struct kthread_work *work)
 	dpu_check_and_no_retval(!hiace_ctrl, err, "hiace_ctrl is NULL\n");
 
 	dpu_trace_ts_begin(&tv0);
+	present_index = dpu_comp->comp.hw_present_frame_index;
 	dpu_base = dpu_comp->comp_mgr->dpu_base;
 	hiace_base = dpu_base + hiace_ctrl->dpp_offset + HIACE_OFFSET;
 
 	down(&dpu_comp->comp.blank_sem);
+	dpu_print_sem_count(&dpu_comp->comp.blank_sem, true);
 	if (!dpu_comp->comp.power_on) {
 		dpu_pr_debug("panel power off");
+		dpu_print_sem_count(&dpu_comp->comp.blank_sem, false);
 		up(&dpu_comp->comp.blank_sem);
 		return;
 	}
@@ -243,6 +237,19 @@ static void dpu_effect_hiace_handle_work(struct kthread_work *work)
 	if (!hiace_ctrl->is_last_hist_read_intime) {
 		dpu_pr_debug("[hiace] last lhist is not read intime, current frame skip");
 		hiace_ctrl->is_last_hist_read_intime = true;
+
+		dpu_comp_active_vsync(dpu_comp);
+		mutex_lock(&hiace_ctrl->status.hist_lock);
+
+		dpu_read_global_hist(dpu_base, hiace_ctrl);
+		hiace_ctrl->hist.frame_index = present_index;
+		hiace_ctrl->hist.valid_info = hiace_ctrl->status.valid_info;
+		hiace_ctrl->status.valid_info = 0;
+
+		mutex_unlock(&hiace_ctrl->status.hist_lock);
+		dpu_comp_deactive_vsync(dpu_comp);
+
+		dpu_print_sem_count(&dpu_comp->comp.blank_sem, false);
 		up(&dpu_comp->comp.blank_sem);
 		return;
 	}
@@ -259,7 +266,7 @@ static void dpu_effect_hiace_handle_work(struct kthread_work *work)
 	dpu_read_local_hist(hiace_base, hiace_ctrl);
 	dpu_read_fna_data(hiace_base, hiace_ctrl);
 
-	hiace_ctrl->is_last_hist_read_intime = is_hist_read_intime(dpu_base);
+	hiace_ctrl->is_last_hist_read_intime = is_vstate_in_vfp(dpu_base);
 	dpu_pr_debug("[hiace] is_last_hist_read_intime %d", hiace_ctrl->is_last_hist_read_intime);
 
 	// After lhist read: permit hardware refresh local_hist and fna
@@ -283,11 +290,13 @@ static void dpu_effect_hiace_handle_work(struct kthread_work *work)
 		hiace_ctrl->hist.hist_rect.bottom = dpu_comp->comp.base.yres;
 	}
 
+	hiace_ctrl->hist.frame_index = present_index;
+	hiace_ctrl->hist.valid_info = hiace_ctrl->status.valid_info;
 	mutex_unlock(&hiace_ctrl->status.hist_lock);
 	dpu_comp_deactive_vsync(dpu_comp);
+	dpu_print_sem_count(&dpu_comp->comp.blank_sem, false);
 	up(&dpu_comp->comp.blank_sem);
 
-	hiace_ctrl->hist.valid_info = hiace_ctrl->status.valid_info;
 	dpu_pr_debug("[hiace] valid info 0x%x", hiace_ctrl->hist.valid_info);
 	/* global or local hist or fna is updated */
 	if (hiace_ctrl->status.valid_info & 0x7) {
@@ -296,20 +305,6 @@ static void dpu_effect_hiace_handle_work(struct kthread_work *work)
 	}
 
 	dpu_trace_ts_end(&tv0, "hiace handle finished!");
-}
-
-static int handle_err_hist(int wait_ret)
-{
-	int ret;
-
-	if (wait_ret > 0)
-		ret = 3; /* panel on hist not return hist stop is true */
-	else if (wait_ret == -ERESTARTSYS)
-		ret = 4; /* system err and return -ERESTARTSYS */
-	else
-		ret = 2; /* hist not return time out */
-
-	return ret;
 }
 
 static int32_t dpu_effect_hiace_get_hist(struct dkmd_hiace_ctrl *hiace_ctrl, void __user* argp)
@@ -347,10 +342,10 @@ static int32_t dpu_effect_hiace_get_hist(struct dkmd_hiace_ctrl *hiace_ctrl, voi
 	if (status->new_hist) {
 		status->new_hist = false;
 		mutex_lock(&status->hist_lock);
-
+		
 		ret = (int)copy_to_user(argp, &hiace_ctrl->hist, sizeof(hiace_ctrl->hist));
 		if (ret) {
-			dpu_pr_err("[hiace] copy_to_user failed(param)! ret=%d.", ret);
+			dpu_pr_warn("[hiace] copy_to_user failed(param)! ret=%d.", ret);
 			ret = -1;
 		}
 
@@ -476,10 +471,11 @@ static void dpu_effect_hiace_lut_apply(struct dpu_composer *dpu_comp)
 	struct dkmd_hiace_ctrl *hiace_ctrl = dpu_comp->hiace_ctrl;
 	char __iomem *dpu_base = dpu_comp->comp_mgr->dpu_base;
 	char __iomem *hiace_base = dpu_base + hiace_ctrl->dpp_offset + HIACE_OFFSET;
-
-	dpu_pr_debug("+ updata_info: 0x%x", hiace_ctrl->lut.update_info);
+	uint32_t update_info_beforcelock = hiace_ctrl->lut.update_info;
 
 	mutex_lock(&hiace_ctrl->hiace_lut_lock);
+	dpu_pr_debug("+ update_info beforce lock: 0x%x, after lock: 0x%x",
+		update_info_beforcelock, hiace_ctrl->lut.update_info);
 
 	set_hiace_hdr_lut(dpu_base, hiace_ctrl);
 	set_hiace_gama_lut(hiace_base, hiace_ctrl);
@@ -523,7 +519,7 @@ static int dpu_effect_hiace_wake_up_hist(struct dkmd_hiace_ctrl *hiace_ctrl)
 
 static void dpu_effect_hiace_queue_work(struct dpu_composer *dpu_comp)
 {
-	kthread_queue_work(&dpu_comp->hiace_worker, &dpu_comp->hiace_work);
+	kthread_queue_work(&dpu_comp->effect_worker, &dpu_comp->hiace_work);
 }
 
 static void dpu_effect_hiace_blank(struct dkmd_hiace_ctrl *hiace_ctrl)
@@ -540,11 +536,13 @@ void dpu_effect_hiace_init(struct dpu_composer *dpu_comp, uint32_t dpp_offset)
 {
 	struct dkmd_hiace_ctrl *hiace_ctrl = NULL;
 	struct hiace_hist_status *status = NULL;
-	struct sched_param param = {
-		.sched_priority = MAX_RT_PRIO - 1,
-	};
 
 	dpu_check_and_no_retval(!dpu_comp, err, "dpu_comp is NULL\n");
+
+	if (IS_ERR_OR_NULL(dpu_comp->effect_thread)) {
+		dpu_pr_err("effect_thread is not valid!");
+		return;
+	}
 
 	if (dpu_comp->hiace_ctrl) {
 		dpu_pr_warn("hiace already inited");
@@ -583,19 +581,6 @@ void dpu_effect_hiace_init(struct dpu_composer *dpu_comp, uint32_t dpp_offset)
 	}
 
 	mutex_init(&hiace_ctrl->hiace_lut_lock);
-
-	/* read hist thread when hiace end */
-	kthread_init_worker(&dpu_comp->hiace_worker);
-	dpu_comp->hiace_thread = kthread_create(kthread_worker_fn, &dpu_comp->hiace_worker, "hiace thread");
-	if (IS_ERR_OR_NULL(dpu_comp->hiace_thread)) {
-		dpu_pr_err("failed to create hiace_thread!");
-		vfree(dpu_comp->hiace_ctrl);
-		dpu_comp->hiace_ctrl = NULL;
-		return;
-	}
-	(void)sched_setscheduler_nocheck(dpu_comp->hiace_thread, SCHED_FIFO, &param);
-	(void)wake_up_process(dpu_comp->hiace_thread);
-
 	kthread_init_work(&dpu_comp->hiace_work, dpu_effect_hiace_handle_work);
 }
 
@@ -613,11 +598,6 @@ void dpu_effect_hiace_deinit(struct dpu_composer *dpu_comp)
 
 	hiace_ctrl = dpu_comp->hiace_ctrl;
 	status = &hiace_ctrl->status;
-
-	if (dpu_comp->hiace_thread) {
-		kthread_stop(dpu_comp->hiace_thread);
-		dpu_comp->hiace_thread = NULL;
-	}
 
 	mutex_destroy(&hiace_ctrl->hiace_lut_lock);
 

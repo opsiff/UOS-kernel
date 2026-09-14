@@ -19,9 +19,9 @@
 
 struct dpu_composer;
 
-void dpu_comp_frame_start_isr_init(struct dkmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit);
-void dpu_comp_frame_start_isr_deinit(struct dkmd_isr *isr, uint32_t listening_bit);
-void dpu_comp_frame_end_isr_init(struct dkmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit);
-void dpu_comp_frame_end_isr_deinit(struct dkmd_isr *isr, uint32_t listening_bit);
+void dpu_comp_frame_start_isr_init(struct ukmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit);
+void dpu_comp_frame_start_isr_deinit(struct ukmd_isr *isr, uint32_t listening_bit);
+void dpu_comp_frame_end_isr_init(struct ukmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit);
+void dpu_comp_frame_end_isr_deinit(struct ukmd_isr *isr, uint32_t listening_bit);
 
 #endif

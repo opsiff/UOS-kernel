@@ -12,12 +12,15 @@
  */
 
 #include "dpu_conn_mgr.h"
+#include "mipi_dsi_timing_calculate.h"
+#include <securec.h>
 
 #ifdef CONFIG_DKMD_DPU_HDMI_TX
 #include "hdmitx_ctrl_dev.h"
 #endif
+#define DTS_GFX_DP_NAME "gfx_dp"
 
-struct connector_dsi_match dsi_match[] = {
+struct connector_dsi_match dsi_match[CONNECTOR_ID_MAX] = {
 	{CONNECTOR_ID_DSI0, CONNECTOR_ID_DSI0},
 	{CONNECTOR_ID_DSI1, CONNECTOR_ID_DSI1},
 	{CONNECTOR_ID_DSI2, CONNECTOR_ID_DSI2},
@@ -26,6 +29,7 @@ struct connector_dsi_match dsi_match[] = {
 	{CONNECTOR_ID_OFFLINE, CONNECTOR_ID_OFFLINE}, // offline
 	{CONNECTOR_ID_HDMITX, CONNECTOR_ID_HDMITX}, // hdmitx
 	{CONNECTOR_ID_DSI0_BUILTIN, CONNECTOR_ID_DSI0},
+	{CONNECTOR_ID_DSI2_BUILTIN, CONNECTOR_ID_DSI2},
 	/* add for v740 dp */
 	{CONNECTOR_ID_DP1, CONNECTOR_ID_DP1}, // dp1
 	{CONNECTOR_ID_DP2, CONNECTOR_ID_DP2}, // dp2
@@ -40,6 +44,64 @@ uint32_t get_connector_phy_id(uint32_t connector_id)
 		return 0;
 	}
 	return dsi_match[connector_id].connector_phy_id;
+}
+
+static struct panel_timing_cfg init_timing_resolution(const struct edid_timing_info *edid_timing)
+{
+	struct panel_timing_cfg timing = {
+		.clock = edid_timing->pixel_clock,
+		.vtotal = edid_timing->vblanking + edid_timing->vactive_pixels,
+		.vactive = edid_timing->vactive_pixels,
+		.vbp = edid_timing->vblanking - edid_timing->vsync_offset - edid_timing->vsync_pulse_width,
+		.vsa = edid_timing->vsync_pulse_width,
+		.vfp = edid_timing->vsync_offset,
+		.htotal = edid_timing->hblanking + edid_timing->hactive_pixels,
+		.hactive = edid_timing->hactive_pixels,
+		.hbp = edid_timing->hblanking - edid_timing->hsync_pulse_width - edid_timing->hsync_offset,
+		.hsa = edid_timing->hsync_pulse_width,
+	};
+	dpu_pr_info("input param:");
+	dpu_pr_info("clock=%llu, vtotal=%llu, vactive=%llu, vbp=%llu, vsa= %llu, vfp= %llu", 
+		   timing.clock, timing.vtotal, timing.vactive, timing.vbp, timing.vsa, timing.vfp);
+	dpu_pr_info("htotal=%llu, hactive=%llu, hbp=%llu, hsa=%llu", 
+		   timing.htotal, timing.hactive, timing.hbp, timing.hsa);
+	return timing;
+}
+
+int dpu_connector_edid_timing_calc(struct edid_timing_info *edid_timing, struct dkmd_connector_info *pinfo)
+{
+	int ret = 0;
+	struct dpu_connector *connector = NULL;
+	struct panel_timing_cfg timing;
+
+	if (!pinfo || !edid_timing) {
+		dpu_pr_info("pinfo or edid_timing is null!");
+		return -EINVAL;
+	}
+
+	connector = get_primary_connector(pinfo);
+	if (!connector) {
+		dpu_pr_err("connector_id=%u is not available!", pinfo->connector_idx[PRIMARY_CONNECT_CHN_IDX]);
+		return -EINVAL;
+	}
+
+	timing = init_timing_resolution(edid_timing);
+	dpu_pr_info("[dpu_connector_setup]connector->connector_id = %d", get_connector_phy_id(connector->connector_id));
+	switch (connector->connector_id) {
+		case CONNECTOR_ID_DSI0:
+		case CONNECTOR_ID_DSI1:
+		case CONNECTOR_ID_DSI2:
+		case CONNECTOR_ID_DSI0_BUILTIN:
+		case CONNECTOR_ID_DSI2_BUILTIN:
+			ret = mipi_dsi_param_calculate(pinfo, connector, timing);
+			if (connector->bind_connector)
+				(void)memcpy_s(&(connector->bind_connector->post_info[connector->active_idx]->mipi), sizeof(struct mipi_panel_info), 
+					&(connector->post_info[connector->active_idx]->mipi), sizeof(struct mipi_panel_info));
+			return ret;
+		default:
+			dpu_pr_err("invalid edid calcutate connector id!");
+			return -EINVAL;
+	}
 }
 
 void base_panel_connector_dts_parse(struct dkmd_connector_info *pinfo, struct device_node *np)
@@ -68,7 +130,7 @@ void base_panel_connector_dts_parse(struct dkmd_connector_info *pinfo, struct de
 	dpu_pr_info("enable_lbuf_reserve=%u", pinfo->base.enable_lbuf_reserve);
 
 	of_property_for_each_u32(np, "scene", prop, p, value) {
-		if ((scene_count > ONLINE_SCENE_MAX) || (value > DPU_SCENE_ONLINE_3)) {
+		if ((scene_count >= ONLINE_SCENE_MAX) || (value > DPU_SCENE_ONLINE_3)) {
 			scene_count = 0;
 			dpu_pr_err("scene config error\n");
 			break;
@@ -126,12 +188,13 @@ void dpu_connector_setup(struct dpu_connector *connector)
 		dpu_pr_err("connector is nullptr!");
 		return;
 	}
-	dpu_pr_info("[dpu_connector_setup]connector->connector_id = %d", connector->connector_id);
+	dpu_pr_info("[dpu_connector_setup]connector->connector_id = %d", get_connector_phy_id(connector->connector_id));
 	switch (connector->connector_id) {
 	case CONNECTOR_ID_DSI0:
 	case CONNECTOR_ID_DSI1:
 	case CONNECTOR_ID_DSI2:
 	case CONNECTOR_ID_DSI0_BUILTIN:
+	case CONNECTOR_ID_DSI2_BUILTIN:
 		mipi_dsi_default_setup(connector);
 		break;
 #ifdef CONFIG_DKMD_DPU_DP
@@ -171,9 +234,31 @@ void dpu_connector_setup(struct dpu_connector *connector)
 		connector->bind_connector->connector_base = connector->dpu_base +
 			g_connector_offset[connector->bind_connector->connector_id];
 
-	if (connector->conn_info->base.pipe_sw_itfch_idx == PIPE_SW_PRE_ITFCH1) {
+	// itf 1 3 5 use dsc1
+	if (connector->conn_info->base.pipe_sw_itfch_idx % 2) {
 		dpu_pr_info("add for itfch1");
 		connector->dpp_base = connector->dpu_base + DPU_DPP1_OFFSET;
-		connector->dsc_base = NULL;
+		connector->dsc_base = connector->dpu_base + DPU_DSC1_OFFSET;
+	}
+}
+
+void dpu_connector_release(struct dpu_connector *connector)
+{
+	if (!connector) {
+		dpu_pr_err("connector is nullptr!");
+		return;
+	}
+	dpu_pr_info("[dpu_connector_release]connector->connector_id = %d",  get_connector_phy_id(connector->connector_id));
+	switch (connector->connector_id) {
+	case CONNECTOR_ID_DSI0:
+	case CONNECTOR_ID_DSI1:
+	case CONNECTOR_ID_DSI2:
+	case CONNECTOR_ID_DSI0_BUILTIN:
+	case CONNECTOR_ID_DSI2_BUILTIN:
+		mipi_dsi_default_release(connector);
+		break;
+	default:
+		dpu_pr_err("invalid pipe_sw post channel!");
+		return;
 	}
 }

@@ -21,45 +21,60 @@ typedef struct error_no_map
 {
 	int32_t error_no;
 	char *name;
+	int32_t running_test_switch;
 } error_no_map;
 
+// Define local maps to save memory and reduce code modification conflicts.
+static struct error_no_map lcd_error_no_map[] = {
+	{922001000, "DSM_LCD_LDI_UNDERFLOW_NO", 0},
+	{922001001, "DSM_LCD_TE_TIME_OUT_ERROR_NO", 1},
+	{922001002, "DSM_LCD_STATUS_ERROR_NO", 1},
+	{922001003, "DSM_LCD_POWER_STATUS_ERROR_NO", 0},
+	{922001007, "DSM_LCD_ESD_OCP_RECOVERY_NO", 0},
+	{922001008, "DSM_LCD_OVP_ERROR_NO", 1},
+	{922001018, "DSM_LCD_ESD_STATUS_ERROR_NO", 1},
+	{922001022, "DSM_LCD_MDSS_IOMMU_ERROR_NO"},
+	{922001033, "DSM_LCD_BTB_CHECK_ERROR_NO", 1},
+	{922001034, "DSM_LCD_BACKLIGHT_OCP_ERROR_NO", 1},
+	{922001035, "DSM_LCD_BACKLIGHT_TSD_ERROR_NO", 1},
+	{922001036, "DSM_LCD_MIPI_TRANSMIT_ERROR_NO", 1},
+	{922001038, "DSM_LCD_VACTIVE_TIMEOUT_ERROR_NO", 1},
+	{922001040, "DSM_LCD_BACKLIGHT_I2C_ERROR_NO", 1},
+	{922001041, "DSM_LCD_BIAS_I2C_ERROR_NO", 1},
+	{922001042, "DSM_LCD_BL_FLICKER_ERROR_NO", 0},
+	{922001050, "DSM_DEEPCALIB_DEMURA_ERROR", 0},
+	{922001051, "DSM_DEEPCALIB_ODC_ERROR", 0},
+	{922001052, "DSM_DEEPCALIB_DBI_ERROR", 0},
+	{922001053, "DSM_DEEPCALIB_IRC_ERROR", 0},
+	{922001054, "DSM_DEEPCALIB_OTHER_ERROR", 0},
+	{922001501, "DSM_LCD_PANEL_CRACK_ERROR_NO", 1},
+	{922001502, "DSM_LCD_CHECKSUM_ERROR_NO", 1},
+	{922001503, "DSM_LCD_POWER_ABNOMAL_ERROR_NO", 1},
+	{922001504, "DSM_LCD_DDIC_LV_DETECT_ERROR_NO", 0},
+	{922001505, "DSM_AMOLED_POWER_IC_CHECK_ERR_NO", 0},
+	{922001506, "DSM_LCD_UNDERRUN_ERROR_NO", 0},
+	{922001508, "DSM_LCD_LVD_DETECT_ERROR_NO", 1},
+	{922001509, "DSM_LCD_MBIST_ERROR_NO", 1},
+	{922001510, "DSM_LCD_MIPI_CHECK_ERROR_NO", 1},
+	{922001511, "DSM_LCD_SUB_PANEL_CRACK_ERROR_NO", 1},
+	{922001512, "DSM_LCD_SUB_CHECKSUM_ERROR_NO", 1},
+	{922001513, "DSM_LCD_SUB_LVD_DETECT_ERROR_NO", 1},
+	{922001514, "DSM_LCD_SUB_MBIST_ERROR_NO", 1},
+	{922001515, "DSM_LCD_SUB_MIPI_CHECK_ERROR_NO", 1},
+	{925004311, "DSM_DSI_DETECT_ERROR_NO", 0},
+	{925212404, "DMD_DSS_DSI_FAULT", 0},
+	{925212405, "DMD_DSS_DSI_VACTIVE_TIMEOUT", 0},
+};
 
-int32_t lcd_errorno_to_str(int32_t error_no, char *str, int32_t buff_len) {
-	int32_t i;
+static int32_t lcd_errorno_to_str(int32_t error_no, char *str, int32_t buff_len) {
+	size_t i;
 	int32_t ret;
-	// Define local maps to save memory and reduce code modification conflicts.
-	static struct error_no_map lcd_error_no_map[] = {
-		{922001000, "DSM_LCD_LDI_UNDERFLOW_NO"},
-		{922001001, "DSM_LCD_TE_TIME_OUT_ERROR_NO"},
-		{922001002, "DSM_LCD_STATUS_ERROR_NO"},
-		{922001003, "DSM_LCD_POWER_STATUS_ERROR_NO"},
-		{922001008, "DSM_LCD_OVP_ERROR_NO"},
-		{922001018, "DSM_LCD_ESD_STATUS_ERROR_NO"},
-		{922001033, "DSM_LCD_BTB_CHECK_ERROR_NO"},
-		{922001034, "DSM_LCD_BACKLIGHT_OCP_ERROR_NO"},
-		{922001035, "DSM_LCD_BACKLIGHT_TSD_ERROR_NO"},
-		{922001036, "DSM_LCD_MIPI_TRANSMIT_ERROR_NO"},
-		{922001038, "DSM_LCD_VACTIVE_TIMEOUT_ERROR_NO"},
-		{922001040, "DSM_LCD_BACKLIGHT_I2C_ERROR_NO"},
-		{922001041, "DSM_LCD_BIAS_I2C_ERROR_NO"},
-		{922001042, "DSM_LCD_BL_FLICKER_ERROR_NO"},
-		{922001501, "DSM_LCD_PANEL_CRACK_ERROR_NO"},
-		{922001502, "DSM_LCD_CHECKSUM_ERROR_NO"},
-		{922001503, "DSM_LCD_POWER_ABNOMAL_ERROR_NO"},
-		{922001504, "DSM_LCD_DDIC_LV_DETECT_ERROR_NO"},
-		{922001505, "DSM_AMOLED_POWER_IC_CHECK_ERR_NO"},
-		{922001506, "DSM_LCD_UNDERRUN_ERROR_NO"},
-		{922001508, "DSM_LCD_LVD_DETECT_ERROR_NO"},
-		{922001509, "DSM_LCD_MBIST_ERROR_NO"},
-		{922001510, "DSM_LCD_MIPI_CHECK_ERROR_NO"},
-		{922001511, "DSM_LCD_SUB_PANEL_CRACK_ERROR_NO"},
-		{922001512, "DSM_LCD_SUB_CHECKSUM_ERROR_NO"},
-		{922001513, "DSM_LCD_SUB_LVD_DETECT_ERROR_NO"},
-		{922001514, "DSM_LCD_SUB_MBIST_ERROR_NO"},
-		{922001515, "DSM_LCD_SUB_MIPI_CHECK_ERROR_NO"},
-		{925004311, "DSM_DSI_DETECT_ERROR_NO"},
-	};
-	uint32_t lcd_error_no_map_len = sizeof(lcd_error_no_map) / sizeof(error_no_map);
+	size_t lcd_error_no_map_len = sizeof(lcd_error_no_map) / sizeof(error_no_map);
+
+	if (buff_len <= 1) {
+		dpu_pr_err("invalid buff_len while converting lcd error number to string");
+		return -1;
+	}
 
 	for (i = 0; i < lcd_error_no_map_len; i++) {
 		if (lcd_error_no_map[i].error_no == error_no) {
@@ -71,16 +86,31 @@ int32_t lcd_errorno_to_str(int32_t error_no, char *str, int32_t buff_len) {
 				dpu_pr_err("strncpy_s error");
 				return -1;
 			}
+			return 0;
 		}
-		return 0;
 	}
 	return -1;
+}
+
+static int lcd_errorno_get_running_test_switch(int error_no)
+{
+	size_t i;
+	size_t lcd_error_no_map_len = sizeof(lcd_error_no_map) / sizeof(error_no_map);
+
+	for (i = 0; i < lcd_error_no_map_len; i++) {
+		if (lcd_error_no_map[i].error_no == error_no) {
+			return lcd_error_no_map[i].running_test_switch;
+		}
+	}
+
+	return 0;
 }
 
 struct dsm_client_ops hlcd_dsm_ops = {
 	.poll_state = NULL,
 	.dump_func = NULL,
 	.errorno_to_str = lcd_errorno_to_str,
+	.errorno_get_running_test_switch = lcd_errorno_get_running_test_switch,
 };
 
 static struct dsm_dev dsm_lcd_dev = {
@@ -116,6 +146,32 @@ void dksm_dmd_report_vactive_end_miss(uint32_t conn_id)
 	}
 
 	dsm_client_record(dsm_lcd_client, "NOTICE: do not receive vactive end itr of last frame, conn_id = %u", conn_id);
+
+	dsm_client_notify(dsm_lcd_client, DSM_LCD_VACTIVE_TIMEOUT_ERROR_NO);
+}
+
+void dksm_dmd_report_vactive_timeout(uint32_t scene_id, bool is_vactive_timeout , int32_t excess_time)
+{
+	uint32_t cnt = 0;
+
+	dpu_check_and_no_retval(!dsm_lcd_client, info, "dsm_lcd_client is null!");
+
+	while ((dsm_client_ocuppy(dsm_lcd_client) != 0) && (cnt < DSM_OCCUPY_RETRY_TIMES)) {
+		dpu_pr_warn("dsm_client_ocuppy failed, retry %d times", ++cnt);
+		udelay(DSM_CLIENT_RETRY_TIME);
+	}
+
+	if (cnt == DSM_OCCUPY_RETRY_TIMES) {
+		dpu_pr_warn("dsm_client_ocuppy failed");
+		return;
+	}
+
+	if (is_vactive_timeout) {
+		dsm_client_record(dsm_lcd_client, "NOTICE: scene%u vactive start wait timeout, "
+			"but dss irq is raised, cpu handle take more than %lld ms", scene_id, excess_time);
+	} else {
+		dsm_client_record(dsm_lcd_client, "NOTICE: scene%u vactive start wait success, cpu handle take %lld ms", scene_id, excess_time);
+	}
 
 	dsm_client_notify(dsm_lcd_client, DSM_LCD_VACTIVE_TIMEOUT_ERROR_NO);
 }

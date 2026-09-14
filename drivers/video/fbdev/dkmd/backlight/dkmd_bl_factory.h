@@ -36,6 +36,7 @@ enum mipi_brightness_para_type {
 	MIPI_BL_PARA1_DBV0, // parameter1 start from DBV0
 	MIPI_BL_PARA1_DBV0_AND_PARA2_DBV8, // parameter1 start from DBV0, parameter2 start from DBV8
 	MIPI_BL_PARA1_DBV8_AND_PARA2_DBV0, // parameter1 start from DBV8, parameter2 start from DBV0
+	MIPI_BL_PARA1_DBV0_AND_PARA2_DBV8_PARA3_FLAG, // parameter1 start from DBV0, parameter2 start from DBV8, parameter3 for flag of litter hisi
 };
 
 enum BLPWM_PRECISION_TYPE {

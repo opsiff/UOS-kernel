@@ -51,8 +51,10 @@ void dpu_comp_smmu_ch_set_reg(uint32_t reg_cmdlist_id, uint32_t scene_id, uint32
 void dpu_comp_smmu_offline_tlb_flush(uint32_t scene_id, uint32_t block_num);
 void dpu_comp_smmu_tlb_flush(uint32_t scene_id, uint32_t frame_index);
 
+void dpu_comp_simple_smmuv3_on(struct composer_manager *comp_mgr, struct dpu_composer *dpu_comp);
 void dpu_comp_smmuv3_on(struct composer_manager *comp_mgr, struct dpu_composer *dpu_comp);
 void dpu_comp_smmuv3_off(struct composer_manager *comp_mgr, struct dpu_composer *dpu_comp);
+void dpu_comp_single_tbu_smmuv3_on(struct composer_manager *comp_mgr, struct dpu_composer *dpu_comp);
 
 void dpu_comp_smmuv3_recovery_on(struct composer_manager *comp_mgr, struct dpu_composer *dpu_comp);
 void dpu_comp_smmuv3_reset_off(struct composer_manager *comp_mgr, struct dpu_composer *dpu_comp);

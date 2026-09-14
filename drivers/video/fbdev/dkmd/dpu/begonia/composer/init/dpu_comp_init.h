@@ -16,7 +16,9 @@
 
 struct dpu_composer;
 
+void dpu_init(struct composer_manager *comp_mgr);
 void dpu_comp_init(struct dpu_composer *dpu_comp);
+void dpu_comp_simple_init(struct dpu_composer *dpu_comp);
 void dpu_comp_release(struct dpu_composer *dpu_comp);
 void send_reset_hardware_event(struct composer *comp);
 

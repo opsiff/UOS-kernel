@@ -6,9 +6,9 @@ ifeq ($(CONFIG_DKMD_ENABLE),y)
 
 obj-y += dksm/
 obj-y += backlight/
-obj-y += cmdlist/
 obj-y += dpu/begonia/
 obj-y += connector/
 obj-y += product/
+obj-y += mdfx/
 
 endif

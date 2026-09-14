@@ -17,7 +17,8 @@
 #include <linux/types.h>
 #include "dkmd_opr_id.h"
 #include "dkmd_base_layer.h"
-#include "dkmd_dpu.h"
+#include "dkmd_user_panel_info.h"
+#include "res_mgr.h"
 
 struct dpu_dm_param;
 struct opr_cmd_data;
@@ -77,5 +78,6 @@ struct opr_cmd_data {
 void set_common_cmd_data(struct opr_cmd_data *cmd_data, const struct opr_cmd_data *pre_cmd_data);
 
 int32_t opr_dpu_to_soc_type(int32_t opr_dpu_type);
+uint32_t get_opr_oder(int32_t opr_dpu_type, int32_t opr_index);
 
 #endif

@@ -15,9 +15,9 @@
 #define DKMD_RECT_H
 
 #include <linux/types.h>
-#include "dkmd_dpu.h"
-#define dpu_width(x) ((x) - 1)
-#define dpu_height(x) ((x) - 1)
+#include "dkmd_user_panel_info.h"
+#define dpu_width(x) ((x) - 1U)
+#define dpu_height(x) ((x) - 1U)
 
 static inline uint32_t rect_width(const struct dkmd_rect_coord *rect)
 {

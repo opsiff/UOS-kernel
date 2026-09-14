@@ -32,7 +32,8 @@
 #define ALSC_SIZE_X_MASK ((1UL << ALSC_SIZE_Y_SHIFT) - 1)
 
 #define ALSC_NOISE_VALID 1
-
+#define ALSC_LOCK_TIMEOUT 10
+#define ALSC_DATA_SEND_TIMEOUT 1000
 enum alsc_status {
 	ALSC_UNINIT,
 	ALSC_WORKING,

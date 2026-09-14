@@ -14,6 +14,8 @@
 #ifndef __MIPI_DSI_PARTIAL_UPDATE_H__
 #define __MIPI_DSI_PARTIAL_UPDATE_H__
 
+#include <linux/types.h>
+
 struct dpu_connector;
 
 int32_t mipi_dsi_partial_update(struct dpu_connector *connector, const void *value);

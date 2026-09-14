@@ -274,7 +274,7 @@ int32_t pipeline_next_on(struct platform_device *pdev, struct dkmd_connector_inf
 	}
 
 	pdata = dev_get_platdata(&pdev->dev);
-	if (pdata) {
+	if (pdata && pdata->on_func) {
 		if (pinfo)
 			ret = pdata->on_func(pinfo);
 		else
@@ -295,13 +295,99 @@ int32_t pipeline_next_off(struct platform_device *pdev, struct dkmd_connector_in
 	}
 
 	pdata = dev_get_platdata(&pdev->dev);
-	if (pdata) {
+	if (pdata && pdata->off_func) {
 		if (pinfo)
 			ret = pdata->off_func(pinfo);
 		else
 			ret = pdata->off_func(pdata->conn_info);
 	}
 
+	return ret;
+}
+
+int32_t pipeline_next_handle_event(struct platform_device *pdev, struct dkmd_connector_info *pinfo,
+	uint32_t event, const void *data, bool is_isr_event)
+{
+	int32_t ret = 0;
+	struct dkmd_conn_handle_data *pdata = NULL;
+
+	if (!pdev) {
+		dpu_pr_err("pdev is NULL!\n");
+		return -EINVAL;
+	}
+
+	pdata = dev_get_platdata(&pdev->dev);
+	if (pdata && pdata->handle_event_func) {
+		if (pinfo)
+			ret = pdata->handle_event_func(pinfo, event, data, is_isr_event);
+		else
+			ret = pdata->handle_event_func(pdata->conn_info, event, data, is_isr_event);
+	}
+
+	return ret;
+}
+
+int32_t pipeline_next_connect(struct platform_device *pdev, struct dkmd_connector_info *pinfo)
+{
+	int32_t ret = 0;
+	struct dkmd_conn_handle_data *pdata = NULL;
+	dpu_pr_info("pipeline_next_connect");
+
+	if (!pdev) {
+		dpu_pr_err("pdev is NULL!\n");
+		return -EINVAL;
+	}
+
+	pdata = dev_get_platdata(&pdev->dev);
+	if (pdata && pdata->connect_func) {
+		if (pinfo)
+			ret = pdata->connect_func(pinfo);
+		else
+			ret = pdata->connect_func(pdata->conn_info);
+	}
+	return ret;
+}
+
+int32_t pipeline_next_disconnect(struct platform_device *pdev, struct dkmd_connector_info *pinfo)
+{
+	int32_t ret = 0;
+	struct dkmd_conn_handle_data *pdata = NULL;
+	dpu_pr_info("pipeline_next_disconnect");
+
+	if (!pdev) {
+		dpu_pr_err("pdev is NULL!\n");
+		return -EINVAL;
+	}
+
+	pdata = dev_get_platdata(&pdev->dev);
+	if (pdata && pdata->disconnect_func) {
+		if (pinfo)
+			ret = pdata->disconnect_func(pinfo);
+		else
+			ret = pdata->disconnect_func(pdata->conn_info);
+	}
+	return ret;
+}
+
+int32_t pipeline_next_disconnect_post_handle(struct platform_device *pdev, struct dkmd_connector_info *pinfo,
+	char __iomem *dpu_base)
+{
+	int32_t ret = 0;
+	struct dkmd_conn_handle_data *pdata = NULL;
+	dpu_pr_info("pipeline_next_disconnect_post_handle");
+
+	if (!pdev) {
+		dpu_pr_err("pdev is NULL!\n");
+		return -EINVAL;
+	}
+
+	pdata = dev_get_platdata(&pdev->dev);
+	if (pdata && pdata->disconnect_post_handle_func) {
+		if (pinfo)
+			ret = pdata->disconnect_post_handle_func(pinfo, dpu_base);
+		else
+			ret = pdata->disconnect_post_handle_func(pdata->conn_info, dpu_base);
+	}
 	return ret;
 }
 
@@ -317,7 +403,7 @@ int32_t pipeline_next_ops_handle(struct platform_device *pdev, struct dkmd_conne
 	}
 
 	pdata = dev_get_platdata(&pdev->dev);
-	if (pdata) {
+	if (pdata && pdata->ops_handle_func) {
 		if (pinfo)
 			ret = pdata->ops_handle_func(pinfo, ops_cmd_id, value);
 		else
@@ -326,26 +412,25 @@ int32_t pipeline_next_ops_handle(struct platform_device *pdev, struct dkmd_conne
 	return ret;
 }
 
-bool check_addr_status_is_valid(const char __iomem* check_addr, uint32_t status,
-	uint32_t udelay_time, uint32_t times)
+int32_t pipeline_next_set_timing(struct platform_device *pdev, struct dkmd_connector_info *pinfo, uint32_t timing_index)
 {
-	uint32_t i = 0;
-	uint32_t val = 0;
-	if (!check_addr) {
-		dpu_pr_err("ptr is NULL!\n");
-		return false;
+	int32_t ret = -1;
+	struct dkmd_conn_handle_data *pdata = NULL;
+	dpu_pr_info("pipeline_next_set_timing");
+ 
+	if (!pdev) {
+		dpu_pr_err("pdev is NULL!\n");
+		return -EINVAL;
 	}
-	val = inp32(check_addr);
-
-	do {
-		dpu_pr_info("val: %#x ?= %#x", val, status);
-		if ((val & status) == status)
-			return true;
-		udelay(udelay_time);
-		val = inp32(check_addr);
-	} while (i++ < times);
-
-	return false;
+ 
+	pdata = dev_get_platdata(&pdev->dev);
+	if (pdata && pdata->set_display_timing) {
+		if (pinfo)
+			ret = pdata->set_display_timing(pinfo, timing_index);
+		else
+			ret = pdata->set_display_timing(pdata->conn_info, timing_index);
+	}
+	return ret;
 }
 
 MODULE_LICENSE("GPL");

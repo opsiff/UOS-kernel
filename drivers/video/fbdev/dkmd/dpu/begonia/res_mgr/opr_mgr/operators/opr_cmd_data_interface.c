@@ -42,6 +42,8 @@ static struct opr_cmd_datas g_oprs_cmd_data[OPERATOR_TYPE_MAX] = {
 	{init_dsc_cmd_data,   NULL, OPR_DSC_NUM},
 	{NULL,                NULL, 0},
 	{init_itfsw_cmd_data, NULL, OPR_ITFSW_NUM},
+	{NULL,                NULL, 0},
+	{NULL,                NULL, 0},
 };
 
 struct opr_cmd_data *get_opr_cmd_data(union dkmd_opr_id opr_id)

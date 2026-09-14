@@ -23,12 +23,16 @@
 #include "panel_lcdkit.h"
 #include "panel_cdc.h"
 #include "mipi_cdphy_utils.h"
+#ifdef CONFIG_DKMD_DPU_DP
+#include "dp_ctrl_refresh_count.h"
+#endif
 
 #define SUPPORT_LCD_TYPE "support_lcd_type"
 #define get_lcdkit_dev_id(panel_id) (0x1000 + (panel_id))
 
 static struct dpu_panel_mgr panel_mgr[PANEL_ID_MAX_NUM];
 static bool has_panel_registed[PANEL_ID_MAX_NUM];
+static struct dkmd_connector_info *debug_dkmd_conector_info;
 
 bool is_panel_registed(uint32_t panel_id)
 {
@@ -80,7 +84,6 @@ int32_t register_panel(struct dpu_panel_ops *entry_pops, uint32_t panel_id)
 	mipi_dsi_convert_pxl2cycle(pinfo);
 	panel_mgr[panel_id].pinfo = pinfo;
 	has_panel_registed[panel_id] = true;
-
 	// add dev
 	pdev = platform_device_alloc("dsi_panel", (int32_t)get_lcdkit_dev_id(panel_id));
 	if (pdev == NULL) {
@@ -97,10 +100,48 @@ int32_t register_panel(struct dpu_panel_ops *entry_pops, uint32_t panel_id)
 	return 0;
 }
 
+int get_lcdkit_connector(struct dkmd_connector_info *pinfo)
+{
+	dpu_check_and_return(!pinfo, -1, err, "get panel info failed\n");
+	debug_dkmd_conector_info = pinfo;
+	return 0;
+}
+
+int32_t update_panel_info(struct dpu_panel_info *pinfo, uint32_t panel_id)
+{
+	struct dpu_connector *connector = NULL;
+    // if not register
+	if (!is_panel_registed(panel_id)) {
+		dpu_pr_err("lcdkit panel is not registed\n");
+		return -1;
+	}
+	if (unlikely(panel_id >= PANEL_ID_MAX_NUM)) {
+		dpu_pr_err("panel_id=%u is out of range", panel_id);
+		return -1;
+	}
+    dpu_check_and_return(!debug_dkmd_conector_info, -1, err, "get connector info failed\n");
+	connector = get_primary_connector(debug_dkmd_conector_info);
+    dpu_check_and_return(!pinfo, -1, err, "get panel info failed\n");
+	mipi_dsi_convert_pxl2cycle(pinfo);
+	dpu_check_and_return(!connector, -1, err, "get connector failed\n");
+	if (connector->active_idx != 0 && connector->post_info[1] == NULL) {
+		dpu_pr_err("active_idx %d error\n", connector->active_idx);
+		return -1;
+	}
+	connector->post_info[connector->active_idx]->mipi = pinfo->mipi;
+	return 0;
+}
+
 int32_t get_panel_refresh_count(uint32_t panel_id, struct panel_refresh_statistic_info *refresh_stat_info)
 {
 	struct dpu_panel_info *panel_info = NULL;
-	dpu_check_and_return(!is_panel_registed(panel_id), -1, err, "panel is not registered\n");
+
+#ifdef CONFIG_DKMD_DPU_DP
+	if (panel_id != PANEL_ID_PRIMARY && panel_id != PANEL_ID_BUILTIN) {
+		return get_dp_refresh_count(panel_id, refresh_stat_info);
+	}
+#endif
+	dpu_check_and_return(!is_panel_registed(panel_id), -1, warn, "panel is not registered\n");
 	dpu_check_and_return(!refresh_stat_info, -1, err, "refresh_stat_info is null\n");
 
 	panel_info = panel_mgr[panel_id].pinfo;
@@ -156,6 +197,11 @@ static int32_t panel_dev_ops_handle(struct dkmd_connector_info *pinfo, uint32_t 
 	struct panel_drv_private *priv = to_panel_private(pinfo);
 
 	dpu_check_and_return(!priv, -1, err, "priv is null\n");
+
+	if (unlikely(pinfo->base.id >= PANEL_ID_MAX_NUM)) {
+		dpu_pr_err("panel id is err %d\n", pinfo->base.id);
+		return -1;
+	}
 	dpu_check_and_return(!panel_mgr[pinfo->base.id].ops_adapter.panel_ops_func_table, -1, err,
 		"panel ops table is null\n");
 
@@ -163,6 +209,9 @@ static int32_t panel_dev_ops_handle(struct dkmd_connector_info *pinfo, uint32_t 
 
 	for (i = 0; i < (int32_t)PANEL_OPS_MAX; i++) {
 		ops_handle = &(panel_mgr[pinfo->base.id].ops_adapter.panel_ops_func_table[i]);
+		if (ops_handle->handle_func == NULL)
+			break;
+
 		if ((ops_cmd_id == ops_handle->ops_cmd_id) && ops_handle->handle_func)
 			return ops_handle->handle_func(priv, pinfo, value);
 	}
@@ -193,6 +242,7 @@ int setup_panel_dev_data(struct panel_drv_private *priv)
 
 	pdata->on_func = panel_mgr[panel_id].ops_adapter.on_func;
 	pdata->off_func = panel_mgr[panel_id].ops_adapter.off_func;
+	pdata->handle_event_func = panel_mgr[panel_id].ops_adapter.handle_event_func;
 	pdata->ops_handle_func = panel_dev_ops_handle;
 
 	/* add panel handle data to platform device */

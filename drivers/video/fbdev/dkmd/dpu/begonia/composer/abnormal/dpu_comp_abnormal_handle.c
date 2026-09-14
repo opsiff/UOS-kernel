@@ -13,13 +13,16 @@
 #include <linux/delay.h>
 #include <dpu/dpu_dm.h>
 #include <dpu/soc_dpu_define.h>
-#include <soc_media1_crg_interface.h>
 #include <linux/interrupt.h>
-#include "chash.h"
+#include <platform_include/basicplatform/linux/dfx_bbox_diaginfo.h>
 #if defined(CONFIG_DFX_PERF_STAT_DUAL)
 #include "dfx_perf_stat_dual.h"
+#elif defined(CONFIG_DFX_PERF_STAT64)
+#include "dfx_perf_stat64.h"
+#else
+#include "dpu/dpu_base_addr.h"
 #endif
-#include "dkmd_listener.h"
+#include "ukmd_listener.h"
 #include "dpu_comp_mgr.h"
 #include "dpu_conn_mgr.h"
 #include "dpu_comp_vactive.h"
@@ -31,7 +34,6 @@
 #include "cmdlist_interface.h"
 #include "dksm_debug.h"
 #include "dpu_cmdlist.h"
-#include "dpu_config_utils.h"
 #include "mipi_dsi_dev.h"
 #include "dkmd_rect.h"
 #include "dkmd_base_layer.h"
@@ -40,27 +42,60 @@
 #include "dksm_dmd.h"
 #include "dpu_comp_config_utils.h"
 #include "dpu_ppc_status_control.h"
+#include "ddr_dvfs.h"
+#include "dvfs.h"
+#include "dpu_mntn.h"
 
-#if defined(CONFIG_DFX_PERF_STAT_DUAL)
+#if defined(CONFIG_DFX_PERF_STAT_DUAL) || defined(CONFIG_DFX_PERF_STAT64)
 static bool g_perfstat_has_stop = false;
 #endif
 
+struct dpu_dsm_record_info g_dpu_dsm_info;
+
+static void dpu_comp_abnormal_record_ppc_info(struct dpu_composer *dpu_comp)
+{
+	if (dpu_comp->conn_info == NULL) {
+		return;
+	}
+
+	if (!is_ppc_support(&dpu_comp->conn_info->base)) {
+		return;
+	}
+
+	if (dpu_comp->conn_info->ppc_switch_flag != 0) {
+		dsm_client_record(dsm_lcd_client, "ppc_switch_err:%x|%x|",
+			dpu_comp->conn_info->ppc_config_id_record, dpu_comp->conn_info->ppc_config_id_active);
+	}
+}
+
 static int32_t dpu_comp_handle_underflow_clear(struct dpu_composer *dpu_comp)
 {
-	uint32_t ret = 0, clear_bit = 0;
-	uint32_t displaying_scene_id, displayed_scene_id;
-	struct dkmd_connector_info *pinfo = dpu_comp->conn_info;
-	struct comp_online_present *present = (struct comp_online_present *)dpu_comp->present_data;
+	uint32_t ret = 0;
+	uint32_t displaying_scene_id = 0;
+	uint32_t displayed_scene_id = 0;
+	struct dkmd_connector_info *pinfo = NULL;
+	struct comp_online_present *present = NULL;
+
+    /* skip underflow clear, goto reset hardware */
+    if (g_debug_dpu_reset_hardware != 0) {
+        g_debug_dpu_reset_hardware = 0;
+        return -1;
+    }
+
+	pinfo = dpu_comp->conn_info;
+	present = (struct comp_online_present *)dpu_comp->present_data;
 
 	/* 1. after disable ldi and set clear, wait 16ms */
 	dpu_pr_info("underflow clear start!");
 	dpu_comp_set_glb_rs_reg(dpu_comp, true);
 
 	mdelay(16);
+ 	/* 2. enable dacc_crg clr_rsicv_start */
+	if (present->displaying_idx < COMP_FRAME_MAX &&  present->displayed_idx < COMP_FRAME_MAX) {
+		displaying_scene_id = (uint32_t)present->frames[present->displaying_idx].in_frame.scene_id;
+		displayed_scene_id = (uint32_t)present->frames[present->displayed_idx].in_frame.scene_id;
+	}
 
-	/* 2. enable dacc_crg clr_rsicv_start */
-	displaying_scene_id = (uint32_t)present->frames[present->displaying_idx].in_frame.scene_id;
-	displayed_scene_id = (uint32_t)present->frames[present->displayed_idx].in_frame.scene_id;
 	ret |= dpu_dacc_handle_clear(dpu_comp->comp_mgr->dpu_base, displaying_scene_id);
 	if (displaying_scene_id != displayed_scene_id)
 		ret |= dpu_dacc_handle_clear(dpu_comp->comp_mgr->dpu_base, displayed_scene_id);
@@ -76,14 +111,26 @@ static int32_t dpu_comp_handle_underflow_clear(struct dpu_composer *dpu_comp)
 
 	if (is_ppc_status_resume(&present->ppc_ctrl) && (dpu_comp->comp.set_active_rect)) {
 		process_ppc_event(dpu_comp, PPC_EVENT_UNDERFLOW_CLEAR);
-		if (dpu_comp->comp.set_active_rect(&dpu_comp->comp, pinfo->ppc_config_id_record) != 0)
+		pinfo->ppc_switch_flag = dpu_comp->comp.set_active_rect(&dpu_comp->comp, pinfo->ppc_config_id_record);
+		if (pinfo->ppc_switch_flag != 0)
 			dpu_pr_warn("set active rect record ppc config id %u failed", pinfo->ppc_config_id_record);
+		dpu_comp_abnormal_record_ppc_info(dpu_comp);
 	}
 
 	if (!is_offline_panel(&dpu_comp->conn_info->base)) {
-		present->vactive_start_flag = 1;
+		present->vactive_end_flag = 0;
 		present->frame_start_flag = 0;
+		if ((dpu_comp->comp.comp_err_status & ABNORMAL_WAIT_VACTIVE_TIMEOUT) != 0) {
+			present->vactive_start_flag = 1;
+			if (dpu_comp->multi_present_ctrl.ops && dpu_comp->multi_present_ctrl.ops->clear_sfu2vactive_param)
+				dpu_comp->multi_present_ctrl.ops->clear_sfu2vactive_param(&(present->dfr_ctrl));
+		}
 	}
+
+	dpu_backlight_update(&dpu_comp->bl_ctrl, true);
+	dpu_pr_info("update backlight: %d", dpu_comp->bl_ctrl.bl_level);
+
+	dpu_ops_deep_sleep_enter(dpu_comp);
 
 	return (int32_t)ret;
 }
@@ -92,6 +139,7 @@ static void dpu_comp_abnormal_dump_cmdlist_status(char __iomem *dpu_base, uint32
 {
 	char __iomem *module_base = dpu_base + DPU_CMDLIST_OFFSET;
 
+	g_dpu_dsm_info.cmdlist_status = inp32(DPU_CMD_CMDLIST_CH_INTS_ADDR(module_base, scene_id));
 	dpu_pr_warn("CMDLIST:\n"
 		"\tCMDLIST_DBG=%#x\tSCE0_CFG_SIGNAL=%#x\tSCE1_CFG_SIGNAL=%#x\tSCE2_CFG_SIGNAL=%#x\n\n"
 		"\tSCE3_CFG_SIGNAL=%#x\tSCE4_CFG_SIGNAL=%#x\tSCE5_CFG_SIGNAL=%#x\tSCE6_CFG_SIGNAL=%#x\n\n",
@@ -105,17 +153,23 @@ static void dpu_comp_abnormal_dump_cmdlist_status(char __iomem *dpu_base, uint32
 	dpu_pr_warn("CMDLIST:\n\n"
 		"CMDLIST_CH_STATUS=%#x\t\tCMDLIST_CH_INTS=%#x\n\n",
 		inp32(DPU_CMD_CMDLIST_CH_STATUS_ADDR(module_base, scene_id)),
-		inp32(DPU_CMD_CMDLIST_CH_INTS_ADDR(module_base, scene_id)));
+		g_dpu_dsm_info.cmdlist_status);
 }
 
 #ifdef CONFIG_DKMD_DEBUG_ENABLE
-static void dpu_comp_abnormal_dump_cmdlist_dm(void)
+static void dpu_comp_abnormal_dump_cmdlist_dm(const struct dpu_cmdlist_frame_info *last_cmdlist_frm_info)
 {
-	uint32_t scene_id = g_last_cmdlist_frm_info.scene_id;
-	uint32_t cmdlist_id = g_last_cmdlist_frm_info.cmdlist_id;
+#ifdef CONFIG_UKMD_DEBUG_ENABLE
+	uint32_t scene_id = last_cmdlist_frm_info->scene_id;
+	uint32_t cmdlist_id = (uint32_t)last_cmdlist_frm_info->cmdlist_id;
 
-	dpu_pr_warn("DM cmdlist dump begin(fram_index:%u):", g_last_cmdlist_frm_info.frame_index);
-	dkmd_cmdlist_dump_dm(scene_id, cmdlist_id);
+	if (!ukmd_cmdlist_is_kernel_mode(CMDLIST_DEV_ID_DPU))
+		return;
+
+	dpu_pr_warn("DM cmdlist dump begin(frame_index:%u) scene_id: %d:",
+		last_cmdlist_frm_info->frame_index, scene_id);
+	ukmd_cmdlist_dump_dm(CMDLIST_DEV_ID_DPU, scene_id, cmdlist_id);
+#endif
 }
 #endif
 
@@ -124,8 +178,15 @@ void dpu_comp_abnormal_dump_reg_dm(char __iomem *dpu_base, uint32_t scene_id)
 	uint32_t i = 0;
 	uint32_t inc_step = 4;
 	uint32_t val1, val2, val3, val4;
-	uint32_t *dm_addr = (uint32_t *)(dpu_base + g_dm_tlb_info[scene_id].dm_data_addr);
-	uint32_t dpu_addr_offset = g_dm_tlb_info[scene_id].dm_data_addr;
+	uint32_t *dm_addr = NULL;
+	uint32_t dpu_addr_offset = 0;
+
+	if (scene_id >= DPU_SCENE_MAX) {
+		dpu_pr_err("scene_id is err %u", scene_id);
+		return;
+	}
+	dm_addr = (uint32_t *)(dpu_base + g_dm_tlb_info[scene_id].dm_data_addr);
+	dpu_addr_offset = g_dm_tlb_info[scene_id].dm_data_addr;
 
 	dpu_pr_err("DM reg dump begin(scene_id:%d):", scene_id);
 
@@ -137,121 +198,6 @@ void dpu_comp_abnormal_dump_reg_dm(char __iomem *dpu_base, uint32_t scene_id)
 		dpu_pr_err("dpu_addr_offset:%#x val:0x%08x 0x%08x 0x%08x 0x%08x \n", dpu_addr_offset, val1, val2, val3, val4);
 		dpu_addr_offset += inc_step * 4;
 	}
-}
-
-static void dpu_comp_abnormal_dsm_dump_reg_layer(uint32_t *dm_addr, uint32_t start_layer_index,
-		uint32_t layer_cnt, uint32_t ldi_vstate)
-{
-	uint32_t i = 0;
-	uint32_t cnt = 0;
-	uint32_t *current_addr = NULL;
-	uint32_t layer_index = 0;
-	uint32_t inc_step = 4;
-	uint32_t val1, val2, val3, val4;
-
-	while((dsm_client_ocuppy(dsm_lcd_client) != 0) && (cnt < DSM_OCCUPY_RETRY_TIMES)) {
-		dpu_pr_warn("dsm_client_ocuppy failed, retry %d times", ++cnt);
-		usleep_range(500, 600);
-	}
-
-	if (cnt == DSM_OCCUPY_RETRY_TIMES) {
-		dpu_pr_warn("dsm_client_ocuppy failed");
-		return;
-	}
-
-	for (layer_index = start_layer_index; layer_index < layer_cnt; ++layer_index) {
-		current_addr = dm_addr + (DM_LAYER_HEIGHT_OFFSET + layer_index * INPUT_LAYER_OFFSET) / 4;
-		for (i = (DM_LAYER_HEIGHT_OFFSET + layer_index * INPUT_LAYER_OFFSET) / (inc_step * 4);
-				i < (DM_LAYER_HEIGHT_OFFSET + layer_index * INPUT_LAYER_OFFSET + VALID_DUMP_LAYER_INFO) / (inc_step * 4); ++i) {
-			val1 = inp32(current_addr++);
-			val2 = inp32(current_addr++);
-			val3 = inp32(current_addr++);
-			val4 = inp32(current_addr++);
-			dsm_client_record(dsm_lcd_client, "%x|%x|%x|%x|", val1, val2, val3, val4);
-		}
-	}
-
-	if (ldi_vstate == LDI_VSTATE_V_WAIT_TE0)
-		dsm_client_notify(dsm_lcd_client, DSM_LCD_TE_TIME_OUT_ERROR_NO);
-	else
-		dsm_client_notify(dsm_lcd_client, DSM_LCD_LDI_UNDERFLOW_NO);
-}
-
-static void dpu_comp_abnormal_dsm_dump_reg_dm(char __iomem *dpu_base, uint32_t scene_id)
-{
-	uint32_t i = 0;
-	uint32_t dump_cnt= 0;
-	uint32_t layer_index = 0;
-	uint32_t inc_step = 4;
-	uint32_t val1, val2, val3, val4, ldi_vstate;
-	uint32_t *dm_addr = NULL;
-	uint32_t *current_addr = NULL;
-	uint32_t cnt = 0;
-	uint32_t layer_cnt = 0;
-	uint64_t timestamp;
-	struct timespec64 tv;
-	DPU_DM_LAYER_NUMBER_UNION reg_layer_number;
-
-	if (unlikely(scene_id >= DPU_SCENE_MAX)) {
-		dpu_pr_err("scene_id = %u is out of range", scene_id);
-		return;
-	}
-
-	dm_addr = (uint32_t *)(dpu_base + g_dm_tlb_info[scene_id].dm_data_addr);
-
-	reg_layer_number.value = inp32(DPU_DM_LAYER_NUMBER_ADDR(
-								(char __iomem *)(dpu_base + g_dm_tlb_info[scene_id].dm_data_addr)));
-	layer_cnt = reg_layer_number.reg.layer_number;
-
-	dpu_check_and_no_retval(!dsm_lcd_client, info, "dsm_lcd_client is null!");
-
-	while((dsm_client_ocuppy(dsm_lcd_client) != 0) && (cnt < DSM_OCCUPY_RETRY_TIMES)) {
-		dpu_pr_warn("dsm_client_ocuppy failed, retry %d times", ++cnt);
-		usleep_range(500, 600);
-	}
-
-	if (cnt == DSM_OCCUPY_RETRY_TIMES) {
-		dpu_pr_warn("dsm_client_ocuppy failed");
-		return;
-	}
-
-	ktime_get_real_ts64(&tv);
-	timestamp = (uint64_t)((tv.tv_sec * 1000 * 1000) + (tv.tv_nsec / 1000));
-
-	ldi_vstate = inp32(DPU_DSI_VSTATE_ADDR(dpu_base));
-	dsm_client_record(dsm_lcd_client, "dpu_dmd %llu|%d|%d|%d|", timestamp, ldi_vstate, scene_id, layer_cnt);
-
-	for (dump_cnt = 0; dump_cnt < dpu_comp_get_dsm_dm_dump_cnt(); ++dump_cnt) {
-		current_addr = dm_addr + dsm_dm_dump_range[dump_cnt].start_addr / 4;
-		for (i = dsm_dm_dump_range[dump_cnt].start_addr / (inc_step * 4);
-				i < (dsm_dm_dump_range[dump_cnt].end_addr / (inc_step * 4)); ++i) {
-			val1 = inp32(current_addr++);
-			val2 = inp32(current_addr++);
-			val3 = inp32(current_addr++);
-			val4 = inp32(current_addr++);
-			dsm_client_record(dsm_lcd_client, "%x|%x|%x|%x|", val1, val2, val3, val4);
-		}
-	}
-
-	for (layer_index = 0; layer_index < MAX_DUMP_LAYER_CNT; ++layer_index) {
-		current_addr = dm_addr + (DM_LAYER_HEIGHT_OFFSET + layer_index * INPUT_LAYER_OFFSET) / 4;
-		for (i = (DM_LAYER_HEIGHT_OFFSET + layer_index * INPUT_LAYER_OFFSET) / (inc_step * 4);
-				i < (DM_LAYER_HEIGHT_OFFSET + layer_index * INPUT_LAYER_OFFSET + VALID_DUMP_LAYER_INFO) / (inc_step * 4); ++i) {
-			val1 = inp32(current_addr++);
-			val2 = inp32(current_addr++);
-			val3 = inp32(current_addr++);
-			val4 = inp32(current_addr++);
-			dsm_client_record(dsm_lcd_client, "%x|%x|%x|%x|", val1, val2, val3, val4);
-		}
-	}
-
-	if (ldi_vstate == LDI_VSTATE_V_WAIT_TE0)
-		dsm_client_notify(dsm_lcd_client, DSM_LCD_TE_TIME_OUT_ERROR_NO);
-	else
-		dsm_client_notify(dsm_lcd_client, DSM_LCD_LDI_UNDERFLOW_NO);
-
-	if (layer_cnt >= MAX_DUMP_LAYER_CNT)
-		dpu_comp_abnormal_dsm_dump_reg_layer(dm_addr, MAX_DUMP_LAYER_CNT, layer_cnt, ldi_vstate);
 }
 
 static void dpu_comp_abnormal_dump_opr_rxx_wxx(char* opr, uint32_t opr_idx,
@@ -297,10 +243,27 @@ static void dpu_comp_abnormal_dump_opr_rxx_wxx(char* opr, uint32_t opr_idx,
 	}
 }
 
+static void dpu_abnormal_dump_peri_voltage(void)
+{
+	char __iomem *pmctrl_base = dpu_config_get_ip_base(DISP_IP_BASE_PMCTRL);
+	dpu_check_and_no_retval(!pmctrl_base, err, "pmctrl_base is NULL!\n");
+
+	dpu_pr_debug("curr peri stat %#x", inp32(SOC_PMCTRL_PERI_CTRL5_ADDR(pmctrl_base)));
+}
+
+void dpu_offline_debug_dump(struct dpu_composer *dpu_comp)
+{
+	dpu_pr_warn("isr1_offline_glb_state =%#x\tisr2_offline_state=%#x\tisr2_offline_state=%#x",
+		inp32(DPU_GLB_NS_OFFLINE0_TO_GIC_O_ADDR(dpu_comp->comp_mgr->dpu_base + DPU_GLB0_OFFSET)),
+		inp32(DPU_GLB_WCH1_NS_INT_O_ADDR(dpu_comp->comp_mgr->dpu_base + DPU_GLB0_OFFSET)),
+		inp32(DPU_GLB_WCH2_NS_INT_O_ADDR(dpu_comp->comp_mgr->dpu_base + DPU_GLB0_OFFSET)));
+}
+
 void dpu_comp_abnormal_debug_dump(struct dpu_composer *dpu_comp, uint32_t scene_id)
 {
 	uint32_t i;
 	char __iomem *module_base = NULL;
+
 	if (!dpu_comp) {
 		dpu_pr_err("dpu_comp is null");
 		return;
@@ -311,25 +274,12 @@ void dpu_comp_abnormal_debug_dump(struct dpu_composer *dpu_comp, uint32_t scene_
 		inp32(DPU_GLB_DBG_IP_STATE0_ADDR(module_base)), inp32(DPU_GLB_DBG_IP_STATE1_ADDR(module_base)));
 
 	dpu_print_dvfs_vote_status();
+	dpu_abnormal_dump_peri_voltage();
+	dpu_print_curr_ddr_freq();
+	dpu_comp_abnormal_dump_ov_info(dpu_comp->comp_mgr->dpu_base);
 
-	dpu_pr_warn("OV:\n"
-		"\tDBG_OV_YCNT0=%#x\tDBG_OV_YCNT1=%#x\tDBG_OV_YCNT2=%#x\tDBG_OV_YCNT3=%#x\n\n",
-		inp32(DPU_GLB_DBG_OV_YCNT0_ADDR(module_base)), inp32(DPU_GLB_DBG_OV_YCNT1_ADDR(module_base)),
-		inp32(DPU_GLB_DBG_OV_YCNT2_ADDR(module_base)), inp32(DPU_GLB_DBG_OV_YCNT3_ADDR(module_base)));
-
-	for (i = 0; i < OPR_SDMA_NUM; ++i)
-		dpu_pr_warn("SDMA[%u]:\n"
-			"\tSDMA_DBG_OUT0=%#x\n"
-			"\tSDMA_DBG_MONITOR0=%#x\t\tSDMA_DBG_MONITOR1=%#x\n\tSDMA_DBG_MONITOR2=%#x\t\tSDMA_DBG_MONITOR3=%#x\n"
-			"\tSDMA_DBG_MONITOR4=%#x\t\tSDMA_DBG_MONITOR5=%#x\n\tSDMA_W_DBG0=%#x\t\tSDMA_W_DBG1=%#x\n"
-			"\tSDMA_W_DBG2=%#x\t\tSDMA_W_DBG3=%#x\tSDMA_CTRL=%#x\t\n\n", i,
-			inp32(DPU_GLB_SDMA_DBG_OUT0_ADDR(module_base, i)), /* bit0-14:sdma cmd num that not get ACK from bus */
-			inp32(DPU_GLB_SDMA_DBG_MONITOR0_ADDR(module_base, i)), inp32(DPU_GLB_SDMA_DBG_MONITOR1_ADDR(module_base, i)),
-			inp32(DPU_GLB_SDMA_DBG_MONITOR2_ADDR(module_base, i)), inp32(DPU_GLB_SDMA_DBG_MONITOR3_ADDR(module_base, i)),
-			inp32(DPU_GLB_SDMA_DBG_MONITOR4_ADDR(module_base, i)), inp32(DPU_GLB_SDMA_DBG_MONITOR5_ADDR(module_base, i)),
-			inp32(DPU_GLB_SDMA_W_DBG0_ADDR(module_base, i)), inp32(DPU_GLB_SDMA_W_DBG1_ADDR(module_base, i)),
-			inp32(DPU_GLB_SDMA_W_DBG2_ADDR(module_base, i)), inp32(DPU_GLB_SDMA_W_DBG3_ADDR(module_base, i)),
-			inp32(DPU_GLB_SDMA_CTRL0_ADDR(module_base, i)));
+	module_base = dpu_comp->comp_mgr->dpu_base + DPU_SDMA_OFFSET;
+	dpu_comp_abnormal_dump_sdma_info(module_base);
 
 	for (i = 0; i < OPR_CLD_NUM; ++i) {
 		module_base = dpu_comp->comp_mgr->dpu_base + g_cld_offset[i];
@@ -396,6 +346,8 @@ void dpu_comp_abnormal_debug_dump(struct dpu_composer *dpu_comp, uint32_t scene_
 		dpu_comp_abnormal_dump_opr_rxx_wxx("ITFSW", scene_id, DPU_ITF_CH_R_LB_DEBUG0_ADDR(module_base), NULL);
 	}
 
+	dpu_comp_abnormal_dump_dbuf(dpu_comp->comp_mgr->dpu_base, scene_id);
+	dpu_comp_abnormal_dump_pll(dpu_comp);
 	dpu_comp_abnormal_dump_lbuf(dpu_comp->comp_mgr->dpu_base);
 	dpu_comp_abnormal_dump_dacc(dpu_comp->comp_mgr->dpu_base, scene_id);
 	dpu_comp_abnormal_dump_cmdlist_status(dpu_comp->comp_mgr->dpu_base, scene_id);
@@ -407,7 +359,7 @@ static void dpu_comp_abnormal_notify_ldi_status_invalid(struct dpu_composer *dpu
 
 	if (dsm_client_ocuppy(dsm_lcd_client) == 0) {
 		dsm_client_record(dsm_lcd_client, "ldi status %d is invalid", ldi_status);
-		dsm_client_notify(dsm_lcd_client, DSM_LCD_VACTIVE_TIMEOUT_ERROR_NO);
+		dsm_client_notify(dsm_lcd_client, DMD_DSS_DSI_FAULT);
 		return;
 	}
 
@@ -415,26 +367,97 @@ static void dpu_comp_abnormal_notify_ldi_status_invalid(struct dpu_composer *dpu
 	usleep_range(500, 600);
 	if (dsm_client_ocuppy(dsm_lcd_client) == 0) {
 		dsm_client_record(dsm_lcd_client, "ldi status %d is invalid", ldi_status);
-		dsm_client_notify(dsm_lcd_client, DSM_LCD_VACTIVE_TIMEOUT_ERROR_NO);
+		dsm_client_notify(dsm_lcd_client, DMD_DSS_DSI_FAULT);
 		return;
 	}
 
 	dpu_pr_warn("dsm_client_ocuppy failed");
 }
 
+#ifdef CONFIG_DKMD_DEBUG_ENABLE
+void dpu_comp_reset_hardware_manually(struct dpu_composer *dpu_comp, struct comp_online_present *present)
+{
+	if (g_debug_dpu_reset_hardware != 0) {
+		dpu_pr_info("Manually reset hardware start!");
+		dpu_comp->comp.comp_err_status = ABNORMAL_WAIT_VACTIVE_TIMEOUT;
+		kthread_queue_work(&dpu_comp->handle_worker, &present->abnormal_handle_work);
+	}
+}
+#else
+void dpu_comp_reset_hardware_manually(struct dpu_composer *dpu_comp, struct comp_online_present *present)
+{
+	void_unused(dpu_comp);
+    void_unused(present);
+}
+#endif
+
+static void dpu_comp_pmic_abnormal_handle_work(struct kthread_work *work)
+{
+	struct comp_online_present *present = NULL;
+	struct dpu_composer *dpu_comp = NULL;
+
+	present = container_of(work, struct comp_online_present, pmic_abnormal_handle_work);
+	if (unlikely(present == NULL)) {
+		dpu_pr_err("present_data or dpu_comp is null");
+		return;
+	}
+
+	dpu_comp = present->dpu_comp;
+	if (dpu_comp == NULL) {
+		dpu_pr_err("dpu_comp is null");
+		return;
+	}
+
+	dpu_comp->pmic_abnormal_flag = true;
+	composer_manager_power_down(dpu_comp);
+	if (unlikely(dpu_comp_status_is_disable(&dpu_comp->comp_mgr->power_status))) {
+		dpu_pr_info("already power off, do not need pmic_abnormal!");
+		dpu_comp->pmic_abnormal_flag = false;
+		composer_manager_power_up(dpu_comp);
+		return;
+	}
+
+	composer_manager_reset_hardware(dpu_comp);
+	composer_manager_power_up(dpu_comp);
+	dpu_comp->pmic_abnormal_flag = false;
+	dpu_pr_info("pmic_abnormal restore finish!!");
+}
+
+static void dpu_comp_abnormal_mntn_process(uint32_t status, struct comp_online_present *present)
+{
+	// dump dss regs for mdfx
+	if ((status & ABNORMAL_WAIT_VACTIVE_TIMEOUT) != 0)
+		dpu_mntn_report_event(MDFX_EVENT_VACTIVE_TIMEOUT, present);
+	else
+		dpu_mntn_report_event(MDFX_EVENT_UNDERFLOW, present);
+}
+
+static void dpu_comp_enable_isr_ctrl(struct dpu_composer *dpu_comp)
+{
+	if (likely(dpu_comp->comp.power_on))
+		dpu_comp->isr_ctrl.handle_func(&dpu_comp->isr_ctrl, UKMD_ISR_ENABLE);	
+}
+
+static void dpu_comp_disable_isr_ctrl(struct dpu_composer *dpu_comp)
+{
+	if (likely(dpu_comp->comp.power_on))
+		dpu_comp->isr_ctrl.handle_func(&dpu_comp->isr_ctrl, UKMD_ISR_DISABLE);
+}
+
 static void dpu_comp_abnormal_handle_work(struct kthread_work *work)
 {
 	int32_t ret;
+	int32_t res;
 	uint64_t tv0;
 	struct comp_online_present *present = NULL;
 	struct dpu_composer *dpu_comp = NULL;
 	struct dpu_connector *connector = NULL;
-
 	present = container_of(work, struct comp_online_present, abnormal_handle_work);
 	if (!present || !present->dpu_comp) {
 		dpu_pr_err("present_data or dpu_comp is null");
 		return;
 	}
+	present->dfr_ctrl.present_buffer_num = 0;
 	dpu_comp = present->dpu_comp;
 	dpu_trace_ts_begin(&tv0);
 	connector = get_primary_connector(dpu_comp->conn_info);
@@ -443,8 +466,14 @@ static void dpu_comp_abnormal_handle_work(struct kthread_work *work)
 		return;
 	}
 
+	if (g_debug_dpu_clear_enable == 0) {
+		dpu_pr_info("g_debug_dpu_clear_enable is false, no need to clear.");
+		dpu_comp->comp.comp_err_status = 0;
+		return ;
+	}
+
 	if ((dpu_comp->comp.comp_err_status & ABNORMAL_CHECK_LDI_FAILED) != 0) {
-		dpu_pr_err("ldi status %d is invalid, notify to dsm", present->vactive_ldi_status);
+		dpu_pr_warn("ldi status %d is invalid, notify to dsm", present->vactive_ldi_status);
 		dpu_comp_abnormal_notify_ldi_status_invalid(dpu_comp, present->vactive_ldi_status);
 		present->vactive_ldi_status = 0;
 		dpu_comp->comp.comp_err_status &= ~ABNORMAL_CHECK_LDI_FAILED;
@@ -454,31 +483,43 @@ static void dpu_comp_abnormal_handle_work(struct kthread_work *work)
 		return;
 
 	composer_manager_power_down(dpu_comp);
-	if (unlikely(dpu_comp->comp_mgr->power_status.status == 0)) {
+	if (unlikely(dpu_comp_status_is_disable(&dpu_comp->comp_mgr->power_status))) {
 		dpu_pr_info("already power off, do not need handle underflow clear!");
 		composer_manager_power_up(dpu_comp);
 		return;
 	}
-
+	dpu_pr_warn("dpu underflow process!");
+	dpu_comp_active_vsync(dpu_comp);
 #ifdef CONFIG_DKMD_DEBUG_ENABLE
-	if (g_cmdlist_dump_enable)
-		dpu_comp_abnormal_dump_cmdlist_dm();
+	dpu_comp_abnormal_dump_cmdlist_dm(&(present->last_cmdlist_frm_info));
 #endif
 
+	dpu_comp_abnormal_mntn_process(dpu_comp->comp.comp_err_status, present);
+
 	if (g_debug_underflow_dump_enable) {
+		memset_s(&g_dpu_dsm_info, sizeof(g_dpu_dsm_info), 0, sizeof(g_dpu_dsm_info));
+		dpu_comp_abnormal_dump_reg_dsi(dpu_comp->comp_mgr->dpu_base);
+		dpu_comp_abnormal_dump_reg_itf(dpu_comp->comp_mgr->dpu_base);
 		dpu_comp_abnormal_debug_dump(dpu_comp, (uint32_t)present->frames[present->displayed_idx].in_frame.scene_id);
 		dpu_comp_abnormal_dump_reg_dm(dpu_comp->comp_mgr->dpu_base,
 					(uint32_t)present->frames[present->displayed_idx].in_frame.scene_id);
 		dpu_parse_layer_info(dpu_comp->comp_mgr->dpu_base,
 					(uint32_t)present->frames[present->displayed_idx].in_frame.scene_id);
-		dpu_comp_abnormal_dsm_dump_reg_dm(dpu_comp->comp_mgr->dpu_base,
+		dpu_comp_abnormal_dsm_dump_reg_dm(dpu_comp,
 					(uint32_t)present->frames[present->displayed_idx].in_frame.scene_id);
+		/* lcd status */
+		ret = is_mipi_cmd_panel(&dpu_comp->conn_info->base) && !is_fake_panel(&dpu_comp->conn_info->base);
+		if (ret != 0) {
+			g_dpu_dsm_info.lcd_status = (dpu_comp->conn_info->lcd_status_err == 0) ? 0 : 1;
+			dpu_pr_debug("get lcd_status = %d", g_dpu_dsm_info.lcd_status);
+		}
 	}
 
+	dpu_abnormal_dump_tunnel_present_dm(dpu_comp);
 	/* dump panel info */
 	(void)pipeline_next_ops_handle(dpu_comp->conn_info->conn_device, dpu_comp->conn_info, DUMP_EXCEPTION_INFO, NULL);
 
-	dpu_comp->isr_ctrl.handle_func(&dpu_comp->isr_ctrl, DKMD_ISR_DISABLE);
+	dpu_comp_disable_isr_ctrl(dpu_comp);
 	if (dpu_comp->conn_info->disable_ldi)
 		dpu_comp->conn_info->disable_ldi(dpu_comp->conn_info);
 	/* underflow dvfs:
@@ -487,45 +528,102 @@ static void dpu_comp_abnormal_handle_work(struct kthread_work *work)
 	*/
 	dpu_comp_abnormal_dvfs(dpu_comp->comp.index);
 
+#if defined(CONFIG_DFX_PERF_STAT_DUAL) || defined(CONFIG_DFX_PERF_STAT64)
+	g_perfstat_has_stop = false;
+	if ((g_debug_underflow_itr_enable != 0) && !g_perfstat_has_stop) {
+#endif
 #if defined(CONFIG_DFX_PERF_STAT_DUAL)
-	if ((g_debug_underflow_itr_enable != 0) && dpu_get_underflow_itr() && !g_perfstat_has_stop) {
 		ret = perfstat_stop_sampling(1);
+		res = perfstat_stop_sampling(2);
 		g_perfstat_has_stop = true;
-		dpu_pr_debug("end perfsampling ret = %d", ret);
+		dpu_pr_debug("end perfsampling1 ret = %d", ret);
+		dpu_pr_debug("end perfsampling2 res = %d", res);
+#endif
+#if defined(CONFIG_DFX_PERF_STAT64)
+		res = perfstat_stop_sampling();
+		g_perfstat_has_stop = true;
+		dpu_pr_info("end perfsampling res = %d", res);
+#endif
+#if defined(CONFIG_DFX_PERF_STAT_DUAL) || defined(CONFIG_DFX_PERF_STAT64)
 	}
 #endif
 
+	dpu_comp_abnormal_record_ppc_info(dpu_comp);
+
 	ret = dpu_comp_handle_underflow_clear(dpu_comp);
-	if (ret != 0) {
+	if (ret != 0 || is_mipi_video_panel(&dpu_comp->conn_info->base)) {
 		dpu_pr_warn("underflow clear failed, reset hardware!!");
+		g_dpu_dsm_info.underflow_clear_type = CLEAR_FAIL_RESET;
+		dpu_comp_dsm_notify(dpu_comp, (uint32_t)present->frames[present->displayed_idx].in_frame.scene_id);
+		dpu_comp_self_healing_process(present);
 		/* to balance isr_enable in reset hardware, we need enable isr here */
-		dpu_comp->isr_ctrl.handle_func(&dpu_comp->isr_ctrl, DKMD_ISR_ENABLE);
+		dpu_comp_enable_isr_ctrl(dpu_comp);
+		if (present->buffers > 0) {
+			present->buffers--;
+			dpu_pr_debug("unpresent buffer num is %d when underflow", present->buffers);
+		}
 		composer_manager_reset_hardware(dpu_comp);
-		dpu_comp->isr_ctrl.handle_func(&dpu_comp->isr_ctrl, DKMD_ISR_DISABLE);
+		dpu_comp_disable_isr_ctrl(dpu_comp);
 	} else {
 		dpu_pr_warn("underflow clear successfully!");
 		connector->enable_ser_vp_sync = true;
 		dpu_pr_info("vp sync:%d", connector->enable_ser_vp_sync);
-		if ((dpu_comp->clear_succ_frame_index_queue[0] != 0) && (dpu_comp->clear_succ_frame_index_queue[1] != 0) &&
-			(dpu_comp->comp.comp_frame_index - dpu_comp->clear_succ_frame_index_queue[1] <=
-				COMP_TIMEOUT_FRAME_COUNT)) {
+		ret = (dpu_comp->clear_succ_frame_index_queue[0] != 0) &&
+			(dpu_comp->clear_succ_frame_index_queue[1] != 0) &&
+			(dpu_comp->comp.comp_frame_index - dpu_comp->clear_succ_frame_index_queue[1] <= COMP_TIMEOUT_FRAME_COUNT);
+		if (ret != 0) {
 			dpu_pr_warn("underflow clear occurs continuously, need reset hardware");
-			dpu_comp->isr_ctrl.handle_func(&dpu_comp->isr_ctrl, DKMD_ISR_ENABLE);
+			g_dpu_dsm_info.underflow_clear_type = CLEAR_SUC_BUT_RESET;
+			dpu_comp_dsm_notify(dpu_comp, (uint32_t)present->frames[present->displayed_idx].in_frame.scene_id);
+			dpu_comp_self_healing_process(present);
+			dpu_comp_enable_isr_ctrl(dpu_comp);
 			composer_manager_reset_hardware(dpu_comp);
-			dpu_comp->isr_ctrl.handle_func(&dpu_comp->isr_ctrl, DKMD_ISR_DISABLE);
+			dpu_comp_disable_isr_ctrl(dpu_comp);
 			dpu_comp->clear_succ_frame_index_queue[0] = 0;
 		} else {
 			dpu_comp->clear_succ_frame_index_queue[1] = dpu_comp->clear_succ_frame_index_queue[0];
 			dpu_comp->clear_succ_frame_index_queue[0] = dpu_comp->comp.comp_frame_index;
+			g_dpu_dsm_info.underflow_clear_type = CLEAR_SUC;
+			dpu_comp_dsm_notify(dpu_comp, (uint32_t)present->frames[present->displayed_idx].in_frame.scene_id);
 		}
 	}
-
-	dpu_comp->isr_ctrl.handle_func(&dpu_comp->isr_ctrl, DKMD_ISR_ENABLE);
+	dpu_comp_enable_isr_ctrl(dpu_comp);
 	dpu_comp->comp.comp_err_status = 0;
+	dpu_comp->conn_info->ppc_switch_flag = 0;
 
+	dpu_comp_deactive_vsync(dpu_comp);
 	composer_manager_power_up(dpu_comp);
 
 	dpu_trace_ts_end(&tv0, "handle underflow clear");
+}
+
+static void dpu_comp_edp_abnormal_handle_work(struct kthread_work *work)
+{
+	struct comp_online_present *present = NULL;
+	struct dpu_composer *dpu_comp = NULL;
+
+	present = container_of(work, struct comp_online_present, edp_abnormal_handle_work);
+	if (unlikely(present == NULL)) {
+		dpu_pr_err("present_data or dpu_comp is null");
+		return;
+	}
+
+	dpu_comp = present->dpu_comp;
+	if (dpu_comp == NULL) {
+		dpu_pr_err("dpu_comp is null");
+		return;
+	}
+
+	composer_manager_power_down(dpu_comp);
+	if (unlikely(dpu_comp_status_is_disable(&dpu_comp->comp_mgr->power_status))) {
+		dpu_pr_info("already power off, do not need edp_abnormal!");
+		composer_manager_power_up(dpu_comp);
+		return;
+	}
+
+	composer_manager_reset_hardware(dpu_comp);
+	composer_manager_power_up(dpu_comp);
+	dpu_pr_info("edp_abnormal restore finish!!");
 }
 
 static int32_t dpu_comp_abnormal_handle_isr_notify(struct notifier_block *self, unsigned long action, void *data)
@@ -533,13 +631,16 @@ static int32_t dpu_comp_abnormal_handle_isr_notify(struct notifier_block *self, 
 	uint32_t displaying_scene_id, displayed_scene_id;
 	uint32_t displaying_frame_index, displayed_frame_index;
 	uint32_t vstate;
-	uint32_t phy_status;
 	struct comp_online_present *present = NULL;
 	struct dpu_connector *connector = NULL;
-	struct dkmd_listener_data *listener_data = (struct dkmd_listener_data *)data;
+	struct ukmd_listener_data *listener_data = (struct ukmd_listener_data *)data;
 	struct dpu_composer *dpu_comp = (struct dpu_composer *)(listener_data->data);
+	int32_t lcd_status = 0;
+	uint32_t phy_status = 0;
 
 	dpu_check_and_return(!dpu_comp, -1, err, "dpu_comp is NULL!");
+
+	mdfx_trace_begin("dpu_irq", under_flow);
 
 	connector = get_primary_connector(dpu_comp->conn_info);
 	present = (struct comp_online_present *)dpu_comp->present_data;
@@ -569,8 +670,12 @@ static int32_t dpu_comp_abnormal_handle_isr_notify(struct notifier_block *self, 
 	vstate = inp32(DPU_DSI_VSTATE_ADDR(connector->connector_base));
 	phy_status = inp32(DPU_DSI_CDPHY_STATUS_ADDR(connector->connector_base));
 
+	/* lcd status */
+	if (is_mipi_cmd_panel(&dpu_comp->conn_info->base) && !is_fake_panel(&dpu_comp->conn_info->base))
+		lcd_status = dpu_comp->conn_info->lcd_status_err;
+
 	if (dpu_comp->conn_info->esd_enable != 0) {
-		if (vstate == LDI_VSTATE_V_WAIT_TE0 || (!mipi_panel_check_reg(connector) && ((phy_status & BIT(1)) != 0))) {
+		if (vstate == LDI_VSTATE_V_WAIT_TE0 || ((lcd_status != 0) && ((phy_status & BIT(1)) != 0))) {
 			dpu_comp->esd_ctrl.esd_recover_state = ESD_RECOVER_STATE_START;
 			if (dpu_comp->esd_ctrl.esd_check_wq)
 				queue_work(dpu_comp->esd_ctrl.esd_check_wq, &(dpu_comp->esd_ctrl.esd_check_work));
@@ -584,6 +689,18 @@ static int32_t dpu_comp_abnormal_handle_isr_notify(struct notifier_block *self, 
 		dpu_comp->comp.comp_err_status |= ABNORMAL_UNDERFLOW;
 		kthread_queue_work(&dpu_comp->handle_worker, &present->abnormal_handle_work);
 	}
+	mdfx_trace_end("dpu_irq", under_flow);
+	return 0;
+}
+
+static int32_t dpu_comp_edp_abnormal_handle_isr_notify(struct notifier_block *self, unsigned long action, void *data)
+{
+	struct comp_online_present *present = NULL;
+	struct ukmd_listener_data *listener_data = (struct ukmd_listener_data *)data;
+	struct dpu_composer *dpu_comp = (struct dpu_composer *)(listener_data->data);
+	present = (struct comp_online_present *)dpu_comp->present_data;
+
+	kthread_queue_work(&dpu_comp->handle_worker, &present->edp_abnormal_handle_work);
 
 	return 0;
 }
@@ -592,16 +709,42 @@ static struct notifier_block abnormal_handle_isr_notifier = {
 	.notifier_call = dpu_comp_abnormal_handle_isr_notify,
 };
 
-void dpu_comp_abnormal_handle_init(struct dkmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit)
+static struct notifier_block edp_abnormal_handle_isr_notifier = {
+	.notifier_call = dpu_comp_edp_abnormal_handle_isr_notify,
+};
+
+void dpu_comp_abnormal_handle_init(struct ukmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit)
 {
 	struct comp_online_present *present = (struct comp_online_present *)dpu_comp->present_data;
 
-	kthread_init_work(&present->abnormal_handle_work, dpu_comp_abnormal_handle_work);
-
-	dkmd_isr_register_listener(isr, &abnormal_handle_isr_notifier, listening_bit, dpu_comp);
+	if (listening_bit == DSI_INT_UNDER_FLOW) {
+		kthread_init_work(&present->abnormal_handle_work, dpu_comp_abnormal_handle_work);
+		kthread_init_work(&present->pmic_abnormal_handle_work, dpu_comp_pmic_abnormal_handle_work);
+		ukmd_isr_register_listener(isr, &abnormal_handle_isr_notifier, listening_bit, dpu_comp);
+	} else if (listening_bit == DSI_EDP_IRQ_HPD) {
+		kthread_init_work(&present->edp_abnormal_handle_work, dpu_comp_edp_abnormal_handle_work);
+		ukmd_isr_register_listener(isr, &edp_abnormal_handle_isr_notifier, listening_bit, dpu_comp);
+	}
 }
 
-void dpu_comp_abnormal_handle_deinit(struct dkmd_isr *isr, uint32_t listening_bit)
+void dpu_comp_abnormal_handle_deinit(struct ukmd_isr *isr, uint32_t listening_bit)
 {
-	dkmd_isr_unregister_listener(isr, &abnormal_handle_isr_notifier, listening_bit);
+	ukmd_isr_unregister_listener(isr, &abnormal_handle_isr_notifier, listening_bit);
+}
+
+void dpu_comp_abnormal_dump_offline(char __iomem *dpu_base)
+{
+	char __iomem *glb_base = dpu_base + DPU_GLB0_OFFSET;
+	if ((g_dpu_config_data.version.info.version == DPU_ACCEL_DPUV800) ||
+		(g_dpu_config_data.version.info.version == DPU_ACCEL_DPUV820)) {
+		dpu_print_dvfs_vote_status();
+		dpu_pr_warn("OV:\n"
+			"\tDBG_OV_YCNT0=%#x\tDBG_OV_YCNT1=%#x\tDBG_OV_YCNT2=%#x\tDBG_OV_YCNT3=%#x\n\n",
+			inp32(DPU_GLB_DBG_OV_YCNT0_ADDR(glb_base)), inp32(DPU_GLB_DBG_OV_YCNT0_ADDR(glb_base)),
+			inp32(DPU_GLB_DBG_OV_YCNT0_ADDR(glb_base)), inp32(DPU_GLB_DBG_OV_YCNT0_ADDR(glb_base)));
+		dpu_comp_abnormal_dump_sdma_info(glb_base);
+		dpu_comp_abnormal_dump_lbuf(dpu_base);
+		dpu_comp_abnormal_dump_dacc(dpu_base, DPU_SCENE_OFFLINE_0);
+		dpu_comp_abnormal_dump_cmdlist_status(dpu_base, DPU_SCENE_OFFLINE_0);
+	}
 }

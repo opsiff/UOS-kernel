@@ -22,6 +22,7 @@ struct dkmd_base_frame {
 	int32_t scene_id;
 	int32_t scene_mode;
 	uint32_t scene_cmdlist_id;
+	uint32_t reg_cmdlist_id;
 	uint32_t layers_num;
 	struct dkmd_base_layer *layers; // original layers with no segmentation
 	uint32_t fps; // use for pan display

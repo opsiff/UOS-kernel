@@ -22,8 +22,10 @@
 #include "opr_mgr.h"
 #include "gr_dev.h"
 #include "dvfs.h"
+#include "ddr_dvfs.h"
 #include "scene_id_mgr.h"
 #include "lbuf_mgr.h"
+#include "cmdlist_drv.h"
 
 #define DPU_RES_DEV_NAME "dpu_res"
 
@@ -40,18 +42,18 @@ static ssize_t dpu_res_debug_show(struct device *dev,
 {
 	return (ssize_t)strlen(buf);
 }
-
 static ssize_t dpu_res_debug_store(struct device *device,
 			struct device_attribute *attr, const char *buf, size_t count)
 {
 	return (ssize_t)count;
 }
-
+#ifdef CONFIG_UKMD_DEBUG_ENABLE
 static struct device_attribute rm_attrs[] = {
 	__ATTR(rm_debug, S_IRUSR | S_IRGRP | S_IWUSR, dpu_res_debug_show, dpu_res_debug_store),
 
 	/* TODO: other attrs */
 };
+#endif
 #endif
 
 void dpu_res_send_uevent(int32_t event)
@@ -59,7 +61,7 @@ void dpu_res_send_uevent(int32_t event)
 	char *envp[2];
 	char event_buf[UEVENT_BUF_LEN];
 
-	if (unlikely(!g_rm_dev) || unlikely(!g_rm_dev->rm_chrdev.chr_dev)) {
+	if (unlikely(!g_rm_dev) || unlikely(!g_rm_dev->data.rm_chrdev.chr_dev)) {
 		dpu_pr_err("g_rm_dev or chr_dev is NULL");
 		return;
 	}
@@ -69,8 +71,8 @@ void dpu_res_send_uevent(int32_t event)
 	envp[0] = event_buf;
 	envp[1] = NULL;
 
-	dpu_pr_info("name=%s event=%d", g_rm_dev->rm_chrdev.chr_dev->kobj.name, event);
-	kobject_uevent_env(&(g_rm_dev->rm_chrdev.chr_dev->kobj), KOBJ_CHANGE, envp);
+	dpu_pr_info("name=%s event=%d", g_rm_dev->data.rm_chrdev.chr_dev->kobj.name, event);
+	kobject_uevent_env(&(g_rm_dev->data.rm_chrdev.chr_dev->kobj), KOBJ_CHANGE, envp);
 }
 
 static void dpu_res_reset_resource_list(uint64_t res_types)
@@ -126,8 +128,9 @@ static int32_t dpu_res_open(struct inode *inode, struct file *filp)
 	}
 
 	atomic_inc(&process_data->ref_cnt);
+	map_iova_buffer_notify_init();
 
-	dpu_pr_warn("ref_cnt = %d tgid=%d", atomic_read(&process_data->ref_cnt), task_tgid_vnr(current));
+	dpu_pr_warn("ref_cnt = %d tgid=%d", atomic_read(&process_data->ref_cnt), current->tgid);
 
 	return 0;
 }
@@ -149,7 +152,7 @@ static int32_t dpu_res_release(struct inode *inode, struct file *filp)
 
 	down(&process_data->sem);
 	dpu_pr_warn("ref_cnt=%d res_types=0x%llx tgid=%d",
-		atomic_read(&process_data->ref_cnt), process_data->res_types, task_tgid_vnr(current));
+		atomic_read(&process_data->ref_cnt), process_data->res_types, current->tgid);
 
 	if (atomic_read(&process_data->ref_cnt) == 0) {
 		dpu_pr_warn("res_types=%llx is not opened, cannot release", process_data->res_types);
@@ -268,7 +271,7 @@ static long dpu_res_ioctl(struct file *filp, uint32_t cmd, unsigned long arg)
 		return -EINVAL;
 	}
 
-	dpu_pr_debug("cmd=%#x tgid=%d", cmd, task_tgid_vnr(current));
+	dpu_pr_debug("cmd=%#x tgid=%d", cmd, current->tgid);
 	switch (cmd) {
 	case RES_REGISTER_TYPES: // register client for each process
 		down(&process_data->sem);
@@ -288,26 +291,28 @@ static struct file_operations dpu_res_fops = {
 	.compat_ioctl =  dpu_res_ioctl,
 };
 
-static void dpu_res_create_chrdev(struct dpu_res *rm_dev)
+static void dpu_res_create_chrdev(struct ukmd_chrdev *rm_chrdev)
 {
 	int ret;
 
 	if (fb_class != NULL) {
-		rm_dev->rm_chrdev.chr_class = fb_class;
+		rm_chrdev->chr_class = fb_class;
 	} else { /* maybe not support fbmem */
-		rm_dev->rm_chrdev.chr_class = class_create(THIS_MODULE, "graphics");
-		if (IS_ERR(rm_dev->rm_chrdev.chr_class)) {
-			ret = PTR_ERR(rm_dev->rm_chrdev.chr_class);
+		rm_chrdev->chr_class = class_create(THIS_MODULE, "graphics");
+		if (IS_ERR(rm_chrdev->chr_class)) {
+			ret = PTR_ERR(rm_chrdev->chr_class);
 			dpu_pr_err("Unable to create fb class; errno = %d\n", ret);
-			rm_dev->rm_chrdev.chr_class = NULL;
+			rm_chrdev->chr_class = NULL;
 		}
 	}
-	rm_dev->rm_chrdev.name = DPU_RES_DEV_NAME;
-	rm_dev->rm_chrdev.fops = &dpu_res_fops;
+	rm_chrdev->name = DPU_RES_DEV_NAME;
+	rm_chrdev->fops = &dpu_res_fops;
 
-	dkmd_create_chrdev(&rm_dev->rm_chrdev);
+	ukmd_create_chrdev(rm_chrdev);
 #ifdef CONFIG_DKMD_DEBUG_ENABLE
-	dkmd_create_attrs(rm_dev->rm_chrdev.chr_dev, rm_attrs, ARRAY_SIZE(rm_attrs));
+#ifdef CONFIG_UKMD_DEBUG_ENABLE
+	ukmd_create_attrs(rm_chrdev->chr_dev, rm_attrs, ARRAY_SIZE(rm_attrs));
+#endif
 #endif
 }
 
@@ -366,11 +371,9 @@ static void dpu_res_deinit_resouce_list(struct list_head *res_head)
 static int32_t dpu_res_probe(struct platform_device *pdev)
 {
 	struct dpu_res *rm_dev = NULL;
-	int32_t ret;
 
 	/* 1, read config from dtsi */
-	ret = dpu_init_config(pdev);
-	if (ret) {
+	if (dpu_init_config(pdev)) {
 		dpu_pr_err("init dpu config fail");
 		return -1;
 	}
@@ -382,11 +385,12 @@ static int32_t dpu_res_probe(struct platform_device *pdev)
 	}
 	rm_dev->pdev = pdev;
 
+	/* create chrdev */
+	dpu_res_create_chrdev(&rm_dev->data.rm_chrdev);
+	dpu_ddr_dvfs_init(rm_dev->data.rm_chrdev.chr_dev);
+
 	dpu_res_init_data(&rm_dev->data);
 	dpu_res_init_resource_list(&rm_dev->resource_list, &rm_dev->data);
-
-	/* create chrdev */
-	dpu_res_create_chrdev(rm_dev);
 
 	dev_set_drvdata(&pdev->dev, rm_dev);
 	g_rm_dev = rm_dev;
@@ -404,7 +408,7 @@ static int32_t dpu_res_remove(struct platform_device *pdev)
 		return -1;
 
 	dpu_res_deinit_resouce_list(&rm_dev->resource_list);
-	dkmd_destroy_chrdev(&rm_dev->rm_chrdev);
+	ukmd_destroy_chrdev(&rm_dev->data.rm_chrdev);
 	g_rm_dev = NULL;
 
 	return 0;
@@ -448,5 +452,5 @@ module_init(dpu_res_register);
 module_exit(dpu_res_unregister);
 
 MODULE_AUTHOR("Graphics Display");
-MODULE_DESCRIPTION("Display Resource Manager Driver");
+MODULE_DESCRIPTION("Display DSS Resource Manager Driver");
 MODULE_LICENSE("GPL");

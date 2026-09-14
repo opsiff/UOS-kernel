@@ -42,7 +42,7 @@ static int mipi_dsi_cmds_tx_with_check_fifo(struct dsi_cmd_desc *cmds, int cnt, 
 			dpu_pr_err("dsi fifo full, write [%d] cmds, left [%d] cmds!!", i, cnt-i);
 			break;
 		}
-		delay_for_next_cmd_by_sleep(cm->wait, cm->waittype);
+		delay_for_next_cmd(cm->wait, cm->waittype);
 		cm++;
 	}
 
@@ -51,7 +51,7 @@ static int mipi_dsi_cmds_tx_with_check_fifo(struct dsi_cmd_desc *cmds, int cnt, 
 
 #define FIFO_IDLE_CYCLE 100
 #define FIFO_DELAY_TIME 100
-static int mipi_dual_dsi_fifo_is_full(const char __iomem *dsi_base_0, const char __iomem *dsi_base_1)
+int mipi_dual_dsi_fifo_is_full(const char __iomem *dsi_base_0, const char __iomem *dsi_base_1)
 {
 	uint32_t pkg_status_0;
 	uint32_t pkg_status_1;
@@ -120,7 +120,7 @@ static inline int mipi_dual_dsi_tx_normal_same_delay(struct dsi_cmd_desc *Cmd0,
 			break;
 		}
 
-		delay_for_next_cmd_by_sleep(Cmd0->wait, Cmd0->waittype);
+		delay_for_next_cmd(Cmd0->wait, Cmd0->waittype);
 		send_cnt += 2;
 
 		Cmd0++;
@@ -320,7 +320,7 @@ static bool mipi_dsi_add_tx_remain_cmd(struct mipi_dual_dsi_param *dual_dsi, uin
 		for (; cnt < dual_dsi->cmdset_cnt; cnt++) {
 			mipi_dsi_cmd_add(dual_dsi->cmd, dual_dsi->dsi_base);
 
-			delay_for_next_cmd_by_sleep(dual_dsi->cmd->wait, dual_dsi->cmd->waittype);
+			delay_for_next_cmd(dual_dsi->cmd->wait, dual_dsi->cmd->waittype);
 			dual_dsi->cmd++;
 		}
 		return true;
@@ -393,15 +393,18 @@ static void mipi_dsi_cmd_send_unlock(void)
 		spin_unlock(&g_delayed_cmd_queue.cmd_send_lock);
 }
 
-static int mipi_dual_dsi_read(uint32_t *value_out_0, uint32_t *value_out_1,
-	const char __iomem *dsi_base_0, const char __iomem *dsi_base_1)
+static uint32_t mipi_dual_dsi_read(uint32_t *value_out_0, uint32_t *value_out_1,
+	const char __iomem *dsi_base_0, const char __iomem *dsi_base_1, uint32_t wait_us, uint32_t present_time_us)
 {
 	uint32_t pkg_status_0 = 0;
 	uint32_t pkg_status_1 = 0;
-	uint32_t try_times = 700;  /* 35ms(50*700) */
 	bool read_done_0 = false;
 	bool read_done_1 = false;
-	int ret = 2;
+	uint32_t try_times = present_time_us / wait_us;
+	if (try_times == 0) {
+		dpu_pr_err("try_times is 0, present_time_us %u wait_us %u", present_time_us, wait_us);
+		return 0;
+	}
 
 	if (!dsi_base_0 || !dsi_base_1) {
 		dpu_pr_err("dsi_base is NULL!\n");
@@ -431,11 +434,11 @@ static int mipi_dual_dsi_read(uint32_t *value_out_0, uint32_t *value_out_1,
 
 		if (read_done_0 && read_done_1)
 			break;
-		udelay(50);  /* 50us */
+
+		udelay(wait_us);
 	} while (--try_times);
 
 	if (!read_done_0) {
-		ret -= 1;
 		dpu_pr_err("%s, DSI0 CMD_PKT_STATUS[0x%x], PHY_STATUS[0x%x], INT_ST0[0x%x], INT_ST1[0x%x]\n",
 			__func__,
 			inp32(dsi_base_0 + MIPIDSI_CMD_PKT_STATUS_OFFSET),
@@ -443,18 +446,17 @@ static int mipi_dual_dsi_read(uint32_t *value_out_0, uint32_t *value_out_1,
 			inp32(dsi_base_0 + MIPIDSI_INT_ST0_OFFSET), inp32(dsi_base_0 + MIPIDSI_INT_ST1_OFFSET));
 	}
 	if (!read_done_1) {
-		ret -= 1;
 		dpu_pr_err("%s, DSI1 CMD_PKT_STATUS[0x%x], PHY_STATUS[0x%x], INT_ST0[0x%x], INT_ST1[0x%x]\n",
 			__func__, inp32(dsi_base_1 + MIPIDSI_CMD_PKT_STATUS_OFFSET),
 			inp32(dsi_base_1 + MIPIDSI_PHY_STATUS_OFFSET),
 			inp32(dsi_base_1 + MIPIDSI_INT_ST0_OFFSET), inp32(dsi_base_1 + MIPIDSI_INT_ST1_OFFSET));
 	}
 
-	return ret;
+	return try_times;
 }
 
 /* only support same cmd for two dsi */
-static int32_t mipi_dual_dsi_lread_reg(struct mipi_dual_dsi_param *dual_dsi0,
+int32_t mipi_dual_dsi_lread_reg(struct mipi_dual_dsi_param *dual_dsi0,
 	struct dsi_cmd_desc *p_cmd, uint32_t dlen, struct mipi_dual_dsi_param *dual_dsi1)
 {
 	int32_t ret = 0;
@@ -489,8 +491,8 @@ static int32_t mipi_dual_dsi_lread_reg(struct mipi_dual_dsi_param *dual_dsi0,
 			mipi_dsi_sread_request(p_cmd, dual_dsi0->dsi_base);
 			mipi_dsi_sread_request(p_cmd, dual_dsi1->dsi_base);
 			for (i = 0; i < (dlen + 3) / 4; i++) { /* 4byte Align */
-				if (mipi_dual_dsi_read(dual_dsi0->value_out, dual_dsi1->value_out,
-					dual_dsi0->dsi_base, dual_dsi1->dsi_base) < 2) {
+				if (mipi_dual_dsi_read(dual_dsi0->value_out, dual_dsi1->value_out, dual_dsi0->dsi_base,
+					dual_dsi1->dsi_base, MIPI_DSI_READ_CHECK_WAIT, MIPI_DDIC_READ_BACK_TIMEOUT) == 0) {
 					ret = -1;
 					dpu_pr_err("Read register 0x%X timeout\n", p_cmd->payload[0]);
 					break;
@@ -510,6 +512,43 @@ static int32_t mipi_dual_dsi_lread_reg(struct mipi_dual_dsi_param *dual_dsi0,
 	}
 
 	return ret;
+}
+
+int32_t mipi_dual_dsi_lread_group_reg(struct mipi_dual_dsi_param *dual_dsi0, struct dsi_cmd_desc *p_cmd,
+	uint32_t dlen, struct mipi_dual_dsi_param *dual_dsi1)
+{
+	int32_t ret = 0;
+    uint32_t i = 0;
+	uint32_t remain_try_times = 0;
+    struct dsi_cmd_desc packet_size_cmd_set;
+	/* dlen is read back bytes, 4 bytes per read. read_times = (dlen +3) / 4 */
+	uint32_t total_read_times = (dlen + 3) / 4;
+	if (total_read_times > READ_MAX) {
+		dpu_pr_err("total_read_times %u, dlen %u", total_read_times, dlen);
+		ret = MIPI_E_READ_FAILED;
+	}
+
+    packet_size_cmd_set.dtype = DTYPE_MAX_PKTSIZE;
+    packet_size_cmd_set.vc = 0;
+    packet_size_cmd_set.dlen = dlen;
+
+    mipi_dsi_max_return_packet_size(&packet_size_cmd_set, dual_dsi0->dsi_base);
+    mipi_dsi_max_return_packet_size(&packet_size_cmd_set, dual_dsi1->dsi_base);
+    mipi_dsi_sread_request(p_cmd, dual_dsi0->dsi_base);
+    mipi_dsi_sread_request(p_cmd, dual_dsi1->dsi_base);
+    for (i = 0; i < total_read_times; i++) {
+		remain_try_times = mipi_dual_dsi_read(dual_dsi0->value_out, dual_dsi1->value_out,
+            dual_dsi0->dsi_base, dual_dsi1->dsi_base, MIPI_DSI_READ_CHECK_WAIT, MIPI_DDIC_READ_BACK_TIMEOUT);
+        if (remain_try_times == 0) {
+			ret = MIPI_E_READ_FAILED;
+            dpu_pr_err("Read register 0x%X timeout", p_cmd->payload[0]);
+            break;
+		}
+    	dual_dsi0->value_out++;
+    	dual_dsi1->value_out++;
+    }
+
+    return ret;
 }
 
 int32_t  mipi_dual_dsi_cmds_tx(struct dsi_cmd_desc *cmd0, int cnt0, char __iomem *dsi_base_0,
@@ -608,12 +647,12 @@ int32_t mipi_dual_dsi_cmds_rx(char __iomem *dsi_base_0, uint8_t *dsi0_out, char 
 			return -EINVAL;
 		}
 		ret = mipi_dsi_get_read_value(cmd, dsi0_val, dsi0_tmp_val, (uint32_t)out_len, little_endian_support);
-		if (ret != 0) {
+		if (ret < 0) {
 			dpu_pr_err("get read value error\n");
 			return ret;
 		}
 		ret = mipi_dsi_get_read_value(cmd, dsi1_val, dsi1_tmp_val, (uint32_t)out_len, little_endian_support);
-		if (ret != 0) {
+		if (ret < 0) {
 			dpu_pr_err("get read value error\n");
 			return ret;
 		}

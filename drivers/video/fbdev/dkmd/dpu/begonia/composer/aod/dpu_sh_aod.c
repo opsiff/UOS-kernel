@@ -10,6 +10,7 @@
  * GNU General Public License for more details.
  *
  */
+ #include <linux/iommu/mm_iommu.h>
 #include <soc_lock_interface.h>
 #include"dpu/dpu_base_addr.h"
 #include <dpu/soc_dpu_define.h>
@@ -17,17 +18,24 @@
 #include "dpu_config_utils.h"
 #include "dpu_comp_mgr.h"
 #include "gfxdev_mgr.h"
+#include "dpu_comp_online.h"
 #include "dpu_sh_aod.h"
 #include "dpu_dacc.h"
 #include "dvfs.h"
 #include "dpu_comp_smmu.h"
 #include "dkmd_lcd_interface.h"
+#include "res_mgr.h"
+#include "dkmd_aod_itf.h"
 
 DEFINE_SEMAPHORE(hw_lock_semaphore);
 DEFINE_SEMAPHORE(dpu_sensorhub_aod_blank_sem);
 
 #define MAX_BIT 31
 #define MAX_BIT_VALUE  1
+#define SH_VOTE_BIT 18
+
+#define PRIMARY_PANEL_BIT  8
+#define BUILTIN_PANEL_BIT  9
 
 static int sh_aod_blank_refcount;
 
@@ -38,7 +46,7 @@ extern uint32_t dpu_aod_get_panel_id(void);
 extern void dpu_aod_wait_stop_nolock(void);
 extern int get_aod_support(void);
 
-struct dpu_composer *g_dpu_composer[PANEL_ID_MAX_NUM] = {NULL, NULL};
+struct dpu_composer *g_dpu_composer[PANEL_ID_MAX_NUM] = {NULL, NULL, NULL};
 
 static uint8_t is_support_aod(struct dpu_composer *dpu_comp)
 {
@@ -60,7 +68,7 @@ bool dpu_sensorhub_aod_hw_lock(struct dpu_composer *dpu_comp)
 
 	dpu_check_and_return(!dpu_comp, false, err, "dpu_comp is NULL");
 
-	if (!is_support_aod(dpu_comp))
+	if (!is_support_aod(dpu_comp) && !is_support_hw_lock())
 		return true;
 
 	sourcelock_base = dpu_config_get_ip_base(DISP_IP_BASE_SOURCELOCK);
@@ -100,7 +108,7 @@ static bool dpu_sh_need_start_aod(struct dpu_composer *dpu_comp)
 	struct composer *comp = NULL;
 	uint32_t connect_status = DP_DISCONNECTED;
 
-	if (dpu_comp->comp_mgr->is_power_restarting)
+	if (dpu_comp->comp_mgr->is_power_restarting || dpu_comp->is_peri_starting)
 		return false;
 
 	comp = get_comp_from_device_name(DEVICE_COMP_DP_ID);
@@ -116,6 +124,10 @@ static bool dpu_sh_need_start_aod(struct dpu_composer *dpu_comp)
 			return false;
 		}
 	}
+
+	if (dpu_comp->comp.power_off_mode == COMPOSER_OFF_MODE_DOZE_SUSPEND)
+		return false;
+
 	return true;
 }
 
@@ -127,7 +139,7 @@ bool dpu_sensorhub_aod_hw_unlock(struct dpu_composer *dpu_comp)
 
 	dpu_check_and_return(!dpu_comp, false, err, "dpu_comp is NULL");
 
-	if (!is_support_aod(dpu_comp))
+	if (!is_support_aod(dpu_comp) && !is_support_hw_lock())
 		return true;
 
 	sourcelock_base = dpu_config_get_ip_base(DISP_IP_BASE_SOURCELOCK);
@@ -191,6 +203,95 @@ void dpu_restore_fast_unblank_status(struct dpu_composer *dpu_comp)
 	up(&dpu_comp->sh_aod_info.fast_unblank_sem);
 }
 
+static bool dpu_sh_get_panel_status(uint32_t panel_id)
+{
+	uint32_t panel_status = dkmd_get_lcd_status();
+ 
+	if (panel_id == PANEL_ID_PRIMARY)
+		return ((panel_status & BIT(PRIMARY_PANEL_BIT)) != 0);
+	else if (panel_id == PANEL_ID_BUILTIN)
+		return ((panel_status & BIT(BUILTIN_PANEL_BIT)) != 0);
+	else
+		return false;
+}
+
+// Non-AOD Case, Pre-power-on/off handle
+int32_t dpu_sensorhub_peri_handle(uint32_t panel_id, int32_t blank_mode)
+{
+	struct dpu_composer *dpu_comp = NULL;
+	struct composer_manager *comp_mgr = NULL;
+	struct comp_online_present *present = NULL;
+	bool panel_on;
+	int32_t ret;
+	uint8_t power_off_mode;
+	uint8_t power_on_mode;
+
+	dpu_pr_info("cur_panel_id = [%u]!", panel_id);
+	if (panel_id >= PANEL_ID_MAX_NUM)
+		return 0;
+
+	dpu_comp = g_dpu_composer[panel_id];
+	dpu_check_and_return(!dpu_comp, 0, warn, "dpu_comp is null ptr");
+	comp_mgr = dpu_comp->comp_mgr;
+	dpu_check_and_return(!comp_mgr, 0, warn, "comp_mgr is null ptr!");
+
+	if (!is_support_aod(dpu_comp))
+		return 0;
+
+    panel_on = dpu_sh_get_panel_status(panel_id);
+	if (!panel_on && (blank_mode == DISP_BLANK_PERI_POWERDOWN)) {
+		dpu_pr_warn("panel Has been off!");
+		return 0;
+	}
+
+	if (panel_on && (blank_mode == DISP_BLANK_PERI_UNBLANK)) {
+		dpu_pr_warn("panel Has been on!");
+		return 0;
+	}
+
+	composer_manager_power_down(dpu_comp);
+	if (!dpu_comp_status_is_disable(&comp_mgr->power_status)) {
+		composer_manager_power_up(dpu_comp);
+		return 0;
+	}
+
+	if (blank_mode == DISP_BLANK_PERI_UNBLANK) {
+		dpu_comp->is_peri_starting = true;
+		power_on_mode = COMPOSER_ON_MODE_UNBLANK;
+		power_off_mode = COMPOSER_OFF_MODE_FAKE;
+	} else {
+		dpu_comp->is_peri_starting = true;
+		power_on_mode = COMPOSER_ON_MODE_UNBLANK;
+		power_off_mode = COMPOSER_OFF_MODE_BLANK;
+	}
+
+	dpu_comp->comp.power_on_mode = power_on_mode;
+	ret = composer_manager_on_no_lock(&dpu_comp->comp, power_on_mode);
+	if (likely(ret == 0))
+		dpu_comp->comp.power_on = true;
+
+	dpu_comp->comp.power_off_mode = power_off_mode;
+	ret = composer_manager_off_no_lock(&dpu_comp->comp, power_off_mode);
+	if (likely(ret == 0))
+		dpu_comp->comp.power_on = false;
+
+	composer_manager_timeline_resync(dpu_comp, power_off_mode);
+	if (!is_offline_panel(&dpu_comp->comp.base)) {
+		present = (struct comp_online_present *)dpu_comp->present_data;
+		ukmd_timeline_disable_routine(&present->timeline);
+	}
+	unregister_dfr_related_listeners(dpu_comp);
+
+	dpu_comp->is_peri_starting = false;
+	composer_manager_power_up(dpu_comp);
+	return ret;
+}
+
+int dpu_blank_peri_handle(uint32_t panel_id, int blank_mode)
+{
+	return dpu_aod_peri_handle(panel_id, blank_mode);
+}
+
 static void sh_aod_unblank_wq_handle(struct work_struct *work)
 {
 	struct dpu_composer *dpu_comp = NULL;
@@ -211,7 +312,7 @@ static void sh_aod_unblank_wq_handle(struct work_struct *work)
 		goto fast_unblank_fail;
 	}
 
-	if (dpu_comp->comp.on(&dpu_comp->comp) != 0) {
+	if (dpu_comp->comp.on(&dpu_comp->comp, COMPOSER_ON_MODE_UNBLANK) != 0) {
 		dpu_pr_err("gfxdev power on failed!");
 		goto fast_unblank_fail;
 	}
@@ -268,7 +369,7 @@ static struct dpu_composer* sh_aod_get_fast_unblank_comp(void)
 	for (i = PANEL_ID_PRIMARY; i < PANEL_ID_MAX_NUM; i++) {
 		dpu_comp = g_dpu_composer[i];
 		if (!dpu_comp || !(dpu_comp->conn_info)) {
-			dpu_pr_err("dpu_comp or conn_infois NULL");
+			dpu_pr_warn("dpu_comp or conn_info is NULL, index %u", i);
 			continue;
 		}
 
@@ -332,6 +433,16 @@ void dpu_wait_for_aod_stop(struct dpu_composer *dpu_comp)
 	dpu_check_and_no_retval(!(dpu_comp->conn_info), err, "conn_info is NULL");
 	dpu_pr_info("fold_type = %u!", dpu_comp->conn_info->base.fold_type);
 	if (!dpu_check_panel_product_type(dpu_comp->conn_info->base.fold_type))
+		return;
+
+	dpu_pr_info("+");
+	dpu_aod_wait_stop_nolock();
+	dpu_pr_info("-");
+}
+
+void dp_wait_for_aod_stop(struct dpu_composer *dpu_comp)
+{
+	if (!is_support_aod(dpu_comp))
 		return;
 
 	dpu_pr_info("+");
@@ -422,6 +533,9 @@ uint32_t dkmd_get_lcd_status(void)
 	uint32_t value = 0;
 	char __iomem *sctrl_base;
 
+	if (is_support_hw_lock())
+		return value;
+
 	sctrl_base = dpu_config_get_ip_base(DISP_IP_BASE_SCTRL);
 	dpu_check_and_return(!sctrl_base, value, err, "sctrl_base is NULL");
 
@@ -433,6 +547,9 @@ uint32_t dkmd_get_lcd_status(void)
 void dkmd_set_lcd_status(uint32_t bit, uint32_t bit_value)
 {
 	char __iomem *sctrl_base = NULL;
+
+	if (is_support_hw_lock())
+		return;
 
 	if (bit > MAX_BIT || bit_value > MAX_BIT_VALUE) {
 		dpu_pr_err("bit = %u, bit_value = %u!", bit, bit_value);
@@ -474,16 +591,18 @@ static void sh_aod_dvfs_direct_vote(struct dpu_composer *dpu_comp, uint32_t perf
 	if (dpu_comp->conn_info == NULL || dpu_comp->conn_info->update_core_clk_support == 0)
 		return;
 
-	dpu_pr_info("update_core_clk_support[%d]!", dpu_comp->conn_info->update_core_clk_support);
+	dpu_pr_info("update_core_clk_support[%u]!", dpu_comp->conn_info->update_core_clk_support);
 	sctrl_base = dpu_config_get_ip_base(DISP_IP_BASE_SCTRL);
 	dpu_check_and_no_retval(!sctrl_base, err, "sctrl_base is NULL");
 
 	/* sctrl 0x438
-	* bit[14]:Sensorhub dpu core clk level
-	* bit[15]:Sensorhub dpu core clk level
+	* bit[18]:Sensorhub dpu core clk level
+	* bit[19]:Sensorhub dpu core clk level
+	* bit[20]:Sensorhub dpu core clk level
+	* bit[21]:Sensorhub dpu core clk level
 	*/
 	value = inp32(SOC_SCTRL_SCBAKDATA11_ADDR(sctrl_base));
-	core_val = ((value >> 14) & 0x3);
+	core_val = ((value >> SH_VOTE_BIT) & 0xf);
 	if (core_val == 0) {
 		dpu_pr_info("value is 0x%x", value);
 		return;
@@ -518,22 +637,23 @@ int dpu_sensorhub_aod_unblank(uint32_t msg_no)
 	down(&dpu_sensorhub_aod_blank_sem);
 	composer_manager_power_down(dpu_comp);
 
-	if (!dpu_sensorhub_aod_hw_lock(dpu_comp))
-		goto up_blank_sem;
-
 	if (sh_check_aod_blank_refcount(dpu_comp, msg_no))
 		goto hw_unlock;
 
-	if (comp_mgr->power_status.status == 0 && comp_mgr->power_on_stage == DPU_POWER_ON_NONE) {
+	if (dpu_comp_status_is_disable(&comp_mgr->power_status) && comp_mgr->power_on_stage == DPU_POWER_ON_NONE) {
+		if (!dpu_sensorhub_aod_hw_lock(dpu_comp))
+			goto hw_unlock;
+
 		/* public function need use public data as interface parameter, such as 'comp_mgr' */
 		ret = media_regulator_enable(comp_mgr);
 		if (ret) {
 			dpu_pr_err("media_regulator_enable fail!");
+			(void)dpu_sensorhub_aod_hw_unlock(dpu_comp);
 			goto hw_unlock;
 		}
 		composer_dpu_power_on(comp_mgr, &dpu_comp->comp);
 		dpu_comp_smmuv3_on(comp_mgr, dpu_comp);
-		dpu_dacc_load();
+		dpu_dacc_load(comp_mgr->dpu_base);
 		sh_aod_dvfs_direct_vote(dpu_comp, DPU_PERF_LEVEL_MAX);
 		comp_mgr->power_on_stage = DPU_POWER_ON_STAGE1;
 		set_reg(SOC_SCTRL_SCBAKDATA0_ADDR(sctrl_base), 0x1, 2, 6);
@@ -550,8 +670,6 @@ int dpu_sensorhub_aod_unblank(uint32_t msg_no)
 hw_unlock:
 	comp_mgr->power_on_stage = DPU_POWER_ON_NONE;
 	set_reg(SOC_SCTRL_SCBAKDATA0_ADDR(sctrl_base), 0x3, 2, 6);
-	if (!dpu_sensorhub_aod_hw_unlock(dpu_comp))
-		dpu_pr_err("aod_hw_unlock fail!");
 
 up_blank_sem:
 	composer_manager_power_up(dpu_comp);
@@ -602,18 +720,16 @@ int dpu_sensorhub_aod_blank(uint32_t msg_no)
 	if (comp_mgr->power_on_stage == DPU_POWER_ON_STAGE1) {
 		comp_mgr->power_on_stage = DPU_POWER_ON_NONE;
 		dpu_comp_smmuv3_off(comp_mgr, dpu_comp);
-		if (comp_mgr->power_status.status == 0) {
+		if (dpu_comp_status_is_disable(&comp_mgr->power_status)) {
 			/* public function need use public data as interface parameter, such as 'comp_mgr' */
 			composer_dpu_power_off(comp_mgr, &dpu_comp->comp);
 			media_regulator_disable(comp_mgr);
+			(void)dpu_sensorhub_aod_hw_unlock(dpu_comp);
 		} else {
 			/* if only aod off, cancel max perf config and recovery dvfs vote */
 			sh_aod_dvfs_direct_vote(dpu_comp, DPU_CORE_LEVEL_ON);
 		}
 	}
-
-	if (!dpu_sensorhub_aod_hw_unlock(dpu_comp))
-		dpu_pr_err("fb%d, aod_hw_unlock fail!", dpu_comp->comp.base.id);
 
 	dpu_pr_info("Power State Reg is 0x%x", inp32(SOC_SCTRL_SCBAKDATA0_ADDR(sctrl_base)));
 	set_reg(SOC_SCTRL_SCBAKDATA0_ADDR(sctrl_base), 0x2, 2, 6);
@@ -624,4 +740,78 @@ up_blank_sem:
 
 	dpu_pr_info("fb%d, -", dpu_comp->comp.base.id);
 	return ret;
+}
+
+int dpu_sh_dmabuf_map_iova(uint64_t *iova, struct dma_buf *buf, uint32_t size)
+{
+	unsigned long buf_size = 0;
+
+	if (IS_ERR_OR_NULL(buf)) {
+		dpu_pr_err("Invalid dma buf!");
+		return -1;
+	}
+
+	*iova = kernel_iommu_map_dmabuf(dpu_res_get_device(), buf, 0, &buf_size);
+	if ((*iova == 0) || (buf_size < size)) {
+		dpu_pr_err("get iova_size(0x%llx) smaller than size(0x%x)", buf_size, size);
+		if (*iova != 0) {
+			(void)kernel_iommu_unmap_dmabuf(dpu_res_get_device(), buf, *iova);
+			*iova = 0;
+		}
+		return -1;
+	}
+
+	return 0;
+}
+
+void dpu_sh_dmabuf_unmap_iova(uint64_t iova, struct dma_buf *dmabuf)
+{
+	if (IS_ERR_OR_NULL(dmabuf))
+		return;
+
+	for (uint32_t mmu_id = 0; mmu_id < DPU_SSID_MAX_NUM; mmu_id++)
+		mm_iommu_dev_flush_tlb(dpu_res_get_device(), mmu_id);
+
+	(void)kernel_iommu_unmap_dmabuf(dpu_res_get_device(), dmabuf, iova);
+}
+
+int dpu_sensorhub_aod_dvfs_vote(uint32_t seq_num)
+{
+	int ret = 0;
+	uint32_t cur_panel_id = 0;
+	uint32_t value;
+	uint32_t core_val;
+	struct dpu_composer *dpu_comp = NULL;
+	struct composer_manager *comp_mgr = NULL;
+	char __iomem *sctrl_base = dpu_config_get_ip_base(DISP_IP_BASE_SCTRL);
+	dpu_check_and_return(!sctrl_base, -EINVAL, err, "sctrl_base is NULL!");
+
+	cur_panel_id = dpu_aod_get_panel_id();
+	if (cur_panel_id >= PANEL_ID_MAX_NUM) {
+		dpu_pr_err("[fold] not supported panel id :%d", cur_panel_id);
+		return -EINVAL;
+	}
+
+	dpu_comp = g_dpu_composer[cur_panel_id];
+	dpu_check_and_return(!dpu_comp, -EINVAL, err, "dpu_comp is NULL!");
+
+	composer_manager_power_down(dpu_comp);
+
+	/* sctrl 0x438
+	* bit[18]:Sensorhub dpu core clk level
+	* bit[19]:Sensorhub dpu core clk level
+	* bit[20]:Sensorhub dpu core clk level
+	* bit[21]:Sensorhub dpu core clk level
+	*/
+
+	value = inp32(SOC_SCTRL_SCBAKDATA11_ADDR(sctrl_base));
+	core_val = ((value >> SH_VOTE_BIT) & 0xf);
+	dpu_pr_debug("[dvfs]:start vote the value is %u, vote seq num: %u\n",
+		core_val, seq_num);
+	dpu_dvfs_direct_vote(dpu_comp->comp.index, min((uint32_t)DPU_PERF_LEVEL_MAX, (core_val + 1)), true);
+	set_reg(SOC_SCTRL_SCBAKDATA11_ADDR(sctrl_base), 0x1, 2, 6);
+
+	composer_manager_power_up(dpu_comp);
+
+	return 0;
 }

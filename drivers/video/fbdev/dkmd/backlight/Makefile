@@ -8,19 +8,26 @@ dkmd_bl-objs := \
 	dkmd_bl_factory.o \
 	dkmd_blpwm_drv.o
 
+ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 740))
+dkmd_bl-objs += \
+	dkmd_nonmcu_blpwm_740.o
+endif
+
 EXTRA_CFLAGS += \
 	-I$(srctree)/include/ \
 	-I$(srctree)/arch/arm64/include/ \
 	-I$(srctree)/include/platform_include/display/dkmd/ \
+	-I$(srctree)/include/platform_include/display/linux/ \
 	-I$(srctree)/drivers/video/fbdev/dkmd/backlight \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/peri \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/isr \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/isr \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/mipi \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dsc \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/spr \
-	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dp_ctrl \
+	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dptx/dp_ctrl \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/offline \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/panel
 

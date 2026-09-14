@@ -19,7 +19,7 @@
 #include "peri/dkmd_peri.h"
 
 struct dpu_comp_frame {
-	struct dkmd_dma_buf layer_dma_buf[DISP_LAYER_MAX_COUNT];
+	struct ukmd_dma_buf layer_dma_buf[DISP_LAYER_MAX_COUNT];
 	struct disp_frame in_frame;
 };
 
@@ -28,7 +28,7 @@ struct composer_scene {
 	uint32_t frame_index;
 	char __iomem *dpu_base;
 
-	int32_t (*present)(struct composer_scene *scene, uint32_t cmdlist_id);
+	int32_t (*present)(struct composer_scene *scene, uint64_t cmdlist_id);
 };
 
 int32_t dpu_comp_scene_device_setup(struct composer_scene *scene);

@@ -21,6 +21,9 @@ struct composer_manager;
 irqreturn_t dpu_mdp_isr(int32_t irq, void *ptr);
 void dkmd_mdp_isr_enable(struct composer_manager *comp_mgr);
 void dkmd_mdp_isr_disable(struct composer_manager *comp_mgr);
-void dpu_mdp_dacc_dfr_isr_handler(char __iomem *dpu_base, struct dkmd_isr *isr_ctrl);
-void dpu_mdp_dacc_ppc_isr_handler(char __iomem *dpu_base, struct dkmd_isr *isr_ctrl);
+void dpu_mdp_dacc_dfr_isr_handler(char __iomem *dpu_base, struct ukmd_isr *isr_ctrl);
+void dpu_mdp_dacc_ppc_isr_handler(char __iomem *dpu_base, struct ukmd_isr *isr_ctrl);
+void dpu_mdp_ddic_isr_handler(char __iomem *dpu_base, struct composer_manager *comp_mgr);
+void dpu_mdp_dacc_isr_handler(char __iomem *dpu_base, struct ukmd_isr *isr_ctrl);
+void dpu_mdp_lbuf_isr_handler(char __iomem *dpu_base);
 #endif

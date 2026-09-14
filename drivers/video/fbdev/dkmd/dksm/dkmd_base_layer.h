@@ -15,7 +15,7 @@
 #define DKMD_BASE_LAYER_H
 
 #include <linux/types.h>
-#include "dkmd_rect.h"
+#include "dkmd_user_panel_info.h"
 
 enum LAYER_TYPE {
 	SOURCE_LAYER = 0,

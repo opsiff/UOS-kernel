@@ -18,18 +18,16 @@
 
 struct dpu_cmdlist_frame_info {
 	uint32_t scene_id;
-	uint32_t cmdlist_id;
+	uint64_t cmdlist_id;
 	uint32_t frame_index;
 	uint32_t resevered;
 };
 
-struct dkmd_timeline;
 struct disp_frame;
-extern struct dpu_cmdlist_frame_info g_curr_cmdlist_frm_info;
-extern struct dpu_cmdlist_frame_info g_last_cmdlist_frm_info;
+struct comp_online_present;
 
 void dpu_cmdlist_init_commit(char __iomem *dpu_base, dma_addr_t cmdlist_buf_addr);
-void dpu_cmdlist_present_commit(char __iomem *dpu_base, uint32_t scene_id, uint32_t cmdlist_id);
-int32_t dpu_cmdlist_sync_lock(struct dkmd_timeline *timeline, struct disp_frame *frame);
+void dpu_cmdlist_present_commit(char __iomem *dpu_base, uint32_t scene_id, uint64_t cmdlist_id);
+int32_t dpu_cmdlist_sync_lock(struct comp_online_present *present, struct disp_frame *frame);
 
 #endif

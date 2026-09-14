@@ -10,13 +10,13 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  */
-#include "dkmd_listener.h"
+#include "ukmd_listener.h"
 #include "dpu_comp_mgr.h"
 #include "dpu_isr.h"
 
 static int32_t dpu_comp_alsc_handle_isr_notify(struct notifier_block *self, unsigned long action, void *data)
 {
-	struct dkmd_listener_data *listener_data = (struct dkmd_listener_data *)data;
+	struct ukmd_listener_data *listener_data = (struct ukmd_listener_data *)data;
 	struct dpu_composer *dpu_comp = (struct dpu_composer *)(listener_data->data);
 
 	dpu_pr_debug("action=%#x, enter", action);
@@ -33,12 +33,12 @@ static struct notifier_block alsc_handle_isr_notifier = {
 	.notifier_call = dpu_comp_alsc_handle_isr_notify,
 };
 
-void dpu_comp_alsc_handle_init(struct dkmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit)
+void dpu_comp_alsc_handle_init(struct ukmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit)
 {
-	dkmd_isr_register_listener(isr_ctrl, &alsc_handle_isr_notifier, listening_bit, dpu_comp);
+	ukmd_isr_register_listener(isr_ctrl, &alsc_handle_isr_notifier, listening_bit, dpu_comp);
 }
 
-void dpu_comp_alsc_handle_deinit(struct dkmd_isr *isr_ctrl, uint32_t listening_bit)
+void dpu_comp_alsc_handle_deinit(struct ukmd_isr *isr_ctrl, uint32_t listening_bit)
 {
-	dkmd_isr_unregister_listener(isr_ctrl, &alsc_handle_isr_notifier, listening_bit);
+	ukmd_isr_unregister_listener(isr_ctrl, &alsc_handle_isr_notifier, listening_bit);
 }

@@ -85,8 +85,11 @@ static void spr_core_larea_config(char __iomem * spr_base, struct spr_info *spr)
 	set_reg(DPU_DPP_SPR_LAREA_BORDER_GAIN_B_ADDR(spr_base), spr->spr_larea_border_b.value, 32, 0);
 }
 
-static void spr_core_border_config(char __iomem * spr_base, struct spr_info *spr)
+static void spr_core_border_config(char __iomem * spr_base, struct spr_info *spr, struct dkmd_connector_info *pinfo)
 {
+	DPU_DPP_SPR_BORDER_POSITION3_UNION border_p3;
+	struct dkmd_rect rect = {0};
+
 	set_reg(DPU_DPP_SPR_R_BORDERLR_REG_ADDR(spr_base), spr->spr_r_borderlr.value, 32, 0);
 	set_reg(DPU_DPP_SPR_R_BORDERTB_REG_ADDR(spr_base), spr->spr_r_bordertb.value, 32, 0);
 	set_reg(DPU_DPP_SPR_G_BORDERLR_REG_ADDR(spr_base), spr->spr_g_borderlr.value, 32, 0);
@@ -98,7 +101,16 @@ static void spr_core_border_config(char __iomem * spr_base, struct spr_info *spr
 	set_reg(DPU_DPP_SPR_BORDER_POSITION0_ADDR(spr_base), spr->spr_border_p0.value, 32, 0);
 	set_reg(DPU_DPP_SPR_BORDER_POSITION1_ADDR(spr_base), spr->spr_border_p1.value, 32, 0);
 	set_reg(DPU_DPP_SPR_BORDER_POSITION2_ADDR(spr_base), spr->spr_border_p2.value, 32, 0);
-	set_reg(DPU_DPP_SPR_BORDER_POSITION3_ADDR(spr_base), spr->spr_border_p3.value, 32, 0);
+
+	// fold panel need use active rect to update spr lower border
+	border_p3.value = spr->spr_border_p3.value;
+	if (is_ppc_support(&pinfo->base) && pinfo->get_display_rect_by_config_id) {
+		if (pinfo->get_display_rect_by_config_id(pinfo, pinfo->ppc_config_id_record, &rect) == 0) {
+			border_p3.reg.spr_borderb_sy = rect.h - 1;
+			border_p3.reg.spr_borderb_ey = rect.h - 1;
+		}
+	}
+	set_reg(DPU_DPP_SPR_BORDER_POSITION3_ADDR(spr_base), border_p3.value, 32, 0);
 }
 
 
@@ -136,7 +148,7 @@ static void spr_core_bd_config(char __iomem * spr_base, struct spr_info *spr)
 	set_reg(DPU_DPP_SPR_VERTBD_GAIN_B_ADDR(spr_base), spr->spr_vertbd_gain_b.value, 32, 0);
 }
 
-static void spr_core_config(char __iomem * spr_base, struct spr_info *spr)
+static void spr_core_config(char __iomem * spr_base, struct spr_info *spr, struct dkmd_connector_info *pinfo)
 {
 	dpu_pr_debug("+\n");
 
@@ -146,7 +158,7 @@ static void spr_core_config(char __iomem * spr_base, struct spr_info *spr)
 	spr_core_coeffs_g_config(spr_base, spr);
 	spr_core_coeffs_b_config(spr_base, spr);
 	spr_core_larea_config(spr_base, spr);
-	spr_core_border_config(spr_base, spr);
+	spr_core_border_config(spr_base, spr, pinfo);
 	spr_core_blend_config(spr_base, spr);
 	spr_core_diffdirgain_config(spr_base, spr);
 	spr_core_bd_config(spr_base, spr);
@@ -160,10 +172,10 @@ static void spr_core_config(char __iomem * spr_base, struct spr_info *spr)
  */
 static void spr_degamma_gamma_config(char __iomem * spr_base, struct spr_info *spr)
 {
-	uint32_t i, row, column, idx;
-	uint32_t lut_val[SPR_GAMMA_LUT_ROW] = {0};
-	uint32_t *spr_lut_addr = spr->spr_lut_table;
-	uint32_t lut_length = spr->spr_lut_table_len / SPR_GAMMA_LUT_ROW;
+	if (!spr->spr_lut_table || (spr->spr_lut_table_len != SPR_GAMMA_LUT_SIZE)) {
+		dpu_pr_err("invalid spr lut para\n");
+		return;
+	}
 
 	set_reg(DPU_DPP_SPR_GAMA_EN_ADDR(spr_base), spr->spr_gamma_en.value, 32, 0);
 	set_reg(DPU_DPP_SPR_GAMA_SHIFTEN_ADDR(spr_base), spr->spr_gamma_shiften.value, 32, 0);
@@ -172,18 +184,7 @@ static void spr_degamma_gamma_config(char __iomem * spr_base, struct spr_info *s
 	set_reg(DPU_DPP_DEGAMA_EN_ADDR(spr_base), spr->degamma_en.value, 32, 0);
 	set_reg(DPU_DPP_DEGAMA_MEM_CTRL_ADDR(spr_base), 0x8, 32, 0);
 
-	for (i = 0, column = 0; column < lut_length; column += COEF_PER_REG, i++) {
-		for (row = 0; row < (uint32_t)SPR_GAMMA_LUT_ROW; row++) {
-			idx = lut_length * row + column;
-			lut_val[row] = (spr_lut_addr[idx + 1] << 16) | spr_lut_addr[idx];
-		}
-		set_reg(DPU_DPP_U_GAMA_R_COEF_ADDR(spr_base, i), lut_val[SPR_GAMMA_R], 32, 0);
-		set_reg(DPU_DPP_U_GAMA_G_COEF_ADDR(spr_base, i), lut_val[SPR_GAMMA_G], 32, 0);
-		set_reg(DPU_DPP_U_GAMA_B_COEF_ADDR(spr_base, i), lut_val[SPR_GAMMA_B], 32, 0);
-		set_reg(DPU_DPP_U_DEGAMA_R_COEF_ADDR(spr_base, i), lut_val[SPR_DEGAMMA_R], 32, 0);
-		set_reg(DPU_DPP_U_DEGAMA_G_COEF_ADDR(spr_base, i), lut_val[SPR_DEGAMMA_G], 32, 0);
-		set_reg(DPU_DPP_U_DEGAMA_B_COEF_ADDR(spr_base, i), lut_val[SPR_DEGAMMA_B], 32, 0);
-	}
+	spr_lut_config(spr_base, spr);
 }
 
 static void spr_txip_cfg(char __iomem * spr_base, struct spr_info *spr)
@@ -245,17 +246,39 @@ static void dpp_gmp_config(char __iomem * dpp_base, uint32_t panel_xres, uint32_
 
 static void spr_reset(char __iomem *dpp_base, char __iomem *dsc_base)
 {
-	set_reg(DPU_DPP_SPR_CTRL_ADDR(dpp_base), 0, 32, 0);
-	set_reg(DPU_DPP_SPR_GAMA_EN_ADDR(dpp_base), 0, 32, 0);
-	set_reg(DPU_DPP_DEGAMA_EN_ADDR(dpp_base), 0, 32, 0);
-	set_reg(DPU_DPP_DITHER_CTL0_ADDR(dpp_base), 0, 5, 0);
-	set_reg(DPU_DSC_TXIP_CTRL_ADDR(dsc_base), 0, 32, 0);
-	set_reg(DPU_DSC_DATAPACK_CTRL_ADDR(dsc_base), 0, 32, 0);
+	if (dpp_base) {
+		set_reg(DPU_DPP_SPR_CTRL_ADDR(dpp_base), 0, 32, 0);
+		set_reg(DPU_DPP_SPR_GAMA_EN_ADDR(dpp_base), 0, 32, 0);
+		set_reg(DPU_DPP_DEGAMA_EN_ADDR(dpp_base), 0, 32, 0);
+		set_reg(DPU_DPP_DITHER_CTL0_ADDR(dpp_base), 0, 5, 0);
+	}
+	if (dsc_base) {
+		set_reg(DPU_DSC_TXIP_CTRL_ADDR(dsc_base), 0, 32, 0);
+		set_reg(DPU_DSC_DATAPACK_CTRL_ADDR(dsc_base), 0, 32, 0);
+	}
 }
 
-void spr_init(struct spr_info *spr, char __iomem *dpp_base, char __iomem *dsc_base)
+void spr_update_position(struct spr_info *spr, char __iomem *dpp_base, struct dkmd_rect_coord *rect_coord)
 {
-	if (!spr || !dpp_base || !dsc_base) {
+	uint32_t border = 0;
+	DPU_DPP_SPR_BORDER_POSITION3_UNION border_p3;
+
+	if (!is_spr_enabled(spr)) {
+		dpu_pr_debug("spr not enable\n");
+		return;
+	}
+
+	border_p3.value = 0;
+	border = rect_coord->bottom - rect_coord->top;
+	border_p3.reg.spr_borderb_sy = border - 1;
+	border_p3.reg.spr_borderb_ey = border - 1;
+
+	set_reg(DPU_DPP_SPR_BORDER_POSITION3_ADDR(dpp_base), border_p3.value, 32, 0);
+}
+
+void spr_init(struct spr_info *spr, char __iomem *dpp_base, char __iomem *dsc_base, struct dkmd_connector_info *pinfo)
+{
+	if (!spr || !dpp_base || !dsc_base || !pinfo) {
 		dpu_pr_info("spr or dpp_base or dsc_base is null!\n");
 		return;
 	}
@@ -267,7 +290,7 @@ void spr_init(struct spr_info *spr, char __iomem *dpp_base, char __iomem *dsc_ba
 	}
 
 	dpu_pr_info("spr enable\n");
-	spr_core_config(dpp_base, spr);
+	spr_core_config(dpp_base, spr, pinfo);
 	spr_degamma_gamma_config(dpp_base, spr);
 	spr_dither_config(dpp_base, spr->panel_xres, spr->panel_yres);
 	spr_txip_cfg(dsc_base, spr);

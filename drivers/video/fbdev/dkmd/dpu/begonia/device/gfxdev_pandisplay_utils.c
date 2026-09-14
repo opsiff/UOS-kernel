@@ -22,8 +22,10 @@
 #include "operators/cmd_manager.h"
 #include "gfxdev_pandisplay_utils.h"
 #include "dpu_comp_mgr.h"
-#include "res_mgr.h"
-#include "dkmd_timeline.h"
+#include "ukmd_timeline.h"
+#include "gfxdev_utils.h"
+#include "abnormal/dpu_comp_abnormal_handle.h"
+#include <cmdlist_interface.h>
 
 
 #define PAN_DISPLAY_OPR_NUM 3
@@ -93,14 +95,13 @@ void gfxdev_init_fbi_var_info(const struct dkmd_object_info *pinfo,
 	var->reserved[0] = pinfo->fps;
 }
 
-int32_t gfxdev_init_fscreen_info(struct composer *comp, struct fix_var_screeninfo *screen_info,
+void gfxdev_init_fbi_fix_info(struct composer *comp, struct fix_var_screeninfo *screen_info,
 	gfxdev_fix_screeninfo *fix)
 {
-	if (unlikely(!fix || !screen_info))
-		return -EINVAL;
-
-	if (unlikely(!comp))
-		return -ENODEV;
+	if (unlikely(!fix || !screen_info || !comp)) {
+		dpu_pr_err("init fscreen info err, para is null");
+		return;
+	}
 
 	memset_s(fix, sizeof(gfxdev_fix_screeninfo), 0, sizeof(gfxdev_fix_screeninfo));
 	fix->type_aux = 0;
@@ -120,9 +121,7 @@ int32_t gfxdev_init_fscreen_info(struct composer *comp, struct fix_var_screeninf
 	fix->smem_len = roundup(fix->line_length * comp->base.yres * BUFFER_MAX_COUNT, PAGE_SIZE);
 	fix->smem_start = 0;
 	fix->reserved[0] = (uint16_t)is_mipi_cmd_panel(&comp->base);
-
-	dpu_res_register_screen_info(comp->base.xres, comp->base.yres);
-	return 0;
+	return;
 }
 
 static int32_t pan_display_get_screen_format(const struct screen_format_info *format_info,
@@ -208,10 +207,10 @@ static int32_t build_post_pipeline(struct composer *comp, const struct dkmd_base
 	pipeline->opr_ids = kzalloc(pipeline->opr_num * sizeof(*pipeline->opr_ids), GFP_KERNEL);
 	if (!pipeline->opr_ids) {
 		dpu_pr_err("alloc post pipeline's opr_ids mem fail");
-		kfree(network->post_pipelines);
 		kfree(pipeline->block_layer);
-		network->post_pipelines = NULL;
 		pipeline->block_layer = NULL;
+		kfree(network->post_pipelines);
+		network->post_pipelines = NULL;
 		return -ENOMEM;
 	}
 
@@ -223,7 +222,7 @@ static int32_t build_post_pipeline(struct composer *comp, const struct dkmd_base
 	pipeline->opr_ids[0].info.ins = frame->scene_id;
 	if (pipeline->block_layer->dsc_en == 1) {
 		pipeline->opr_ids[1].info.type = OPERATOR_DSC;
-		pipeline->opr_ids[1].info.ins = 0;
+		pipeline->opr_ids[1].info.ins = frame->scene_id;
 		pipeline->opr_ids[2].info.type = OPERATOR_ITFSW;
 		pipeline->opr_ids[2].info.ins = frame->scene_id;
 	} else {
@@ -312,9 +311,10 @@ static void destory_network_info(struct dkmd_network *network)
 }
 
 static int32_t build_frame_info(const struct dkmd_object_info *object_info, gfxdev_fix_screeninfo *fix,
-	gfxdev_var_screeninfo *var, struct dkmd_base_frame *frame)
+	gfxdev_var_screeninfo *var, struct dkmd_base_frame *frame, struct composer *comp)
 {
 	struct dkmd_base_layer *layer = NULL;
+	struct dpu_composer *dpu_comp = NULL;
 
 	frame->layers_num = 1;
 	frame->layers = kzalloc(frame->layers_num * sizeof(*frame->layers), GFP_KERNEL);
@@ -331,6 +331,7 @@ static int32_t build_frame_info(const struct dkmd_object_info *object_info, gfxd
 		frame->layers = NULL;
 		return -1;
 	}
+
 	layer->transform = TRANSFORM_NONE;
 	layer->compress_type = COMPRESS_NONE;
 	layer->iova = fix->smem_start +
@@ -344,9 +345,11 @@ static int32_t build_frame_info(const struct dkmd_object_info *object_info, gfxd
 	layer->src_rect.right = var->xres;
 	layer->src_rect.bottom = var->yres;
 	layer->dst_rect = layer->src_rect;
-
 	frame->fps = object_info->fps;
-	frame->scene_id = object_info->pipe_sw_itfch_idx;
+
+	dpu_comp = to_dpu_composer(comp);
+	frame->scene_id = dpu_comp->comp_scene_id;
+
 	frame->scene_mode = SCENE_MODE_NORMAL;
 
 	return 0;
@@ -359,7 +362,7 @@ int32_t build_display_info(const struct dkmd_object_info *object_info, gfxdev_fi
 	if (unlikely(!object_info || !fix || !var || !comp || !frame || !network))
 		return -1;
 
-	if (build_frame_info(object_info, fix, var, frame))
+	if (build_frame_info(object_info, fix, var, frame, comp))
 		return -1;
 
 	if (build_network_info(comp, frame, network)) {
@@ -401,24 +404,29 @@ int32_t execute_compose(struct composer *comp, gfxdev_var_screeninfo *var,
 	present_frame.disp_rect.y = 0;
 	present_frame.disp_rect.w = var->xres;
 	present_frame.disp_rect.h = var->yres;
-	present_frame.dvfs_info.vote_freq_info.current_total_freq = DPU_CORE_FREQ3;
+	present_frame.dvfs_info.vote_freq_info.current_total_freq = DPU_CORE_FREQ_MAX;
 	present_frame.dvfs_info.vote_freq_info.sdma_freq = 0;
+	present_frame.dvfs_info.vote_freq_info.ov_freq = 0;
 	/* when pan display, is not supported intra dvfs */
 	present_frame.dvfs_info.is_supported_intra_dvfs = false;
 	present_frame.effect_params.effect_num = 0;
-	present_frame.present_fence_pt = dkmd_timeline_get_next_value(get_online_timeline(comp));
+	present_frame.present_fence_pt = ukmd_timeline_get_next_value(get_online_timeline(comp));
 
 	dpu_comp = to_dpu_composer(comp);
 	if (is_ppc_support(&dpu_comp->conn_info->base))
 		present_frame.ppc_config_id = PPC_CONFIG_ID_G_MODE;
-	
+
 	present_frame.active_frame_rate = 60;
 
 	ret = comp->present(comp, (void *)&present_frame);
-	if (ret < 0) {
-		dpu_pr_err("pan display fail");
-		dkmd_timeline_dec_next_value(get_online_timeline(comp));
-	}
+	if (ret == 0)
+		return ret;
+
+	dpu_pr_err("pan display fail");
+	ukmd_timeline_dec_next_value(get_online_timeline(comp));
+	// wait vactive timeout ret val.
+	if (ret == COMP_VACTIVE_TIMEOUT_RET_VALUE)
+		dpu_gfxdev_notify_abnormal_handle(comp);
 
 	return ret;
 }
@@ -473,9 +481,11 @@ int32_t gfxdev_pan_display(gfxdev_fix_screeninfo *fix, gfxdev_var_screeninfo *va
 		return -EINVAL;
 
 	down(&comp->blank_sem);
+	dpu_print_sem_count(&comp->blank_sem, true);
 	if (!comp->power_on) {
 		dpu_pr_warn("%s is power off", comp->base.name);
 		destory_display_info(&frame, &network);
+		dpu_print_sem_count(&comp->blank_sem, false);
 		up(&comp->blank_sem);
 		return -1;
 	}
@@ -489,14 +499,15 @@ int32_t gfxdev_pan_display(gfxdev_fix_screeninfo *fix, gfxdev_var_screeninfo *va
 	ret = execute_compose(comp, var, &frame, &network);
 	if (likely(ret == 0))
 		dpu_pr_debug("%s pan display success", comp->base.name);
-	else
+	else {
 		dpu_pr_err("%s pan display fail", comp->base.name);
+		ukmd_cmdlist_release_locked(CMDLIST_DEV_ID_DPU, frame.scene_id, frame.scene_cmdlist_id);
+	}
 
 	composer_active_vsync(dpu_comp->conn_info, false);
-
 	destory_display_info(&frame, &network);
+	dpu_print_sem_count(&comp->blank_sem, false);
 	up(&comp->blank_sem);
 
 	return 0;
 }
-

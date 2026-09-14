@@ -13,6 +13,7 @@
 
 #include "securec.h"
 #include "dsc_debug.h"
+#include "dsc_param_check.h"
 
 /* ------ start of dsc ver1.1 rc tables ------ */
 static struct rc_table_param g_rc_v11_range_params_8bpc_8bpp_rgb_default[DSC_RC_RANGE_LENGTH] = {
@@ -98,6 +99,12 @@ static struct rc_table_param g_rc_v12_range_params_10bpc_10bpp_rgb[DSC_RC_RANGE_
 	{ 0, 7, 2 }, { 4, 8, 0 }, { 5, 9, 0 }, { 5, 10, -2 }, { 7, 11, -4 },
 	{ 7, 11, -6 }, { 7, 11, -8 }, { 7, 12, -8 }, { 7, 13, -8 }, { 7, 13, -10 },
 	{ 9, 14, -10 }, { 9, 14, -10 }, { 9, 15, -12 }, { 12, 15, -12 }, { 15, 16, -12 },
+};
+
+static struct rc_table_param g_rc_v12_range_params_10bpc_8bpp_rgb_default[DSC_RC_RANGE_LENGTH] = {
+	{ 0, 8, 2 }, { 4, 8, 0 }, { 5, 9, 0 }, { 5, 10, -2 }, { 7, 11, -4 },
+	{ 7, 11, -6 }, { 7, 11, -8 }, { 7, 12, -8 }, { 7, 13, -8 }, { 7, 14, -10 },
+	{ 9, 14, -10 }, { 9, 15, -12 }, { 9, 15, -12 }, { 13, 16, -12 }, { 16, 17, -12 },
 };
 
 /* used by teton and 37700 panel */
@@ -192,9 +199,9 @@ static void dsc_calc_first_line_bpg_offset(struct dsc_info *dsc_info)
 		first_line_bpg_offset = 12 + ((9 * min(34, slice_height - 8)) / 100);
 	else
 		first_line_bpg_offset = 2 * (slice_height - 1);
-	first_line_bpg_offset = (uint8_t)range_clamp(first_line_bpg_offset, 0,
+	first_line_bpg_offset = (uint8_t)range_max(first_line_bpg_offset,
 		(uint32_t)(uncompressed_bpg_rate - 3 * dsc_info->dsc_bpp));
-	range_check("first_line_bpg_offset", first_line_bpg_offset, 0, 31);
+	range_check("first_line_bpg_offset", first_line_bpg_offset, 0, FIRST_LINE_BPG_OFFSET_MAX);
 	dpu_pr_info("[DSC]PPS first_line_bpg_offset=%u", first_line_bpg_offset);
 	dsc_info->first_line_bpg_offset = first_line_bpg_offset;
 }
@@ -225,9 +232,9 @@ static void dsc_calc_second_line_bpg_offset(struct dsc_info *dsc_info)
 	} else {
 		dsc_info->second_line_bpg_offset = 0;
 	}
-	dsc_info->second_line_bpg_offset = range_clamp(dsc_info->second_line_bpg_offset, 0,
+	dsc_info->second_line_bpg_offset = (uint32_t)range_max(dsc_info->second_line_bpg_offset,
 		(uint32_t)(uncompressed_bpg_rate - 3 * dsc_info->dsc_bpp));
-	range_check("second_line_bpg_offset", dsc_info->second_line_bpg_offset, 0, 31);
+	range_check("second_line_bpg_offset", dsc_info->second_line_bpg_offset, 0, SECOND_LINE_BPG_OFFSET_MAX);
 	dpu_pr_info("[DSC]PPS second_line_bpg_offset=%u", dsc_info->second_line_bpg_offset);
 }
 
@@ -249,7 +256,7 @@ static void dsc_calc_initial_scale_value(struct dsc_info *dsc_info)
 		8 * dsc_info->rc_model_size / (dsc_info->rc_model_size - dsc_info->initial_offset);
 	if (dsc_info->groups_per_line < dsc_info->initial_scale_value - 8)
 		dsc_info->initial_scale_value = dsc_info->groups_per_line + 8;
-	range_check("initial_scale_value", dsc_info->initial_scale_value, 0, 63);
+	range_check("initial_scale_value", dsc_info->initial_scale_value, 0, INITIAL_SCALE_VALUE_MAX);
 	dpu_pr_info("[DSC]PPS initial_scale_value=%u", dsc_info->initial_scale_value);
 }
 
@@ -331,8 +338,8 @@ static void dsc_calc_rc_model_size(struct dsc_info *dsc_info)
 		}
 	}
 
-	range_check("rc_model_size", dsc_info->rc_model_size, 0, 65535);
-	range_check("initial_xmit_delay", dsc_info->initial_xmit_delay, 0, 1023);
+	range_check("rc_model_size", dsc_info->rc_model_size, 0, RC_MODE_SIZE_MAX);
+	range_check("initial_xmit_delay", dsc_info->initial_xmit_delay, 0, INITIAL_XMIT_DELAY_MAX);
 	range_check("initial_offset", dsc_info->initial_offset, 0, dsc_info->rc_model_size);
 	dpu_pr_info("[DSC] PPS DSC rc_model_size is %u", dsc_info->rc_model_size);
 	dpu_pr_info("[DSC] PPS DSC initial_offset is %u", dsc_info->initial_offset);
@@ -379,6 +386,10 @@ static void dsc_calc_initial_dec_delay(struct dsc_info *dsc_info)
 	uint32_t offset;
 
 	dpu_check_and_no_retval(!dsc_info, err, "NULL POINTER");
+	if (unlikely(dsc_info->dsc_bpp == 0)) {
+		dpu_pr_err("dsc_bpp is error");
+		return;
+	}
 	switch (dsc_info->format) {
 	case DSC_RGB:
 		min_rate_buffer_size = (dsc_info->rc_model_size - dsc_info->initial_offset) +
@@ -419,9 +430,9 @@ static void dsc_calc_scale_decrement_interval(struct dsc_info *dsc_info)
 	if (dsc_info->initial_scale_value > 8)
 		dsc_info->scale_decrement_interval = dsc_info->groups_per_line / (dsc_info->initial_scale_value - 8);
 	else
-		dsc_info->scale_decrement_interval = 4095;
+		dsc_info->scale_decrement_interval = SCALE_DECREMENT_INTERVAL;
 
-	range_check("scale_decrement_interval", dsc_info->scale_decrement_interval, 0, 4095);
+	range_check("scale_decrement_interval", dsc_info->scale_decrement_interval, 0, SCALE_DECREMENT_INTERVAL);
 	dpu_pr_info("[DSC]PPS scale_decrement_interval=%u", dsc_info->scale_decrement_interval);
 }
 
@@ -639,6 +650,8 @@ static struct rc_range_set rc_range_array[] = {
 		DSC_8BPC, DSC_12BPP, DSC_RC_RANGE_LENGTH, DSC_VERSION_V_1_2, g_rc_v12_range_params_8bpc_12bpp_rgb},
 	{DSC_GENERATE_RC_PARAMETERS, DSC_RGB,
 		DSC_10BPC, DSC_8BPP, DSC_RC_RANGE_LENGTH, DSC_VERSION_V_1_2, g_rc_v12_range_params_10bpc_8bpp_rgb},
+	{DSC_NOT_GENERATE_RC_PARAMETERS, DSC_RGB,
+		DSC_10BPC, DSC_8BPP, DSC_RC_RANGE_LENGTH, DSC_VERSION_V_1_2, g_rc_v12_range_params_10bpc_8bpp_rgb_default},
 	{DSC_GENERATE_RC_PARAMETERS, DSC_RGB,
 		DSC_10BPC, DSC_10BPP, DSC_RC_RANGE_LENGTH, DSC_VERSION_V_1_2, g_rc_v12_range_params_10bpc_10bpp_rgb},
 	{DSC_NOT_GENERATE_RC_PARAMETERS, DSC_YUV422,
@@ -717,11 +730,11 @@ static void dsc_calc_rc_range_params(struct dsc_info *dsc_info)
 	} else {
 		dpu_pr_err("[DSC]BPC error");
 	}
-	range_check("rc_tgt_offset_hi", dsc_info->rc_tgt_offset_hi, 0, 15);
-	range_check("rc_tgt_offset_lo", dsc_info->rc_tgt_offset_lo, 0, 15);
-	range_check("rc_edge_factor", dsc_info->rc_edge_factor, 0, 15);
-	range_check("rc_quant_incr_limit1", dsc_info->rc_quant_incr_limit1, 0, 31);
-	range_check("rc_quant_incr_limit0", dsc_info->rc_quant_incr_limit0, 0, 31);
+	range_check("rc_tgt_offset_hi", dsc_info->rc_tgt_offset_hi, 0, RC_TGT_OFFSET_HI_MAX);
+	range_check("rc_tgt_offset_lo", dsc_info->rc_tgt_offset_lo, 0, RC_TGT_OFFSET_LO_MAX);
+	range_check("rc_edge_factor", dsc_info->rc_edge_factor, 0, RC_EDGE_FACTOR_MAX);
+	range_check("rc_quant_incr_limit1", dsc_info->rc_quant_incr_limit1, 0, RC_QUANT_INCR_LIMIT1);
+	range_check("rc_quant_incr_limit0", dsc_info->rc_quant_incr_limit0, 0, RC_QUANT_INCR_LIMIT0);
 	dpu_pr_info("[DSC]PPS RC_EDGE_FACTOR=%u", dsc_info->rc_edge_factor);
 	dpu_pr_info("[DSC]PPS RC_TGT_OFFSET_LOW=%u", dsc_info->rc_tgt_offset_lo);
 	dpu_pr_info("[DSC]PPS RC_TGT_OFFSET_HIGH=%u", dsc_info->rc_tgt_offset_hi);
@@ -734,21 +747,17 @@ static void get_dsc_basic_info(const struct input_dsc_info *input_para, struct d
 	dpu_check_and_no_retval((input_para == NULL || output_para == NULL), err, "NULL POINTER");
 
 	output_para->dsc_version_major = 1 >> DP_DSC_MAJOR_SHIFT;
+	vesa_dsc_bpc_check(input_para->dsc_version, input_para->dsc_bpc);
 	if (input_para->dsc_version == DSC_VERSION_V_1_1) {
 		output_para->dsc_version_minor = 1;
-		if (input_para->dsc_bpc != DSC_8BPC && input_para->dsc_bpc != DSC_10BPC && input_para->dsc_bpc != DSC_12BPC)
-			dpu_pr_err("bits_per_component must be either 8, 10, or 12");
 	} else if (input_para->dsc_version == DSC_VERSION_V_1_2) {
 		output_para->dsc_version_minor = 2;
-		if (input_para->dsc_bpc != DSC_8BPC && input_para->dsc_bpc != DSC_10BPC && input_para->dsc_bpc != DSC_12BPC &&
-			input_para->dsc_bpc != DSC_14BPC && input_para->dsc_bpc != DSC_16BPC)
-			dpu_pr_err("bits_per_component must be either 8, 10, 12, 14, or 16");
 	}
 
 	output_para->dsc_bpc = input_para->dsc_bpc;
 	output_para->dsc_bpp = input_para->dsc_bpp;
-	range_check("pic_width", input_para->pic_width, 1, 65535);
-	range_check("pic_height", input_para->pic_height, 1, 65535);
+	range_check("pic_width", input_para->pic_width, 1, PIC_WIDTH_MAX);
+	range_check("pic_height", input_para->pic_height, 1, PIC_HEIGHT_MAX);
 	output_para->pic_width = input_para->pic_width;
 	output_para->pic_height = input_para->pic_height;
 	output_para->slice_width = input_para->slice_width;
@@ -757,23 +766,20 @@ static void get_dsc_basic_info(const struct input_dsc_info *input_para, struct d
 	output_para->block_pred_enable = input_para->block_pred_enable;
 	output_para->format = input_para->format;
 
-	range_check("linebuf_depth", input_para->linebuf_depth, 8, 11);
+	range_check("linebuf_depth", input_para->linebuf_depth, LINEBUF_DEPTH_MIN, LINEBUF_DEPTH_MAX);
 	output_para->linebuf_depth = input_para->linebuf_depth > MAX_LINEBUF_DEPTH ?
 			MAX_LINEBUF_DEPTH : input_para->linebuf_depth;
 
 	output_para->gen_rc_params = input_para->gen_rc_params;
+	output_para->native_420 = 0;
+	output_para->simple_422 = 0;
+	output_para->native_422 = 1;
+	output_para->convert_rgb = 0;
 	if (output_para->format == DSC_RGB) {
 		output_para->convert_rgb = 1;
 		output_para->native_422 = 0;
-		output_para->native_420 = 0;
-		output_para->simple_422 = 0;
-	} else {
-		dpu_pr_info("[DSC] native_422 = 1");
-		output_para->convert_rgb = 0;
-		output_para->native_422 = 1;
-		output_para->simple_422 = 0;
-		output_para->native_420 = 0;
 	}
+	vesa_dsc_native422_check(input_para->dsc_version, output_para->native_422);
 }
 
 static void vesa_dsc_init(struct dsc_info *dsc_info)

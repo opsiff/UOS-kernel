@@ -13,6 +13,9 @@
  */
 #include "dkmd_mipi_bl.h"
 
+#define BACKLIGHT_PARAME_THREE_LEN 3
+#define BACKLIGHT_PARAME_FOUR_LEN 4
+
 static void get_bl_level_adjust(uint32_t mipi_brightness_para_type, uint32_t bl_level, char *bl_level_adjust)
 {
 	switch(mipi_brightness_para_type) {
@@ -27,6 +30,11 @@ static void get_bl_level_adjust(uint32_t mipi_brightness_para_type, uint32_t bl_
 		bl_level_adjust[1] = (bl_level >> 8) & 0xff;
 		bl_level_adjust[2] = bl_level & 0xff;
 		break;
+	case MIPI_BL_PARA1_DBV0_AND_PARA2_DBV8_PARA3_FLAG:
+		bl_level_adjust[1] = bl_level & 0xff;
+		bl_level_adjust[2] = (bl_level >> 8) & 0xff;
+		bl_level_adjust[3] = 0x1;
+		break;
 	default:
 		bl_level_adjust[1] = bl_level & 0xff;
 		dpu_pr_warn("not support parameter type:%d, use default value", mipi_brightness_para_type);
@@ -39,13 +47,15 @@ static void get_bl_level_adjust(uint32_t mipi_brightness_para_type, uint32_t bl_
 int dkmd_mipi_bl_set_backlight(struct panel_drv_private *priv, uint32_t value)
 {
 	struct dpu_connector *connector = NULL;
-	char bl_level_adjust[3] = {
+	char bl_level_adjust[4] = {
 		 0x51,
+		 0x00,
 		 0x00,
 		 0x00
 	};
+
 	struct dsi_cmd_desc lcd_bl_level_adjust[] = {
-		{DTYPE_DCS_LWRITE, 0, 100, WAIT_TYPE_US, sizeof(bl_level_adjust), bl_level_adjust},
+		{DTYPE_DCS_LWRITE, 0, 100, WAIT_TYPE_US, BACKLIGHT_PARAME_THREE_LEN, bl_level_adjust, 0, 0},
 	};
 
 	if (unlikely(!priv)) {
@@ -55,10 +65,15 @@ int dkmd_mipi_bl_set_backlight(struct panel_drv_private *priv, uint32_t value)
 
 	connector = get_primary_connector(&priv->connector_info);
 
+	if (priv->mipi_brightness_para_type == MIPI_BL_PARA1_DBV0_AND_PARA2_DBV8_PARA3_FLAG) {
+		dpu_pr_debug("brightness para type = %u", MIPI_BL_PARA1_DBV0_AND_PARA2_DBV8_PARA3_FLAG);
+		lcd_bl_level_adjust->dlen = BACKLIGHT_PARAME_FOUR_LEN;
+	}
 	get_bl_level_adjust(priv->mipi_brightness_para_type, value, bl_level_adjust);
 
 	composer_active_vsync(connector->conn_info, true);
 
+	mipi_dsi_set_interval(connector, 0, ARRAY_SIZE(lcd_bl_level_adjust));
 	if (connector->bind_connector) {
 		mipi_dual_dsi_cmds_tx(lcd_bl_level_adjust, ARRAY_SIZE(lcd_bl_level_adjust),
 			connector->connector_base, lcd_bl_level_adjust, ARRAY_SIZE(lcd_bl_level_adjust),

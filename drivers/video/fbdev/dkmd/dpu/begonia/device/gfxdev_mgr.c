@@ -23,13 +23,16 @@
 #include "dkmd_dpu.h"
 #include "dpu_comp_mgr.h"
 #include "secure/dpu_comp_tui.h"
+#include "dksm_utils.h"
+
+#define DTS_GFX_DP_NAME    "gfx_dp"
 
 static struct composer *g_device_comp[DEVICE_COMP_MAX_COUNT];
 static uint32_t g_disp_device_arch = FBDEV_ARCH;
 static uint32_t g_fastboot_enable_flag;
 static uint32_t g_fake_lcd_flag;
 
-int32_t gfxdev_blank_power_on(struct composer *comp)
+int32_t gfxdev_blank_power_on(struct composer *comp, uint8_t on_mode)
 {
 	int32_t ret = -1;
 
@@ -40,7 +43,7 @@ int32_t gfxdev_blank_power_on(struct composer *comp)
 
 	dpu_tui_register(to_dpu_composer(comp));
 
-	dpu_pr_info("blank power on current status %d", comp->power_on);
+	dpu_pr_info("blank power on current status %d, on_mode %u", comp->power_on, on_mode);
 
 	if (comp->wait_for_blank) {
 		ret = comp->wait_for_blank(comp);
@@ -52,7 +55,7 @@ int32_t gfxdev_blank_power_on(struct composer *comp)
 	 * such as, AOD. those event had been sended at fbmem.c
 	 */
 
-	ret = comp->on(comp);
+	ret = comp->on(comp, on_mode);
 	if (ret) {
 		dpu_pr_err("next composer power on fail");
 		return ret;
@@ -64,7 +67,7 @@ int32_t gfxdev_blank_power_on(struct composer *comp)
 	return ret;
 }
 
-int32_t gfxdev_blank_power_off(struct composer *comp, int32_t off_mode)
+int32_t gfxdev_blank_power_off(struct composer *comp, uint8_t off_mode)
 {
 	int32_t ret = -1;
 
@@ -73,7 +76,7 @@ int32_t gfxdev_blank_power_off(struct composer *comp, int32_t off_mode)
 		return -1;
 	}
 
-	dpu_pr_info("blank power off current status %d", comp->power_on);
+	dpu_pr_info("blank power off current status %d, off_mode %u", comp->power_on, off_mode);
 
 	if (comp->restore_fast_unblank_status)
 		comp->restore_fast_unblank_status(comp);
@@ -92,31 +95,25 @@ int32_t gfxdev_blank_power_off(struct composer *comp, int32_t off_mode)
 	return ret;
 }
 
-int32_t gfxdev_blank_fake_off(struct composer *comp)
+int32_t gfxdev_blank_peri_handle(struct composer *comp, int32_t blank_mode)
 {
-	int32_t ret = -1;
+	int32_t ret;
 
-	if (unlikely(!comp)) {
+	if (!comp) {
 		dpu_pr_err("comp is null\n");
 		return -1;
 	}
 
-	dpu_pr_info("blank power off current status %d", comp->power_on);
+	dpu_pr_info("blank_mode %d", blank_mode);
 
-	if (comp->restore_fast_unblank_status)
-		comp->restore_fast_unblank_status(comp);
+	if (!(comp->blank_peri_handle))
+		return 0;
 
-	down(&comp->blank_sem);
-	comp->is_fake_power_off = true;
-	up(&comp->blank_sem);
-
-	ret = comp->off(comp, COMPOSER_OFF_MODE_BLANK);
+	ret = comp->blank_peri_handle(comp, blank_mode);
 	if (ret)
-		dpu_pr_warn("next composer power off fail");
+		dpu_pr_warn("blank handle fail");
 
-	dpu_tui_unregister(to_dpu_composer(comp));
-
-	return ret;
+	return 0;
 }
 
 void device_mgr_primary_frame_refresh(struct composer *comp, char *trigger)
@@ -178,7 +175,8 @@ int32_t device_mgr_create_gfxdev(struct composer *comp)
 
 	comp->fastboot_display_enabled = g_fastboot_enable_flag;
 	comp->power_on = false;
-	comp->is_fake_power_off = false;
+	comp->power_off_mode = COMPOSER_OFF_MODE_INIT;
+	comp->power_on_mode = COMPOSER_ON_MODE_INIT;
 
 	if (is_offline_panel(&comp->base) || is_dp_panel(&comp->base) ||
 		is_hdmi_panel(&comp->base) || is_builtin_panel(&comp->base))
@@ -240,8 +238,13 @@ void device_mgr_shutdown_gfxdev(struct composer *comp)
 	}
 
 	if (is_offline_panel(&comp->base) || is_dp_panel(&comp->base) ||
-		is_builtin_panel(&comp->base) || is_hdmi_panel(&comp->base))
+		is_hdmi_panel(&comp->base))
 		return;
+
+	if (is_builtin_panel(&comp->base)){
+		gfx_device_shutdown(comp);
+		return;
+	}
 
 	if (g_disp_device_arch == FBDEV_ARCH)
 		fb_device_shutdown(comp);
@@ -268,11 +271,14 @@ void device_mgr_suspend_gfxdev(struct composer *comp)
 	}
 
 	down(&comp->blank_sem);
+	dpu_print_sem_count(&comp->blank_sem, true);
 	if (!comp->power_on) {
 		dpu_pr_info("already power off\n");
+		dpu_print_sem_count(&comp->blank_sem, false);
 		up(&comp->blank_sem);
 		return;
 	}
+	dpu_print_sem_count(&comp->blank_sem, false);
 	up(&comp->blank_sem);
 
 	event.data = NULL;
@@ -304,11 +310,14 @@ void device_mgr_resume_gfxdev(struct composer *comp)
 	}
 
 	down(&comp->blank_sem);
+	dpu_print_sem_count(&comp->blank_sem, true);
 	if (comp->power_on) {
 		dpu_pr_info("already power on\n");
+		dpu_print_sem_count(&comp->blank_sem, false);
 		up(&comp->blank_sem);
 		return;
 	}
+	dpu_print_sem_count(&comp->blank_sem, false);
 	up(&comp->blank_sem);
 
 	event.data = NULL;
@@ -316,23 +325,30 @@ void device_mgr_resume_gfxdev(struct composer *comp)
 	event.value = DISP_BLANK_UNBLANK;
 
 	dpu_pr_warn("resume will do abnormal power on\n");
-	gfxdev_blank_power_on(comp);
+	gfxdev_blank_power_on(comp, COMPOSER_ON_MODE_RESUME);
 	dkmd_notifier_call_chain(DKMD_EVENT_BLANK, (void *)&event);
 }
 
 void device_mgr_register_comp(struct composer *comp)
 {
+	enum dpu_comp_type dp_array[6] = {DEVICE_COMP_DP_ID, DEVICE_COMP_DP_ID_1, DEVICE_COMP_DP_ID_2, DEVICE_COMP_DP_ID_3,
+		DEVICE_COMP_DP_ID_4, DEVICE_COMP_DP_ID_5};
+	int dp_index = -1;
+
 	if (!comp) {
 		dpu_pr_err("input comp is null!");
 		return;
 	}
 
-	if (is_dp_panel(&comp->base) && strcmp(comp->base.name, "gfx_dp") == 0) {
-		comp->index = DEVICE_COMP_DP_ID;
-	} else if (is_dp_panel(&comp->base) && strcmp(comp->base.name, "gfx_dp1") == 0) {
-		comp->index = DEVICE_COMP_DP_ID_1;
-	} else if (is_dp_panel(&comp->base) && strcmp(comp->base.name, "gfx_dp2") == 0) {
-		comp->index = DEVICE_COMP_DP_ID_2;
+	if (is_dp_panel(&comp->base)) {
+		dp_index = get_str_suffix_num(comp->base.name, DTS_GFX_DP_NAME);
+		if (dp_index < 0 || dp_index > 5) {
+			comp->index = DEVICE_COMP_MAX_COUNT;
+			dpu_pr_err("type(%u) invalid, please check", comp->base.type);
+			return;
+		}
+		comp->index = dp_array[dp_index];
+		dpu_pr_info("device_mgr_register_comp dp_index is %d, index is %d", dp_index, comp->index);
 	} else if (is_offline_panel(&comp->base)) {
 		comp->index = DEVICE_COMP_VIRTUAL_ID;
 	} else if (is_hdmi_panel(&comp->base)) {
@@ -345,6 +361,10 @@ void device_mgr_register_comp(struct composer *comp)
 		comp->index = DEVICE_COMP_MAX_COUNT;
 		dpu_pr_err("type(%u) invalid, please check", comp->base.type);
 		return;
+	}
+	if (is_dp_primary_panel(&comp->base)) {
+		comp->index = DEVICE_COMP_PRIMARY_ID;
+		dpu_pr_info("DP primary panel composer index bind device type");
 	}
 
 	if (g_device_comp[comp->index] != NULL) {
@@ -386,11 +406,6 @@ static int32_t gfxdev_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int32_t gfxdev_remove(struct platform_device *pdev)
-{
-	return 0;
-}
-
 static const struct of_device_id gfxdev_match_table[] = {
 	{
 		.compatible = "dkmd,dpu_device",
@@ -402,7 +417,7 @@ MODULE_DEVICE_TABLE(of, gfxdev_match_table);
 
 static struct platform_driver gfxdev_driver = {
 	.probe = gfxdev_probe,
-	.remove = gfxdev_remove,
+	.remove = NULL,
 	.driver = {
 		.name = "gfxdev",
 		.owner  = THIS_MODULE,
@@ -419,6 +434,13 @@ static void __exit gfxdev_driver_deinit(void)
 {
 	platform_driver_unregister(&gfxdev_driver);
 }
+
+#ifdef CONFIG_DKMD_DEBUG_ENABLE
+EXPORT_SYMBOL(device_mgr_register_comp);
+EXPORT_SYMBOL(device_mgr_shutdown_gfxdev);
+EXPORT_SYMBOL(device_mgr_destroy_gfxdev);
+EXPORT_SYMBOL(device_mgr_create_gfxdev);
+#endif
 
 module_init(gfxdev_driver_init);
 module_exit(gfxdev_driver_deinit);

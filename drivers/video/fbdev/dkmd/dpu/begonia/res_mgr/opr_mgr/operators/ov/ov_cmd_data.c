@@ -17,6 +17,7 @@
 #include "../opr_cmd_data.h"
 #include "../opr_format.h"
 #include "dkmd_log.h"
+#include "dkmd_rect.h"
 
 struct opr_cmd_data *init_ov_cmd_data(union dkmd_opr_id id)
 {
@@ -45,7 +46,7 @@ struct opr_cmd_data *init_ov_cmd_data(union dkmd_opr_id id)
 static void ov_set_layer_info(struct opr_cmd_data *cmd_data, const struct dkmd_base_layer *base_layer,
 	struct dpu_dm_layer_info *layer_info)
 {
-	ov_set_layer_fmt((uint32_t)dpu_fmt_to_dynamic_dfc(cmd_data->data->in_common_data.format), layer_info);
+	ov_set_layer_fmt(cmd_data->data->in_common_data.format, layer_info);
 	layer_info->layer_ov_starty.reg.layer_ov_startx = (uint32_t)base_layer->dst_rect.left;
 	layer_info->layer_ov_starty.reg.layer_ov_starty = (uint32_t)base_layer->dst_rect.top;
 	layer_info->layer_ov_endy.reg.layer_ov_endx =
@@ -105,10 +106,12 @@ int32_t opr_set_ov_data(struct opr_cmd_data *cmd_data, const struct dkmd_base_la
 	ov_info->ov_bg_color_rgb.reg.ov_bg_color_rgb = 0x0; // default setting to 0(black)
 	ov_info->ov_order0.reg.ov_bg_color_cfg = (0x3FF << 1) | 1;
 	ov_info->ov_order0.reg.ov_sel = BIT(cmd_data->data->opr_id.info.ins);
-	ov_info->ov_order0.reg.ov_order0 = (uint32_t)opr_dpu_to_soc_type(next_cmd_datas[0]->data->opr_id.info.type);
+	ov_info->ov_order0.reg.ov_order0 = get_opr_oder(next_cmd_datas[0]->data->opr_id.info.type,
+		next_cmd_datas[0]->data->opr_id.info.ins);
 	ov_info->ov_reserved_0.reg.ov_order1 = OPR_INVALID;
 	if (next_oprs_num > 1)
-		ov_info->ov_reserved_0.reg.ov_order1 = (uint32_t)opr_dpu_to_soc_type(next_cmd_datas[1]->data->opr_id.info.type);
+		ov_info->ov_reserved_0.reg.ov_order1 = get_opr_oder(next_cmd_datas[1]->data->opr_id.info.type,
+			next_cmd_datas[1]->data->opr_id.info.ins);
 
 	ov_set_layer_info(cmd_data, base_layer, layer_info);
 	dpu_pr_debug("width=%u height=%u format=%d", width, height, cmd_data->data->in_common_data.format);

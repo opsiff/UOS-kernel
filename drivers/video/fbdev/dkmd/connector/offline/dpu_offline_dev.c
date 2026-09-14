@@ -18,7 +18,7 @@
 static int32_t dpu_offline_isr_enable(struct dpu_connector *connector, const void *value)
 {
 	uint32_t mask = ~0;
-	struct dkmd_isr *isr_ctrl = (struct dkmd_isr *)value;
+	struct ukmd_isr *isr_ctrl = (struct ukmd_isr *)value;
 
 	dpu_check_and_return(!isr_ctrl, -1, err, "isr_ctrl is null!");
 
@@ -28,7 +28,7 @@ static int32_t dpu_offline_isr_enable(struct dpu_connector *connector, const voi
 	outp32(DPU_GLB_WCH2_NS_INT_MSK_ADDR(connector->connector_base + DPU_GLB0_OFFSET), mask);
 
 	/* 2. enable irq */
-	isr_ctrl->handle_func(isr_ctrl, DKMD_ISR_ENABLE);
+	isr_ctrl->handle_func(isr_ctrl, UKMD_ISR_ENABLE);
 
 	/* 3. interrupt clear */
 	outp32(DPU_GLB_NS_OFFLINE0_TO_GIC_O_ADDR(connector->connector_base + DPU_GLB0_OFFSET), mask);
@@ -43,7 +43,7 @@ static int32_t dpu_offline_isr_enable(struct dpu_connector *connector, const voi
 static int32_t dpu_offline_isr_disable(struct dpu_connector *connector, const void *value)
 {
 	uint32_t mask = ~0;
-	struct dkmd_isr *isr_ctrl = (struct dkmd_isr *)value;
+	struct ukmd_isr *isr_ctrl = (struct ukmd_isr *)value;
 
 	dpu_check_and_return(!isr_ctrl, -1, err, "isr_ctrl is null!");
 
@@ -53,7 +53,7 @@ static int32_t dpu_offline_isr_disable(struct dpu_connector *connector, const vo
 	outp32(DPU_GLB_WCH2_NS_INT_MSK_ADDR(connector->connector_base + DPU_GLB0_OFFSET), mask);
 
 	/* 2. disable irq */
-	isr_ctrl->handle_func(isr_ctrl, DKMD_ISR_DISABLE);
+	isr_ctrl->handle_func(isr_ctrl, UKMD_ISR_DISABLE);
 
 	return 0;
 }
@@ -64,7 +64,7 @@ static irqreturn_t dpu_offline_isr(int32_t irq, void *ptr)
 	uint32_t isr2_offline_state = 0;
 	char __iomem *connector_base = NULL;
 	struct dpu_connector *connector = NULL;
-	struct dkmd_isr *isr_ctrl = (struct dkmd_isr *)ptr;
+	struct ukmd_isr *isr_ctrl = (struct ukmd_isr *)ptr;
 
 	dpu_check_and_return(!isr_ctrl, IRQ_NONE, err, "isr_ctrl is null!");
 
@@ -82,7 +82,7 @@ static irqreturn_t dpu_offline_isr(int32_t irq, void *ptr)
 		outp32(DPU_GLB_WCH1_NS_INT_O_ADDR(connector_base + DPU_GLB0_OFFSET), isr2_offline_state);
 
 		if ((isr2_offline_state & WCH_BLK_END_INTS) == WCH_BLK_END_INTS)
-			dkmd_isr_notify_listener(isr_ctrl, WCH_BLK_END_INTS);
+			ukmd_isr_notify_listener(isr_ctrl, WCH_BLK_END_INTS);
 	}
 
 	if ((isr1_offline_glb_state & DPU_WCH2_NS_INT) == DPU_WCH2_NS_INT) {
@@ -91,9 +91,8 @@ static irqreturn_t dpu_offline_isr(int32_t irq, void *ptr)
 	}
 
 	outp32(DPU_GLB_NS_OFFLINE0_TO_GIC_O_ADDR(connector_base + DPU_GLB0_OFFSET), isr1_offline_glb_state);
-	dpu_pr_info("isr1_offline_glb_state=%#x isr2_offline_state=%#x", isr1_offline_glb_state, isr2_offline_state);
 	if ((isr2_offline_state & WCH_FRM_END_INTS) == WCH_FRM_END_INTS)
-		dkmd_isr_notify_listener(isr_ctrl, WCH_FRM_END_INTS);
+		ukmd_isr_notify_listener(isr_ctrl, WCH_FRM_END_INTS);
 
 	return IRQ_HANDLED;
 }
@@ -101,7 +100,7 @@ static irqreturn_t dpu_offline_isr(int32_t irq, void *ptr)
 
 static int32_t dpu_offline_isr_setup(struct dpu_connector *connector, const void *value)
 {
-	struct dkmd_isr *isr_ctrl = (struct dkmd_isr *)value;
+	struct ukmd_isr *isr_ctrl = (struct ukmd_isr *)value;
 	int ret;
 	if (unlikely((!connector) || (!value))) {
 		dpu_pr_err("connector or value is null\n");

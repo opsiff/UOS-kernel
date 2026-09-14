@@ -18,10 +18,10 @@
 #include "dpu_comp_online.h"
 
 int32_t dpu_comp_vactive_wait_event(struct comp_online_present *present);
-void dpu_comp_vactive_init(struct dkmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit);
-void dpu_comp_vactive_deinit(struct dkmd_isr *isr, uint32_t listening_bit);
-void dpu_comp_vactive_end_init(struct dkmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit);
-void dpu_comp_vactive_end_deinit(struct dkmd_isr *isr, uint32_t listening_bit);
+void dpu_comp_vactive_init(struct ukmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit);
+void dpu_comp_vactive_deinit(struct ukmd_isr *isr, uint32_t listening_bit);
+void dpu_comp_vactive_end_init(struct ukmd_isr *isr, struct dpu_composer *dpu_comp, uint32_t listening_bit);
+void dpu_comp_vactive_end_deinit(struct ukmd_isr *isr, uint32_t listening_bit);
 bool dpu_get_underflow_itr(void);
 
 #endif

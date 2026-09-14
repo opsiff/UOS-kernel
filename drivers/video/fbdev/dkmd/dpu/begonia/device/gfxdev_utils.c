@@ -23,11 +23,13 @@
 #include "gfxdev_mgr.h"
 #include "gfxdev_utils.h"
 #include "dkmd_notify.h"
-#include "dkmd_fence_utils.h"
+#include "ukmd_fence_utils.h"
 #include "dpu_comp_mgr.h"
 #include "secure/dpu_comp_tui.h"
+#include <platform_include/basicplatform/linux/dfx_bbox_diaginfo.h>
+#include "dpu_dev_present_vote.h"
+#include "abnormal/dpu_comp_abnormal_handle.h"
 
-#define SAFE_FRM_RATE_CHECK_VALID 0xffff
 int32_t dpu_gfxdev_set_safe_frm_rate(struct composer *comp, void __user *argp)
 {
 	int32_t ret = -EINVAL;
@@ -48,21 +50,15 @@ int32_t dpu_gfxdev_set_safe_frm_rate(struct composer *comp, void __user *argp)
 		return ret;
 	}
 
-	if (safe_frm_rate > SAFE_FRM_RATE_CHECK_VALID) {
-		dpu_pr_err("safe_frm_rate = %u is invalid", safe_frm_rate);
-		return ret;
-	}
-	dpu_pr_info("safe_frm_rate = %u", safe_frm_rate);
 	ret = comp->set_safe_frm_rate(comp, safe_frm_rate);
 	return ret;
 }
 
 int32_t dpu_gfxdev_create_fence(struct composer *comp, void __user *argp)
 {
-	struct disp_present_fence fence = {
-		.fence_fd = -1,
-		.fence_pt = 0,
-	};
+	struct disp_present_fence fence = { 0 };
+	fence.fence_fd = -1;
+	fence.fence_pt = 0;
 
 	if (unlikely((!comp) || (!argp))) {
 		dpu_pr_err("comp or argp is null");
@@ -111,6 +107,34 @@ int32_t dpu_gfxdev_release_fence(struct composer *comp, void __user *argp)
 	return 0;
 }
 
+int32_t dpu_gfxdev_notify_abnormal_handle(struct composer *comp)
+{
+	struct dpu_composer *dpu_comp = NULL;
+	struct comp_online_present *present = NULL;
+
+	if (unlikely(!comp)) {
+		dpu_pr_err("comp or argp is null");
+		return -1;
+	}
+
+	if (is_offline_panel(&comp->base)) {
+		dpu_pr_info("offline panel do not need do abnormal handle");
+		return 0;
+	}
+
+	dpu_comp = to_dpu_composer(comp);
+	dpu_check_and_return(!dpu_comp, -1, err, " dpu_comp is nullptr!");
+	
+	present = (struct comp_online_present *)dpu_comp->present_data;
+	dpu_check_and_return(!present, -1, err, " present is nullptr!");
+
+	dpu_pr_warn("receive the request for close release fence");
+	dpu_comp->comp.comp_err_status |= ABNORMAL_WAIT_VACTIVE_TIMEOUT;
+	kthread_queue_work(&dpu_comp->handle_worker, &present->abnormal_handle_work);
+
+	return 0;
+}
+
 int32_t dpu_gfxdev_blank(struct composer *comp, int32_t blank_mode)
 {
 	int32_t ret = 0;
@@ -124,6 +148,7 @@ int32_t dpu_gfxdev_blank(struct composer *comp, int32_t blank_mode)
 
 	event.data = NULL;
 	event.panel_id = (int32_t)comp->base.id;
+	dpu_pr_info("%s enter, panel_id=%d", comp->base.name, event.panel_id);
 	event.value = blank_mode;
 
 	if (is_offline_panel(&comp->base)) {
@@ -131,9 +156,12 @@ int32_t dpu_gfxdev_blank(struct composer *comp, int32_t blank_mode)
 		return 0;
 	}
 
-	if ((blank_mode == DISP_BLANK_UNBLANK) &&
-		is_dp_panel(&comp->base) && (comp->base.connect_status == DP_DISCONNECTED)) {
-		dpu_pr_warn("dp has plugged out before power on finish, direct return");
+	// resethardware state reset
+	composer_set_reset_status(comp, false);
+
+	// comp->base.is_plugin = 0  means panel is not plugin
+	if ((blank_mode == DISP_BLANK_UNBLANK) && is_dynamic_panel(&comp->base) && (comp->base.is_plugin == 0)) {
+		dpu_pr_warn("device has plugged out before power on finish, direct return");
 		return -1;
 	}
 
@@ -142,23 +170,39 @@ int32_t dpu_gfxdev_blank(struct composer *comp, int32_t blank_mode)
 
 	switch (blank_mode) {
 	case DISP_BLANK_UNBLANK:
-		ret = gfxdev_blank_power_on(comp);
-		dkmd_notifier_call_chain(DKMD_EVENT_BLANK,  (void *)&event);
+		dkmd_notifier_call_chain(DKMD_EARLY_EVENT_BLANK, (void *)&event);
+		ret = gfxdev_blank_power_on(comp, COMPOSER_ON_MODE_UNBLANK);
+		dkmd_notifier_call_chain(DKMD_EVENT_BLANK, (void *)&event);
 		break;
 	case DISP_BLANK_FAKE_OFF:
 #ifdef CONFIG_DKMD_DPU_OHOS
 		// for listeners blank mode is powerdown
 		dpu_pr_info("dkmd notifier call chain on fake off case");
 		event.value = DISP_BLANK_POWERDOWN;
-		dkmd_notifier_call_chain(DKMD_EVENT_BLANK,  (void *)&event);
+		dkmd_notifier_call_chain(DKMD_EVENT_BLANK, (void *)&event);
 #endif
-		ret = gfxdev_blank_fake_off(comp);
+		ret = gfxdev_blank_power_off(comp, COMPOSER_OFF_MODE_FAKE);
 		break;
 	case DISP_BLANK_VSYNC_SUSPEND:
 	case DISP_BLANK_HSYNC_SUSPEND:
 	case DISP_BLANK_POWERDOWN:
 		dkmd_notifier_call_chain(DKMD_EVENT_BLANK, (void *)&event);
 		ret = gfxdev_blank_power_off(comp, COMPOSER_OFF_MODE_BLANK);
+		break;
+	case DISP_BLANK_PERI_UNBLANK:
+		ret = gfxdev_blank_peri_handle(comp, DISP_BLANK_PERI_UNBLANK);
+		break;
+	case DISP_BLANK_PERI_POWERDOWN:
+		ret = gfxdev_blank_peri_handle(comp, DISP_BLANK_PERI_POWERDOWN);
+		break;
+	case DISP_BLANK_DOZE:
+		ret = gfxdev_blank_power_on(comp, COMPOSER_ON_MODE_DOZE);
+		break;
+	case DISP_BLANK_DOZE_SUSPEND:
+		ret = gfxdev_blank_power_off(comp, COMPOSER_OFF_MODE_DOZE_SUSPEND);
+		break;
+	case DISP_BLANK_DOZE_SWITCH_ON:
+		ret = gfxdev_blank_power_on(comp, COMPOSER_ON_MODE_DOZE2ON);
 		break;
 	default:
 		dpu_pr_err("error power mode=%d", blank_mode);
@@ -169,18 +213,32 @@ int32_t dpu_gfxdev_blank(struct composer *comp, int32_t blank_mode)
 	return ret;
 }
 
-static int32_t frame_valid_check(struct composer *comp, const struct dkmd_object_info *pinfo, struct disp_frame *frame)
+int32_t dpu_gfxdev_connect(struct composer *comp, int32_t connect_type)
+{
+	int32_t ret = 0;
+	dpu_pr_info("dpu_gfxdev_connect");
+	switch (connect_type) {
+		case CONNECT:
+			if (comp->connect)
+				ret = comp->connect(comp);
+			break;
+		case DISCONNECT:
+			if (comp->disconnect)
+				ret = comp->disconnect(comp);
+			break;
+		default:
+		dpu_pr_err("error connect type=%d", connect_type);
+		break;
+	}
+	return ret;
+}
+
+static int32_t frame_valid_check(struct composer *comp, const struct dkmd_object_info *pinfo, const struct disp_frame *frame)
 {
 	const struct dkmd_rect *rect = &frame->disp_rect;
 
 	if (frame->layer_count > DISP_LAYER_MAX_COUNT) {
 		dpu_pr_err("layer_count=%u is invalid", frame->layer_count);
-		return -1;
-	}
-
-	if (frame->dvfs_info.perf_level > DPU_PERF_LEVEL_MAX) {
-		dpu_pr_err("perf_level=%u is invalid, DPU_PERF_LEVEL_MAX=%u",
-			frame->dvfs_info.perf_level, DPU_PERF_LEVEL_MAX);
 		return -1;
 	}
 
@@ -206,20 +264,66 @@ static int32_t frame_valid_check(struct composer *comp, const struct dkmd_object
 	return 0;
 }
 
-static int32_t dpu_gfxdev_pre_present(struct composer *comp, const struct dkmd_object_info *pinfo)
+static bool is_dirty_rect_full_screen(const struct dkmd_object_info *pinfo, const struct disp_frame *frame)
+{
+	const struct dkmd_rect *rect = &frame->disp_rect;
+
+	if ((rect->x != 0) || (rect->y != 0) || (rect->w != pinfo->xres) || (rect->h != pinfo->yres)) {
+		dpu_pr_info("dirty_rect[%d %d %u %u]", rect->x, rect->y, rect->w, rect->h);
+		return false;
+	}
+
+	return true;
+}
+
+static bool is_reset_status(struct composer *comp, uint32_t reset_ack)
+{
+	if ((comp->reset_status) && (!is_offline_panel(&comp->base))) {
+		if (reset_ack == 0) {
+	        comp->reset_status_drop_count++;
+	        if (comp->reset_status_drop_count <= DISP_RESET_DROP_FRAME_NUM) {
+	            dpu_pr_info("drop present when reset_status is true");
+	            return true;
+	        }
+			dpu_pr_err("exit reset status when drop four frame");
+	    }
+
+		/* exit reset status when recive reset_ack */
+	    composer_set_reset_status(comp, false);
+		dpu_pr_info("exit reset status");
+	}
+
+	return false;
+}
+
+static int32_t dpu_gfxdev_pre_present(struct composer *comp, const struct dkmd_object_info *pinfo, const struct disp_frame *frame)
 {
 	if (!comp->power_on) {
 		if (is_offline_panel(&comp->base))
-			return comp->on(comp);
+			return comp->on(comp, COMPOSER_ON_MODE_UNBLANK);
 		return -1;
 	}
 
+	if (is_reset_status(comp, frame->reset_ack))
+		return -1;
+
 	if (is_dp_panel(&comp->base) || is_hdmi_panel(&comp->base)) {
+		if (pinfo->connect_status != DP_CONNECTED) {
+			dpu_pr_info("dptx or hdmitx is not connected");
+			return -EINVAL;
+		}
 		mutex_lock(pinfo->pluggable_connect_mutex);
 		if (pinfo->connect_status != DP_CONNECTED) {
 			mutex_unlock(pinfo->pluggable_connect_mutex);
 			dpu_pr_info("dptx or hdmitx is not connected, connected status: %d", pinfo->connect_status);
 			return -EINVAL;
+		}
+
+		if (is_dpu_pu_support(pinfo) && is_psr2_support(pinfo) && !is_psr2_entry(pinfo) &&
+			!is_dirty_rect_full_screen(pinfo, frame)) {
+			mutex_unlock(pinfo->pluggable_connect_mutex);
+			dpu_pr_warn("psr2 exit, dirty rect is not full screen, not support");
+			return -1;
 		}
 	}
 
@@ -251,34 +355,103 @@ int32_t dpu_gfxdev_present(struct composer *comp, const struct dkmd_object_info 
 		return -EINVAL;
 	}
 
-	if (frame_valid_check(comp, pinfo, &frame) != 0) {
-		dpu_pr_err("frame valid check fail");
-		dkmd_cmdlist_release_locked((uint32_t)frame.scene_id, frame.cmdlist_id);
-		return -1;
-	}
-
 	/* if there is no poweron, need to call poweron here, and then call poweroff at task end */
 	down(&comp->blank_sem);
-	if (dpu_gfxdev_pre_present(comp, pinfo) != 0) {
-		dpu_pr_warn("composer %s is power down or disconnected", comp->base.name);
-		dkmd_cmdlist_release_locked((uint32_t)frame.scene_id, frame.cmdlist_id);
+	dpu_print_sem_count(&comp->blank_sem, true);
+	if (dpu_gfxdev_pre_present(comp, pinfo, &frame) != 0) {
+		dpu_pr_warn("composer %s is power down or disconnected or dirty rect with psr2 exit", comp->base.name);
+		ukmd_cmdlist_present_release_locked(CMDLIST_DEV_ID_DPU,
+			(uint32_t)frame.scene_id, frame.cmdlist_id);
+		dpu_print_sem_count(&comp->blank_sem, false);
 		up(&comp->blank_sem);
 		return -1;
 	}
 
-	dpu_pr_debug("%s present info: scene_id=%d cmdlist_id=%u layer_count=%u frame_index=%u",
+	if (frame_valid_check(comp, pinfo, &frame) != 0) {
+		dpu_pr_err("frame valid check fail");
+		ukmd_cmdlist_present_release_locked(CMDLIST_DEV_ID_DPU,
+			(uint32_t)frame.scene_id, frame.cmdlist_id);
+		dpu_print_sem_count(&comp->blank_sem, false);
+		up(&comp->blank_sem);
+		if (is_dp_panel(&comp->base) || is_hdmi_panel(&comp->base))
+			mutex_unlock(pinfo->pluggable_connect_mutex);
+		return -1;
+	}
+
+	dpu_pr_debug("%s present info: scene_id=%d cmdlist_id=%llu layer_count=%u frame_index=%u",
 		comp->base.name, frame.scene_id, frame.cmdlist_id, frame.layer_count, frame.frame_index);
 
 	ret = comp->present(comp, (void *)&frame);
 	if (unlikely(ret != 0)) {
-		dpu_pr_err("%s present fail: scene_id=%d cmdlist_id=%u layer_count=%u frame_index=%u",
-			comp->base.name, frame.scene_id, frame.cmdlist_id, frame.layer_count, frame.frame_index);
-		dkmd_cmdlist_release_locked((uint32_t)frame.scene_id, frame.cmdlist_id);
+		dpu_pr_warn("%s present fail: scene_id=%d cmdlist_id=%llu layer_count=%u frame_index=%u ret=%d",
+			comp->base.name, frame.scene_id, frame.cmdlist_id, frame.layer_count, frame.frame_index, ret);
+		ukmd_cmdlist_present_release_locked(CMDLIST_DEV_ID_DPU,
+			(uint32_t)frame.scene_id, frame.cmdlist_id);
 	}
 
 	dpu_gfxdev_post_present(comp, pinfo);
+	dpu_print_sem_count(&comp->blank_sem, false);
 	up(&comp->blank_sem);
 	return ret;
+}
+
+int32_t dpu_gfxdev_dmd_report(struct composer *comp, void __user *argp)
+{
+	uint32_t i = 0;
+	struct disp_dmd_list list;
+	char *info = NULL;
+
+	dpu_check_and_return(unlikely(!argp), -EINVAL, err, "argp is null pointer");
+	if (unlikely(!comp->power_on)) {
+		dpu_pr_info("comp is power down");
+		return -1;
+	}
+
+	if (copy_from_user(&list, argp, sizeof(list)) != 0) {
+		dpu_pr_err("list copy from user fail");
+		return -EFAULT;
+	}
+
+	if (unlikely(list.dmd_count == 0) || unlikely(list.dmd_count >= DISP_DMD_MAX_COUNT)) {
+		dpu_pr_err("Invalid dmd count %u", list.dmd_count);
+		return -1;
+	}
+
+	for (; i < list.dmd_count; i++) {
+		if (list.dmd_info[i].dmd_id < DSS_DIAG_INFO_START || list.dmd_info[i].dmd_id > DSS_DIAG_INFO_END) {
+			dpu_pr_err("Invalid dmd id");
+			continue;
+		}
+
+		if (unlikely(list.dmd_info[i].info_size == 0) || unlikely(list.dmd_info[i].info_size >= DISP_DMD_MAX_LENGTH)) {
+			dpu_pr_err("Invalid info_size");
+			continue;
+		}
+
+		if (unlikely(list.dmd_info[i].dmd_report_info == 0)) {
+			dpu_pr_err("Invalid info");
+			continue;
+		}
+
+		info = kzalloc(list.dmd_info[i].info_size + 1, GFP_KERNEL);
+		if (unlikely(!info)) {
+			dpu_pr_err("kzalloc info failed");
+			return -ENOMEM;
+		}
+
+		if (copy_from_user(info, (void *)(list.dmd_info[i].dmd_report_info), list.dmd_info[i].info_size) != 0) {
+			dpu_pr_err("dmd_report_info copy from user fail");
+			kfree(info);
+			return -EFAULT;
+		}
+
+		dpu_pr_debug(" dmd id: %u, dmd info: %s", list.dmd_info[i].dmd_id, info);
+		bbox_diaginfo_record(list.dmd_info[i].dmd_id, NULL, "%s", info);
+		kfree(info);
+		info = NULL;
+	}
+
+	return 0;
 }
 
 int32_t gfxdev_mmap_table(struct sg_table *table, gfxdev_fix_screeninfo* fix, struct vm_area_struct *vma)
@@ -512,12 +685,236 @@ int32_t dpu_gfxdev_set_active_rect(struct composer *comp, void __user *argp)
 	}
 
 	dpu_comp = to_dpu_composer(comp);
-	if (dpu_tui_wait_quit(dpu_comp) != 0)
+	if (dpu_tui_power_work(dpu_comp, DPU_CHANGE_ACT_DISPLAY) != 0)
 		dpu_pr_warn("set active rect, quit tui failed"); /* not block set active rect */
 
 	down(&comp->blank_sem);
+	dpu_print_sem_count(&comp->blank_sem, true);
 	dpu_pr_info("set active rect by ppc_config_id:%u", ppc_config_id);
 	ret = comp->set_active_rect(comp, ppc_config_id);
+	dpu_print_sem_count(&comp->blank_sem, false);
 	up(&comp->blank_sem);
 	return ret;
+}
+
+int32_t dpu_gfxdev_set_display_active_region(struct composer *comp, void __user *argp)
+{
+	int32_t ret = 0;
+	struct dkmd_rect_coord user_region = {0};
+
+	if (unlikely(!comp || !argp)) {
+		dpu_pr_err("comp or argp is null");
+		return -1;
+	}
+
+	if (copy_from_user(&user_region, argp, sizeof(user_region)) != 0) {
+		dpu_pr_err("copy display active region from user fail");
+		return -1;
+	}
+
+	if (comp->set_display_active_region != NULL) {
+		ret = comp->set_display_active_region(comp, &user_region);
+	}
+
+	return ret;
+}
+
+int32_t dpu_gfxdev_power_ctl(uint32_t panel_id)
+{
+	// interface for lcdkit.
+	int32_t ret = -1;
+	uint32_t index;
+	struct composer *comp = NULL;
+	struct dpu_composer *dpu_comp = NULL;
+	struct comp_online_present *present = NULL;
+	struct composer_manager *comp_manager = get_dpu_composer_manager();
+
+	if (!comp_manager) {
+		dpu_pr_warn("get comp_manager fail.");
+		return ret;
+	}
+
+	for (index = 0; index < DEVICE_COMP_MAX_COUNT; index++) {
+		comp = &comp_manager->dpu_comps[index]->comp;
+		if (comp && comp->base.id == panel_id) {
+			dpu_comp = to_dpu_composer(comp);
+			break;
+		}
+	}
+
+	if (!dpu_comp) {
+		dpu_pr_warn("get dpu_composer fail.");
+		return ret;
+	}
+
+	if (dpu_comp->pmic_abnormal_flag) {
+		dpu_pr_info("pmic abnormal is running.");
+		return ret;
+	}
+
+	if (!comp->power_on) {
+		dpu_pr_info("panel id:%u already power off, do not need reset!", panel_id);
+		return ret;
+	}
+
+	present = (struct comp_online_present *)dpu_comp->present_data;
+	if (!present) {
+		dpu_pr_warn("get comp_online_present fail.");
+		return ret;
+	}
+	kthread_queue_work(&dpu_comp->handle_worker, &present->pmic_abnormal_handle_work);
+
+	dpu_pr_warn("reset hardware finished!");
+	return 0;
+}
+
+int32_t dpu_gfxdev_get_product_ext_config(struct composer *comp, void __user *argp)
+{
+	int32_t ret = 0;
+	struct product_ext_config ext_config = {0};
+
+	dpu_check_and_return(unlikely(!argp), -EINVAL, err, "argp is null pointer");
+
+	if (comp->get_ext_info == NULL) {
+		dpu_pr_info("comp get ext info function is nullptr");
+		return 0;
+	}
+
+	ret = comp->get_ext_info(comp, &ext_config);
+	if (unlikely(ret != 0)) {
+		dpu_pr_err("%s get ext config fail", comp->base.name);
+		return -1;
+	}
+
+	if (copy_to_user(argp, &ext_config, sizeof(ext_config)) != 0) {
+		dpu_pr_err("copy dynamic config to user fail");
+		return -1;
+	}
+	return 0;
+}
+
+static int32_t enable_hardware_cursor_stats(struct composer *comp, int32_t scene_id)
+{
+	if (unlikely(comp->enable_hardware_cursor_stats == NULL)) {
+		dpu_pr_err("[hw cursor] enable_hardware_cursor_stats is not init");
+		return -EINVAL;
+	}
+
+	return comp->enable_hardware_cursor_stats(comp, scene_id, true);
+}
+
+static int32_t disable_hardware_cursor_stats(struct composer *comp, int32_t scene_id)
+{
+	if (unlikely(comp->enable_hardware_cursor_stats == NULL)) {
+		dpu_pr_err("[hw cursor] enable_hardware_cursor_stats is not init");
+		return -EINVAL;
+	}
+
+	return comp->enable_hardware_cursor_stats(comp, scene_id, false);
+}
+
+static int32_t get_hardware_cursor_stats(struct composer *comp, int32_t scene_id, uint32_t *user_frame_count, uint32_t *user_vsync_count)
+{
+	uint32_t frame_count;
+	uint32_t vsync_count;
+	int32_t ret;
+	if (unlikely(comp->get_hardware_cursor_stats == NULL)) {
+		dpu_pr_err("[hw cursor] get_hardware_cursor_stats is not init");
+		return -EINVAL;
+	}
+
+	if (unlikely((user_frame_count == NULL) || (user_vsync_count == NULL))) {
+		dpu_pr_err("[hw cursor] given frame_count or vsync_count should not be null");
+		return -EINVAL;
+	}
+
+	ret = comp->get_hardware_cursor_stats(comp, scene_id, &frame_count, &vsync_count);
+	if (ret != 0) {
+		return ret;
+	}
+
+	if (copy_to_user(user_frame_count, &frame_count, sizeof(uint32_t))) {
+		dpu_pr_err("[hw cursor] failed to copy frame_count to user space");
+		return -EFAULT;
+	}
+
+	if (copy_to_user(user_vsync_count, &vsync_count, sizeof(uint32_t))) {
+		dpu_pr_err("[hw cursor] failed to copy frame_count to user space");
+		return -EFAULT;
+	}
+
+	dpu_pr_debug("[hw cursor] frame count:%d, vsync count:%d", frame_count, vsync_count);
+
+	return 0;
+}
+
+int32_t dpu_gfxdev_update_hardware_cursor(struct composer *comp, void __user *argp)
+{
+	int32_t ret = 0;
+	struct hardware_cursor_info info = {0};
+
+	if (unlikely((comp == NULL) || (argp == NULL))) {
+		dpu_pr_err("[hw cursor] comp or argp is null");
+		return -EINVAL;
+	}
+
+	if (unlikely(!comp->power_on)) {
+		dpu_pr_warn("[hw cursor] cannot update hardware cursor, composer is power down");
+		return 1;
+	}
+
+	if (copy_from_user(&info, argp, sizeof(info))) {
+		dpu_pr_err("[hw cursor] failed to copy from user");
+		return -EFAULT;
+	}
+
+	dpu_pr_debug("[hw cursor] cmd: %d, scene_id: %d", info.cmd, info.scene_id);
+
+	switch(info.cmd) {
+		case HARDWARE_CURSOR_ENABLE_STATS:
+			ret = enable_hardware_cursor_stats(comp, info.scene_id);
+			break;
+		case HARDWARE_CUSROR_DISABLE_STATS:
+			ret = disable_hardware_cursor_stats(comp, info.scene_id);
+			break;
+		case HARDWARE_CURSOR_GET_STATS:
+			ret = get_hardware_cursor_stats(comp, info.scene_id, info.stats.frame_count, info.stats.vsync_count);
+			break;
+		default:
+			dpu_pr_err("[hw cursor] unsupported hardware cursor cmd: %x", info.cmd);
+			return -EINVAL;
+	}
+
+	dpu_pr_debug("[hw cursor] ret: %d, scene_id: %d", ret, info.scene_id);
+
+	return ret;
+}
+
+int32_t dpu_gfxdev_tunnel_present(struct composer *comp, void __user *argp)
+{
+    int32_t ret = -EINVAL;
+    struct tunnel_layer_data data = {0};
+    if (unlikely(!comp || !argp)) {
+        dpu_pr_err("[tunnel] comp or argp is null");
+        return ret;
+    }
+
+    /* tunnel_present uses voting to ensure parallelism with composer_online_overlay and power management，so there is
+     * no need to use 'comp->blank_sem' */
+	if (!comp->power_on) {
+		dpu_pr_warn("[tunnel] composer is not power on\n");
+		return 1;
+	}
+
+    if (unlikely(!comp->tunnel_present)) {
+        dpu_pr_err("[tunnel] tunnel present is not init");
+        return ret;
+    }
+
+    if (copy_from_user(&data, argp, sizeof(data)) != 0) {
+        dpu_pr_err("[tunnel] copy from user tunnel present param falied");
+        return ret;
+    }
+    ret = comp->tunnel_present(comp, &data);
+    return ret;
 }

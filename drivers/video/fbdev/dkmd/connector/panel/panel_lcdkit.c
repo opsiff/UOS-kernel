@@ -52,6 +52,21 @@ static int32_t lcdkit_panel_off(struct dkmd_connector_info *pinfo)
 	return -1;
 }
 
+static int32_t lcdkit_handle_event(struct dkmd_connector_info *pinfo, uint32_t event, const void *value, bool is_isr_event)
+{
+	struct dpu_panel_ops *entry_pops = NULL;
+
+	entry_pops = get_panel_ops(pinfo->base.id);
+	dpu_check_and_return(!entry_pops, -1, err, "panel ops is null\n");
+
+	if (entry_pops->handle_event) {
+		dpu_pr_debug("handle event:id %d, event %u, is_isr %d", pinfo->base.id, event, is_isr_event);
+		return entry_pops->handle_event(pinfo->base.id, event, value, is_isr_event);
+	}
+
+	return 0;
+}
+
 static int32_t lcdkit_panel_set_backlight(struct panel_drv_private *priv,
 	struct dkmd_connector_info *pinfo, const void *value)
 {
@@ -115,15 +130,7 @@ static int32_t lcdkit_panel_fake_power_off(struct panel_drv_private *priv,
 static int32_t lcd_check_status(struct panel_drv_private *priv,
 	struct dkmd_connector_info *pinfo, const void *value)
 {
-	struct dpu_panel_ops *entry_pops = NULL;
-
-	entry_pops = get_panel_ops(pinfo->base.id);
-	dpu_check_and_return(!entry_pops, -1, err, "panel ops is null\n");
-
-	if (entry_pops->check_lcd_status)
-		return entry_pops->check_lcd_status();
-
-	return -1;
+	return lcd_check_power_status(get_primary_connector(pinfo));
 }
 
 static int32_t lcd_set_display_region(struct panel_drv_private *priv,
@@ -240,22 +247,116 @@ static int32_t lcdkit_send_cmds_at_vsync(struct panel_drv_private *priv,
 	return -1;
 }
 
-static int32_t lcd_update_safe_frame_rate(struct panel_drv_private *priv,
+static int32_t lcdkit_notify_sfr_info(struct panel_drv_private *priv,
 	struct dkmd_connector_info *pinfo, const void *value)
 {
 	struct dpu_panel_ops *entry_pops = NULL;
-	struct panel_update_safe_frm_rate_info *safe_frm_rate_info = NULL;
+	struct sfr_info *sfr_info = NULL;
 
 	entry_pops = get_panel_ops(pinfo->base.id);
 	dpu_check_and_return(!entry_pops, -1, err, "panel ops is null\n");
 
-	safe_frm_rate_info = (struct panel_update_safe_frm_rate_info *)value;
+	sfr_info = (struct sfr_info *)value;
 
-	if (entry_pops->set_safe_frm_rate) {
-		dpu_pr_debug("update safe frame rate to lcdkit");
-		return entry_pops->set_safe_frm_rate(safe_frm_rate_info);
+	if (entry_pops->notify_sfr_info) {
+		dpu_pr_debug("notify sfr info to lcdkit");
+		return entry_pops->notify_sfr_info(sfr_info);
 	}
 	return -1;
+}
+
+static int32_t lcdkit_set_dsc_config(struct panel_drv_private *priv,
+	struct dkmd_connector_info *pinfo, const void *value)
+{
+	struct dpu_panel_ops *entry_pops = NULL;
+	uint8_t dsc_enable;
+
+	if (pinfo->dsc_switch_enable == 0)
+		return 0;
+	entry_pops = get_panel_ops(pinfo->base.id);
+	dpu_check_and_return(!entry_pops, -1, err, "panel ops is null\n");
+
+	dsc_enable = pinfo->base.dsc_en == 1 ? 1 : 0;
+	dpu_pr_info("set_dsc_cfg %u dsc_en %u", dsc_enable, pinfo->base.dsc_en);
+	if (entry_pops->set_dsc_config) {
+		dpu_pr_debug("set dsc config to lcdkit");
+		return entry_pops->set_dsc_config(dsc_enable);
+	}
+	return -1;
+}
+
+static int32_t lcdkit_ddic_exception_mode_cfg(struct panel_drv_private *priv,
+	struct dkmd_connector_info *pinfo, const void *value)
+{
+	struct dpu_panel_ops *entry_pops = NULL;
+	uint32_t exception_mode;
+
+	dpu_check_and_return(!value, -1, err, "value is null!");
+
+	entry_pops = get_panel_ops(pinfo->base.id);
+	dpu_check_and_return(!entry_pops, -1, err, "panel ops is null!");
+
+	exception_mode = *((uint32_t *)value);
+	dpu_pr_info("exception_mode %u!", exception_mode);
+	if (entry_pops->ddic_exception_mode_cfg) {
+		dpu_pr_debug("do ddic excepiton cfg");
+		return entry_pops->ddic_exception_mode_cfg(exception_mode);
+	}
+	return -1;
+}
+
+static int32_t lcdkit_panel_doze(struct panel_drv_private *priv,
+	struct dkmd_connector_info *pinfo, const void *value)
+{
+	dpu_pr_info("+\n");
+	struct dpu_panel_ops *entry_pops = NULL;
+
+	entry_pops = get_panel_ops(pinfo->base.id);
+	dpu_check_and_return(!entry_pops, -1, err, "panel ops is null\n");
+
+	if (entry_pops->doze) {
+		return entry_pops->doze();
+	}
+
+	dpu_pr_info("-");
+	return -1;
+}
+
+static int32_t lcdkit_panel_doze_suspend(struct panel_drv_private *priv,
+	struct dkmd_connector_info *pinfo, const void *value)
+{
+	dpu_pr_info("+\n");
+	struct dpu_panel_ops *entry_pops = NULL;
+
+	entry_pops = get_panel_ops(pinfo->base.id);
+	dpu_check_and_return(!entry_pops, -1, err, "panel ops is null\n");
+
+	if (entry_pops->doze_suspend) {
+		return entry_pops->doze_suspend();
+	}
+
+	dpu_pr_info("-");
+	return -1;
+}
+
+static int32_t lcdkit_skip_tp_notify(struct panel_drv_private *priv,
+	struct dkmd_connector_info *pinfo, const void *value)
+{
+	(void)priv;
+	struct dpu_panel_ops *entry_pops = NULL;
+	bool skip_tp;
+
+	dpu_check_and_return(!value, -1, err, "value is null!");
+
+	entry_pops = get_panel_ops(pinfo->base.id);
+	dpu_check_and_return(!entry_pops, -1, err, "panel ops is null!");
+
+	skip_tp = *((bool *)value);
+	if (entry_pops->skip_tp_notify) {
+		dpu_pr_debug("skip tp notify");
+		return entry_pops->skip_tp_notify(skip_tp);
+	}
+	return 0;
 }
 
 static struct panel_ops_func_map g_panel_ops_func_table[PANEL_OPS_MAX] = {
@@ -266,17 +367,23 @@ static struct panel_ops_func_map g_panel_ops_func_table[PANEL_OPS_MAX] = {
 	{REGIST_POSTPROCESS, lcd_regist_postprocess},
 	{DUMP_EXCEPTION_INFO, lcd_dump_exception_info},
 	{SET_REFRESH_STATISTIC, lcd_set_refresh_statistic},
-	{UPDATE_SAFE_FRM_RATE, lcd_update_safe_frame_rate},
+	{NOTIFY_SFR_INFO, lcdkit_notify_sfr_info},
 	{GET_STATISTIC_CLEAR_FLAG, lcd_get_stat_clear_flag},
 	{FAKE_POWER_OFF, lcdkit_panel_fake_power_off},
 	{TRACE_SCREEN_BL, lcdkit_trace_screen_bl},
 	{SET_PPC_CONFIG_ID, lcdkit_panel_set_ppc_config_id},
 	{SEND_CMDS_AT_VSYNC, lcdkit_send_cmds_at_vsync},
+	{SET_DSC_CONFIG, lcdkit_set_dsc_config},
+	{DDIC_EXCEPTION_MODE_CFG, lcdkit_ddic_exception_mode_cfg},
+	{LCD_DOZE, lcdkit_panel_doze},
+	{LCD_DOZE_SUSPEND, lcdkit_panel_doze_suspend},
+	{LCD_SKIP_TP, lcdkit_skip_tp_notify},
 };
 
 static struct panel_handle_adapter g_panel_handle  = {
 	.on_func = lcdkit_panel_on,
 	.off_func = lcdkit_panel_off,
+	.handle_event_func = lcdkit_handle_event,
 	.panel_ops_func_table = g_panel_ops_func_table,
 };
 
@@ -298,18 +405,24 @@ static int parse_connector_id(struct dkmd_connector_info *pinfo, uint8_t raw_con
 	uint32_t i;
 	uint32_t connector_cnt = 0;
 
-	dpu_pr_info("raw connector id %d\n", raw_connector_id);
+	dpu_pr_info("raw connector id %u\n", raw_connector_id);
 	if ((raw_connector_id < RAW_CONNECTER_ID_MIN) || (raw_connector_id > RAW_CONNECTER_ID_MAX)) {
 		dpu_pr_err("raw connector id %u is error\n", raw_connector_id);
 		return -1;
 	}
 
 	for (i = 0; i < MIPI_DSI_INDEX_MAX; i++) {
+		if (connector_cnt >= MAX_CONNECT_CHN_NUM) {
+			break;
+		}
+
 		if (BIT(i) & raw_connector_id) {
-			if ((pinfo->base.type & PANEL_EXTERNAL) && i == CONNECTOR_ID_DSI0)
-				pinfo->connector_idx[connector_cnt] = CONNECTOR_ID_DSI0_BUILTIN;
-			else
+			if ((pinfo->base.type & PANEL_EXTERNAL) == 0)
 				pinfo->connector_idx[connector_cnt] = i;
+			else if (i == CONNECTOR_ID_DSI2)
+				pinfo->connector_idx[connector_cnt] = CONNECTOR_ID_DSI2_BUILTIN;
+			else
+				pinfo->connector_idx[connector_cnt] = CONNECTOR_ID_DSI0_BUILTIN;
 			pinfo->sw_post_chn_idx[connector_cnt] = i;
 			connector_cnt++;
 		}
@@ -337,12 +450,91 @@ static bool check_entry_panel_info(struct dpu_panel_info *entry_pinfo)
 	return true;
 }
 
+/* get post_info while registering panel */
+static void lcd_update_panel_info(struct panel_drv_private *priv,
+	struct dpu_connector *connector, struct dpu_panel_info *pinfo, uint32_t panel_id)
+{
+	struct dpu_panel_ops *entry_pops = NULL;
+	struct dpu_dynamic_panel_info *dinfo = NULL;
+
+	if (unlikely(connector->post_info[0] == NULL)) {
+		dpu_pr_err("post_info[0] is null, error\n");
+		return;
+	}
+	connector->post_info[0]->ifbc_type = pinfo->ifbc_type;
+	dpu_pr_info("ifbc_type: %x\n", pinfo->ifbc_type);
+	(void)memcpy_s(&(connector->post_info[0]->mipi), sizeof(struct mipi_panel_info),
+		&pinfo->mipi, sizeof(struct mipi_panel_info));
+	(void)memcpy_s(&(connector->post_info[0]->dfr_info), sizeof(struct dfr_info),
+		&pinfo->dfr_info, sizeof(struct dfr_info));
+
+	if (is_ifbc_vesa_panel(pinfo->ifbc_type)) {
+		set_dsc_param(&pinfo->input_dsc_info, &connector->post_info[0]->dsc);
+		dpu_pr_info("dsc_en: %d\n", connector->post_info[0]->dsc.dsc_en);
+		if (connector->post_info[0]->dsc.dsc_en != 0)
+			dsc_calculation(&connector->post_info[0]->dsc, pinfo->ifbc_type);
+	}
+	connector->post_info[0]->dsc.dsc_info.output_width = \
+		get_dsc_out_width(&connector->post_info[0]->dsc, pinfo->ifbc_type, pinfo->xres, pinfo->xres);
+	connector->post_info[0]->dsc.dsc_info.output_height = \
+		get_dsc_out_height(&connector->post_info[0]->dsc, pinfo->ifbc_type, pinfo->yres);
+
+	if (is_spr_enabled(&pinfo->spr)) {
+		connector->post_info[0]->spr = pinfo->spr;
+		connector->post_info[0]->dsc.spr_en = 1;
+	}
+	dpu_pr_info("update panel info ifbc %u, %u, %u, %u", connector->post_info[0]->dsc.spr_en,
+		connector->post_info[0]->mipi.hsa, connector->post_info[0]->dsc.dsc_en, connector->post_info[0]->dsc.dsc_info.output_width);
+
+	entry_pops = get_panel_ops(panel_id);
+	if (entry_pops != NULL && entry_pops->get_dynamic_panel_info != NULL)
+		dinfo = entry_pops->get_dynamic_panel_info(panel_id);
+
+	if (pinfo->dsc_switch_enable == 0 || dinfo == NULL) {
+		dpu_pr_info("not support get post_info[1] %u", pinfo->dsc_switch_enable);
+		return;
+	}
+
+	connector->post_info[1] = devm_kzalloc(&priv->pdev->dev, sizeof(struct connector_post_info), GFP_KERNEL);
+	if (unlikely(connector->post_info[1] == NULL)) {
+		dpu_pr_err("post_info[1] alloc fail");
+		return;
+	}
+
+	connector->post_info[1]->ifbc_type = dinfo->ifbc_type;
+	if (dinfo->mipi.hsa == 0) {
+        dpu_pr_warn("mipi info para is null, use default");
+		connector->post_info[1]->mipi = pinfo->mipi;
+		connector->post_info[1]->dfr_info = pinfo->dfr_info;
+		connector->post_info[1]->dsc = connector->post_info[0]->dsc;
+		connector->post_info[1]->spr = connector->post_info[0]->spr;
+		return;
+	}
+    connector->post_info[1]->mipi = dinfo->mipi;
+	connector->post_info[1]->dfr_info = dinfo->dfr_info;
+
+	if (is_ifbc_vesa_panel(dinfo->ifbc_type)) {
+		set_dsc_param(&dinfo->input_dsc_info, &connector->post_info[1]->dsc);
+		if (connector->post_info[1]->dsc.dsc_en != 0)
+			dsc_calculation(&connector->post_info[1]->dsc, dinfo->ifbc_type);
+	}
+
+	connector->post_info[1]->dsc.dsc_info.output_width = pinfo->xres;
+	connector->post_info[1]->dsc.dsc_info.output_height = pinfo->yres;
+
+	if (is_spr_enabled(&dinfo->spr)) {
+		connector->post_info[1]->spr = dinfo->spr;
+		connector->post_info[1]->dsc.spr_en = 1;
+	}
+	dpu_pr_info("update panel info ifbc %d, %d, %d, %d", connector->post_info[1]->ifbc_type,
+		connector->post_info[1]->mipi.hsa, connector->post_info[1]->dsc.dsc_en, connector->post_info[1]->dsc.dsc_info.pic_height);
+}
+
 static int32_t prepare_panel_data(struct panel_drv_private *priv, uint32_t panel_id)
 {
 	struct dkmd_connector_info *pinfo = NULL;
 	struct dpu_panel_info *entry_pinfo = NULL;
 	struct dpu_connector *connector = NULL;
-	struct input_dsc_info input_dsc_info = {0};
 	uint32_t sw_dvfs_frm_rate = 0;
 	int32_t i = 0;
 
@@ -369,18 +561,26 @@ static int32_t prepare_panel_data(struct panel_drv_private *priv, uint32_t panel
 	pinfo->ifbc_type = entry_pinfo->ifbc_type;
 	pinfo->aod_enable = entry_pinfo->aod_enable;
 	pinfo->esd_enable = entry_pinfo->esd_enable;
+	pinfo->poweroff_ulps_support = entry_pinfo->poweroff_ulps_support;
+	pinfo->longvh_vactive_end_ctrl_support = entry_pinfo->longvh_vactive_end_ctrl_support;
 	pinfo->vsync_ctrl_type = entry_pinfo->vsync_ctrl_type;
-	pinfo->dirty_region_updt_support = 0;
 	pinfo->base.fold_type = entry_pinfo->product_type;
 	pinfo->base.hs_pkt_discontin_support = (uint8_t)entry_pinfo->hs_pkt_discontin_support;
 	pinfo->base.panel_partial_ctrl_support = (uint8_t)entry_pinfo->panel_partial_ctrl_support;
 	pinfo->base.id = panel_id;
 	pinfo->base.fake_panel_flag = entry_pinfo->fake_panel_flag;
 	pinfo->split_swap_enable = entry_pinfo->panel_split_swap_enable;
+	pinfo->base.ppu_support = entry_pinfo->ppu_cfg_info.ppu_support;
+	pinfo->base.dirty_region_updt_support = entry_pinfo->user_info.dirty_region_updt_support;
+	pinfo->base.is_hardware_cursor_support = (bool)entry_pinfo->is_hardware_cursor_support;
+	pinfo->dsc_switch_enable = entry_pinfo->dsc_switch_enable;
+	pinfo->support_bt2020 = (entry_pinfo->support_bt2020 != 0);
 
 	for (i = 0; i < (int32_t)entry_pinfo->dfr_info.oled_info.fps_sup_num; ++i)
 		sw_dvfs_frm_rate = max(sw_dvfs_frm_rate, entry_pinfo->dfr_info.oled_info.fps_sup_seq[i]);
 
+	if (sw_dvfs_frm_rate == 0)
+		sw_dvfs_frm_rate = entry_pinfo->fps;
 	pinfo->base.sw_dvfs_frm_rate = min(sw_dvfs_frm_rate, SW_DVFS_FRM_RATE_LIMIT);
 
 	get_panel_product_config(pinfo, entry_pinfo);
@@ -402,19 +602,20 @@ static int32_t prepare_panel_data(struct panel_drv_private *priv, uint32_t panel
 	dpu_pr_info("panel id:%u, product type %d, pipe_sw_itfch_idx %d, ppc %u\n",
 		panel_id, entry_pinfo->product_type, pinfo->base.pipe_sw_itfch_idx, pinfo->base.panel_partial_ctrl_support);
 
-	/* dsc */
-	input_dsc_info = entry_pinfo->input_dsc_info;
-	if (is_ifbc_vesa_panel(pinfo->ifbc_type))
-		set_dsc_param(&input_dsc_info, &connector->dsc);
-
-	/* spr */
-	if (is_spr_enabled(&entry_pinfo->spr)) {
-		connector->spr = entry_pinfo->spr;
-		connector->dsc.spr_en = 1;
+	/* ppc support */
+	if (pinfo->base.panel_partial_ctrl_support == 1) {
+		for (i = 0 ; i < PPC_CONFIG_ID_CNT; i++) {
+			pinfo->ppc_rect_info[i] = entry_pinfo->ppc_config_id_rect_info[i];
+			dpu_pr_info("lcdkit panel fold state info(id, l, t, r, b): %u, %d, %d, %d, %d",
+				pinfo->ppc_rect_info[i].id,
+				pinfo->ppc_rect_info[i].rect.left, pinfo->ppc_rect_info[i].rect.top,
+				pinfo->ppc_rect_info[i].rect.right, pinfo->ppc_rect_info[i].rect.bottom);
+		}
 	}
 
-	/* mipi */
-	connector->mipi = entry_pinfo->mipi;
+	/* update post info */
+	lcd_update_panel_info(priv, connector, entry_pinfo, panel_id);
+
 	/* esd */
 	connector->esd_info = entry_pinfo->esd_info;
 
@@ -422,10 +623,14 @@ static int32_t prepare_panel_data(struct panel_drv_private *priv, uint32_t panel
 	pinfo->bl_info.bl_max = entry_pinfo->bl_info.bl_max;
 	pinfo->bl_info.bl_default = entry_pinfo->bl_info.bl_default;
 	pinfo->bl_info.bl_type = entry_pinfo->bl_info.bl_type;
+	pinfo->bl_info.delay_set_bl_support = entry_pinfo->bl_info.delay_set_bl_support;
+	pinfo->bl_info.delay_set_bl_thr = entry_pinfo->bl_info.delay_set_bl_thr;
 	priv->mipi_brightness_para_type = MIPI_BL_PARA1_DBV0;
 
 	priv->user_pinfo = entry_pinfo->user_info;
+	priv->ppu_cfg_info = entry_pinfo->ppu_cfg_info;
 	pinfo->dirty_region_updt_support = entry_pinfo->user_info.dirty_region_updt_support;
+	pinfo->ppu_support = entry_pinfo->ppu_cfg_info.ppu_support;
 	pinfo->update_core_clk_support = entry_pinfo->update_core_clk_support;
 
 	return 0;

@@ -16,7 +16,7 @@
 
 #include <linux/types.h>
 
-void composer_present_timeline_resync(struct dpu_composer *dpu_comp);
+void composer_present_timeline_resync(struct dpu_composer *dpu_comp, uint32_t resync_step);
 void composer_present_data_setup(struct dpu_composer *dpu_comp, bool inited);
 void composer_present_data_release(struct dpu_composer *dpu_comp, bool is_poweroff);
 void composer_present_power_on(struct dpu_composer *dpu_comp);
@@ -28,4 +28,6 @@ int32_t composer_present_dfr_send_dcs_by_riscv(struct dpu_composer *dpu_comp, ui
 int32_t composer_present_set_safe_frm_rate(struct dpu_composer *dpu_comp,
 	uint32_t safe_frm_rate);
 int32_t composer_present_set_active_rect(struct dpu_composer *dpu_comp, uint32_t ppc_config_id);
+int32_t composer_present_set_display_active_region(struct dpu_composer *dpu_comp, struct dkmd_rect_coord *region);
+void composer_present_power_off_sub(struct dpu_composer *dpu_comp);
 #endif

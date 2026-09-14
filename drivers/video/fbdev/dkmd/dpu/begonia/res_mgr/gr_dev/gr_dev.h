@@ -24,22 +24,28 @@
 
 #define IOMMU_PROTECT (1 << 20)
 
-struct dpu_mem_info {
-	struct list_head mem_info_head;
-	spinlock_t mem_lock;
-};
-
-struct dpu_iova_info {
-	struct list_head iova_info_head;
-	struct dma_buf *dmabuf;
-	struct res_dma_buf map_buf;
+struct work_input_node {
+	struct list_head list_node;
+	struct dma_buf *work_dmabuf;
 };
 
 struct dpu_gr_dev {
 	struct platform_device *pdev;
-	struct dpu_mem_info mem_info;
+
+	// iova map ctrl
+	struct workqueue_struct *iova_map_workqueue;
+	struct work_struct iova_map_worker;
+	struct list_head input_list_head;
+	struct mutex input_list_mutex;
+	uint32_t input_list_size;
+
+	struct mutex ctrl_mutex;
+	bool is_iova_notify_init;
+
+	struct mutex memtrack_mutex;
 };
 
+void map_iova_buffer_notify_init(void);
 void dpu_res_register_gr_dev(struct list_head *resource_head);
 
 #endif

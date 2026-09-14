@@ -583,8 +583,8 @@ static void mipi_lcd_init_dsi_param(struct dkmd_connector_info *pinfo, struct mi
 		mipi->hsa = 13;
 		mipi->hbp = 5;
 		mipi->dpi_hsize = 338;
-		mipi->hline_time = 640;
-		mipi->vsa = 24;
+		mipi->hline_time = 612;
+		mipi->vsa = 4;
 		mipi->vbp = 58;
 		mipi->vfp = 40;
 
@@ -719,8 +719,8 @@ static int32_t panel_of_device_setup(struct panel_drv_private *priv)
 	/* 2. config connector info
 	 * would be used for dsi & composer setup
 	 */
-	mipi_lcd_init_dsi_param(pinfo, &connector->mipi);
-	dsc_param_set(pinfo, &connector->dsc);
+	mipi_lcd_init_dsi_param(pinfo, &connector->post_info[0]->mipi);
+	dsc_param_set(pinfo, &connector->post_info[0]->dsc);
 
 	/* dsi or composer need this param */
 	pinfo->dirty_region_updt_support = 1;

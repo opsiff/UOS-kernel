@@ -14,6 +14,67 @@
 #include "opr_format.h"
 #include "dkmd_log.h"
 
+static const struct dpu_to_dfc_pixel_format g_dpu_fmt_2_dfc_pixel_fmt[] = {
+	{DPU_FMT_RGB_565,           DFC_DYNAMIC_FMT_ARGB_10101010},
+	{DPU_FMT_BGR_565,           DFC_DYNAMIC_FMT_ARGB_10101010},
+	{DPU_FMT_RGBX_4444,         DFC_DYNAMIC_FMT_XRGB_10101010},
+	{DPU_FMT_BGRX_4444,         DFC_DYNAMIC_FMT_XRGB_10101010},
+	{DPU_FMT_RGBA_4444,         DFC_DYNAMIC_FMT_ARGB_10101010},
+	{DPU_FMT_BGRA_4444,         DFC_DYNAMIC_FMT_ARGB_10101010},
+	{DPU_FMT_RGBX_5551,         DFC_DYNAMIC_FMT_XRGB_10101010},
+	{DPU_FMT_BGRX_5551,         DFC_DYNAMIC_FMT_XRGB_10101010},
+	{DPU_FMT_RGBA_5551,         DFC_DYNAMIC_FMT_ARGB_10101010},
+	{DPU_FMT_BGRA_5551,         DFC_DYNAMIC_FMT_ARGB_10101010},
+	{DPU_FMT_RGBX_8888,         DFC_DYNAMIC_FMT_XRGB_10101010},
+	{DPU_FMT_BGRX_8888,         DFC_DYNAMIC_FMT_XRGB_10101010},
+	{DPU_FMT_RGBA_8888,         DFC_DYNAMIC_FMT_ARGB_10101010},
+	{DPU_FMT_BGRA_8888,         DFC_DYNAMIC_FMT_ARGB_10101010},
+	{DPU_FMT_YUV_422_I,         DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YUYV_422_PKG,      DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YVYU_422_PKG,      DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_UYVY_422_PKG,      DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_VYUY_422_PKG,      DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCBCR_422_P,       DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCRCB_422_P,       DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCBCR_420_P,       DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCRCB_420_P,       DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCBCR_422_SP,      DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCRCB_422_SP,      DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCBCR_420_SP,      DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCRCB_420_SP,      DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YUVA444,           DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_RGBA_1010102,      DFC_DYNAMIC_FMT_ARGB_10101010},
+	{DPU_FMT_BGRA_1010102,      DFC_DYNAMIC_FMT_ARGB_10101010},
+	{DPU_FMT_ARGB_10101010,     DFC_DYNAMIC_FMT_ARGB_10101010},
+	{DPU_FMT_XRGB_10101010,     DFC_DYNAMIC_FMT_XRGB_10101010},
+	{DPU_FMT_AYUV_10101010,     DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_Y410_10BIT,        -1},
+	{DPU_FMT_YUV422_10BIT,      DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCRCB420_SP_10BIT, DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCBCR420_SP_10BIT, DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCBCR422_SP_10BIT, DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCBCR420_P_10BIT,  DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_YCBCR422_P_10BIT,  DFC_DYNAMIC_FMT_AYUV_10101010},
+	{DPU_FMT_RGB_DELTA_10BIT,   -1},
+	{DPU_FMT_RGBG_10BIT,        -1},
+	{DPU_FMT_RGB_10BIT,         -1},
+	{DPU_FMT_D3_128,            -1},
+	{DPU_FMT_D3_RGBG,            -1},
+};
+
+int dpu_fmt_2_dfc_pixel_fmt(int format)
+{
+	uint32_t i;
+
+	for (i = 0; i < ARRAY_SIZE(g_dpu_fmt_2_dfc_pixel_fmt); ++i) {
+		if (format == g_dpu_fmt_2_dfc_pixel_fmt[i].dpu_format)
+			return g_dpu_fmt_2_dfc_pixel_fmt[i].dfc_pixel_format;
+	}
+
+	dpu_pr_warn("dpu format=%d cannot support", format);
+	return DPU_FMT_ARGB_10101010;
+}
+
 static struct dpu_to_soc_pixel_format g_dpu_fmt_map[] = {
 	/* dpu_fmt------------------sdma_format------------------wdma_format---------------static_dfc_format------------dynamic_dfc_format------------------- */
 	{DPU_FMT_RGB_565,           SDMA_FMT_RGB_565,            WDMA_FMT_RGB_565,         DFC_STATIC_FMT_RGB_565,       DFC_DYNAMIC_FMT_RGB_565},
@@ -60,6 +121,7 @@ static struct dpu_to_soc_pixel_format g_dpu_fmt_map[] = {
 	{DPU_FMT_RGBG_10BIT,        SDMA_FMT_RGBG,               -1,                       -1,                           -1},
 	{DPU_FMT_RGB_10BIT,         SDMA_FMT_RGB_10BIT,          -1,                       -1,                           -1},
 	{DPU_FMT_D3_128,            SDMA_FMT_D3_128,             -1,                       -1,                           -1},
+	{DPU_FMT_B38_RGBA,			SDMA_FMT_B38_RGBA,           -1,                       -1,                           -1},
 };
 
 int32_t dpu_fmt_to_sdma(int32_t format)
@@ -125,4 +187,117 @@ int32_t sdma_fmt_to_dpu_fmt(int32_t format)
 
 	dpu_pr_warn("sdma format=%d cannot convert to dpu pixel format!", format);
 	return DPU_FMT_BGRA_8888;
+}
+
+bool is_16bpp_rgb(int format)
+{
+	switch (format) {
+	case DPU_FMT_RGB_565:
+	case DPU_FMT_RGBX_4444:
+	case DPU_FMT_RGBA_4444:
+	case DPU_FMT_RGBX_5551:
+	case DPU_FMT_RGBA_5551:
+	case DPU_FMT_BGR_565:
+	case DPU_FMT_BGRX_4444:
+	case DPU_FMT_BGRA_4444:
+	case DPU_FMT_BGRX_5551:
+	case DPU_FMT_BGRA_5551:
+		return true;
+	default:
+		return false;
+	}
+}
+
+inline bool is_10bit_yuv_planar(int format)
+{
+	switch (format) {
+	case DPU_FMT_YCBCR420_P_10BIT:
+	case DPU_FMT_YCRCB420_P_10BIT:
+	case DPU_FMT_YCBCR422_P_10BIT:
+	case DPU_FMT_YCRCB422_P_10BIT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+inline bool is_10bit_yuv422_package(int format)
+{
+	return (format == DPU_FMT_YUV422_10BIT);
+}
+
+inline bool is_10bit_yuv_semiplanar(int format)
+{
+	switch (format) {
+	case DPU_FMT_YCRCB420_SP_10BIT:
+	case DPU_FMT_YCBCR420_SP_10BIT:
+	case DPU_FMT_YCBCR422_SP_10BIT:
+	case DPU_FMT_YCRCB422_SP_10BIT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool is_yuv420_planar(int format)
+{
+	switch (format) {
+	case DPU_FMT_YCBCR_420_P:
+	case DPU_FMT_YCRCB_420_P:
+	case DPU_FMT_YCBCR420_P_10BIT:
+	case DPU_FMT_YCRCB420_P_10BIT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool is_yuv422_planar(int format)
+{
+	switch (format) {
+	case DPU_FMT_YCBCR_422_P:
+	case DPU_FMT_YCRCB_422_P:
+	case DPU_FMT_YCBCR422_P_10BIT:
+	case DPU_FMT_YCRCB422_P_10BIT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool is_yuv420_semiplanar(int format)
+{
+	switch (format) {
+	case DPU_FMT_YCBCR_420_SP:
+	case DPU_FMT_YCRCB_420_SP:
+	case DPU_FMT_YCRCB420_SP_10BIT:
+	case DPU_FMT_YCBCR420_SP_10BIT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool is_yuv422_semiplanar(int format)
+{
+	switch (format) {
+	case DPU_FMT_YCBCR_422_SP:
+	case DPU_FMT_YCRCB_422_SP:
+	case DPU_FMT_YCBCR422_SP_10BIT:
+	case DPU_FMT_YCRCB422_SP_10BIT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool is_yuv_semiplanar(int32_t format)
+{
+	if (is_yuv420_semiplanar(format))
+		return true;
+
+	if (is_yuv422_semiplanar(format))
+		return true;
+
+	return false;
 }

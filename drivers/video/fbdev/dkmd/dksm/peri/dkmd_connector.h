@@ -13,14 +13,15 @@
 #ifndef __DKMD_CONNECTOR_H__
 #define __DKMD_CONNECTOR_H__
 
+#include "ukmd_utils.h"
 #include "dkmd_dpu.h"
 #include "dkmd_object.h"
 #include "dkmd_user_panel_info.h"
 #include "dkmd_bl_info.h"
 #include "dkmd_dfr_info.h"
+#include "dkmd_safe_margin_info.h"
 
-#define FPGA_EVENT_TIMEOUT_MS 10000
-#define ASIC_EVENT_TIMEOUT_MS 300
+#include <platform_include/basicplatform/linux/switch.h>
 
 enum {
 	DSI_VIDEO_MODE,
@@ -49,26 +50,49 @@ enum pipe_ops_cmd {
 
 	FAKE_POWER_OFF = 8,
 
-	DCS_CMD_TX_FOR_PLATFORM = 9,
+	CMDS_SYNC_TX = 9,
 
 	NOTIFY_SER_VP_SYNC = 10,
 
 	TRACE_SCREEN_BL = 11,
 
-	HDCP_INCREASE_COUNTER = 12,
-	HDCP_DECREASE_COUNTER = 13,
-
 	MIPI_DSI_PPC_SET_REG = 14,
 	WAIT_LDI_VSTATE_IDLE = 15,
 
 	SEND_CMDS_AT_VSYNC = 16,
+	SEND_CMDS = 17,
+	CMDS_ASYNC_TX_DONE = 18,
+	UPDATE_INFO = 20,
+	ENABLE_DPI = 21,
+	PREPARE_POWER_ON = 22,
+
+	DOZE_SUSPEND = 23,
+	ONLY_DSI_ON = 24,
+	ONLY_DSI_OFF  = 25,
+	UPDATE_CMDS_SEND_WINDOW = 26,
+
+	GET_CRC_VALUE = 27,
+
+	IS_PANEL_UNPLUG = 28,
+	GET_PORCH_INFO = 29,
+	GET_VACTIVE_IRQ_STATUS = 30,
 
 	PIPE_OPS_CMD_MAX,
 };
 
+typedef enum dpu_hot_plug_type {
+	DPU_HOT_PLUG_OUT = 0,
+	DPU_HOT_PLUG_IN,
+	DPU_HOT_PLUG_MAX_NUM
+}DPU_HOT_PLUG_TYPE;
+
 /* this structure do not contain pointers */
 struct dkmd_connector_info {
 	struct dkmd_object_info base;
+
+	/* edid gamut */
+    uint8_t color_gamut_info[EDID_COLOR_DATA_LEN];
+	bool dp_color_gamut_flag;
 
 	uint32_t product_type;
 	uint32_t bpp;
@@ -85,12 +109,17 @@ struct dkmd_connector_info {
 	uint8_t color_temperature_support;
 	uint8_t lcd_uninit_step_support;
 	uint8_t esd_enable;
+	uint8_t poweroff_ulps_support;
 	uint8_t frc_enable;
 	uint8_t dirty_region_updt_support;
+	uint32_t ppu_support;
+	uint8_t psr2_support;
 	uint8_t colorbar_enable; /* need config frm_valid_dbg bit[29]=0 */
 	uint8_t aod_enable;
 	uint8_t update_core_clk_support; /* set 1, means update core clk to max */
+	uint8_t dsc_switch_enable;
 	uint32_t split_swap_enable;
+	uint32_t longvh_vactive_end_ctrl_support; /* longvh update frame rate in vactive end */
 
 	uint32_t active_flag;
 
@@ -99,6 +128,8 @@ struct dkmd_connector_info {
 	uint32_t min_dptx_lane;
 
 	uint32_t ssc_dptx_flag;
+	uint32_t dp_leakage_protect;
+	uint32_t dp_board_mode;
 
 	uint32_t sw_post_chn_num;
 	uint32_t sw_post_chn_idx[MAX_CONNECT_CHN_NUM];
@@ -108,20 +139,47 @@ struct dkmd_connector_info {
 
 	uint32_t ppc_config_id_record; /* record active display area id */
 	uint32_t ppc_config_id_active; /* kernel used active display area id */
+	int32_t ppc_switch_flag;
+	struct dpu_ppc_config_id_rect_info ppc_rect_info[PPC_CONFIG_ID_CNT];
+
+	uint32_t dsc_enable;
+	uint32_t isr_shared;
+	uint32_t dsc_height_div;
+	uint32_t is_need_fix_rate;
+	bool support_te;
+	bool support_bt2020;
+
+	/* flags used for PC to set display timing */
+	bool is_enable_set_timing;
+	bool spec_timing_filter_enable;
 
 	/* pointer to connector manager device, get connector manager interface through it */
 	struct platform_device *conn_device;
+
+	// new switch
+	struct switch_dev video_switch;
+	struct switch_dev audio_switch;
+	int port_id;
+	int32_t lcd_status_err;
 
 	void (*enable_ldi)(struct dkmd_connector_info *pinfo);
 	void (*disable_ldi)(struct dkmd_connector_info *pinfo);
 	int32_t (*check_ldi_status)(struct dkmd_connector_info *pinfo);
 	void (*get_panel_user_info)(struct dkmd_connector_info *pinfo, struct user_panel_info *user_pinfo);
-	void (*get_panel_ppc_config_id_rect_info)(struct dkmd_connector_info *pinfo,
-		struct dpu_ppc_config_id_rect_info *ppc_config_id_rect_info);
-	int32_t (*get_active_display_rect)(struct dkmd_connector_info *pinfo, struct dkmd_rect *active_rect);
+	void (*get_ppu_config_info)(struct dkmd_connector_info *pinfo, struct ppu_config_info *ppu_cfg_info);
+	int32_t (*get_display_rect_by_config_id)(struct dkmd_connector_info *pinfo, uint32_t config_id,
+		struct dkmd_rect *active_rect);
 	void (*get_dfr_info)(struct dkmd_connector_info *pinfo, struct dfr_info **out);
+	void (*get_safe_margin_info)(struct dkmd_connector_info *pinfo, struct safe_margin_info **out);
 	void (*get_ddic_cmds)(struct dkmd_connector_info *pinfo,
 		const struct disp_effect_params *effect_params, struct dsi_cmds *ddic_cmds);
+	void (*get_cmds_tx_params)(struct dkmd_connector_info *pinfo,
+		const struct dkmd_cmds_info *cmds_info, struct mipi_dsi_tx_params *params);
+	void (*get_dual_cmds_tx_params)(struct dkmd_connector_info *pinfo, const struct dkmd_cmds_info *cmds_info,
+		struct mipi_dsi_tx_params *params0, struct mipi_dsi_tx_params *params1);
+	int32_t (*set_display_timing)(struct dkmd_connector_info *pinfo, uint32_t timing_index);
+	int32_t (*set_display_active_region)(struct dkmd_connector_info *pinfo, struct dkmd_rect_coord *region);
+	int32_t (*send_display_pq_data)(struct dkmd_connector_info *pinfo, uint8_t *data, uint32_t len);
 };
 
 struct dkmd_conn_handle_data {
@@ -129,8 +187,23 @@ struct dkmd_conn_handle_data {
 
 	int32_t (*on_func)(struct dkmd_connector_info *pinfo);
 	int32_t (*off_func)(struct dkmd_connector_info *pinfo);
+	int32_t (*handle_event_func)(struct dkmd_connector_info *pinfo, uint32_t event, const void *value, bool is_isr_event);
 	int32_t (*ops_handle_func)(struct dkmd_connector_info *pinfo, uint32_t ops_cmd_id, void *value);
+	int32_t (*connect_func)(struct dkmd_connector_info *pinfo);
+	int32_t (*disconnect_func)(struct dkmd_connector_info *pinfo);
+	int32_t (*disconnect_post_handle_func)(struct dkmd_connector_info *pinfo, char __iomem *dpu_base);
+	int32_t (*set_display_timing)(struct dkmd_connector_info *pinfo, uint32_t timing_index);
 };
+
+/**
+ * @brief timing calc
+ *
+ * @param pinfo A pointer to a device to be registered
+ * @param edid_timing parse edid info by bridge intel
+ * @return int32_t 0: success other: fail
+ */
+int connector_device_edid_timing_calc(struct edid_support_timing *edid_timing, struct dkmd_connector_info *pinfo);
+int connector_device_edid_timing_calculate(struct edid_timing_info *edid_timing, struct dkmd_connector_info *pinfo);
 
 /**
  * @brief Composer exposed outside the registered interface
@@ -151,12 +224,18 @@ void base_panel_connector_dts_parse(struct dkmd_connector_info *pinfo, struct de
 void composer_device_suspend(struct dkmd_connector_info *pinfo);
 void composer_device_resume(struct dkmd_connector_info *pinfo);
 
+int32_t connector_device_trigger_uevent_hotplug(struct dkmd_connector_info *pinfo, DPU_HOT_PLUG_TYPE hot_plug_type);
+int32_t register_switch_dev(struct dkmd_connector_info *pinfo);
+int32_t unregister_switch_dev(struct dkmd_connector_info *pinfo);
+int32_t update_audio_dev(struct dkmd_connector_info *pinfo, char *audio_switch_name);
+int32_t  edid_timing_filter(struct dkmd_connector_info *pinfo, struct list_head *video_node_head);
+
 /*
  * used for connector to active vsync for exit ulps, such as set backlight
  * need_active_vsync = true, means exit ulps,
  * need_active_vsync = false, means would enter ulps
  */
-void composer_active_vsync(struct dkmd_connector_info *pinfo, bool need_active_vsync);
+int32_t composer_active_vsync(struct dkmd_connector_info *pinfo, bool need_active_vsync);
 
 static inline struct dfr_info *dkmd_get_dfr_info(struct dkmd_connector_info *pinfo)
 {
@@ -166,6 +245,16 @@ static inline struct dfr_info *dkmd_get_dfr_info(struct dkmd_connector_info *pin
 		pinfo->get_dfr_info(pinfo, &dfr_info);
 
 	return dfr_info;
+}
+
+static inline struct safe_margin_info *dkmd_get_safe_margin_info(struct dkmd_connector_info *pinfo)
+{
+	struct safe_margin_info *safe_margin_info = NULL;
+
+	if (pinfo && pinfo->get_safe_margin_info)
+		pinfo->get_safe_margin_info(pinfo, &safe_margin_info);
+
+	return safe_margin_info;
 }
 
 #endif

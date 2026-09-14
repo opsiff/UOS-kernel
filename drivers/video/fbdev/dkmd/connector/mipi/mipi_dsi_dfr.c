@@ -22,9 +22,11 @@ static void mipi_dsi_dfr_set_porch_reg(struct mipi_panel_info *mipi,
 {
 	switch (mode) {
 	case DFR_MODE_LONG_V:
+	case DFR_MODE_LONGV_BY_MCU:
 		set_reg(DPU_DSI_VIDEO_VFP_NUM_ADDR(mipi_dsi_base), mipi->vfp, 20, 0);
 		break;
 	case DFR_MODE_LONG_H:
+	case DFR_MODE_LONGH_BY_MCU:
 		set_reg(DPU_DSI_VIDEO_HLINE_NUM_ADDR(mipi_dsi_base), mipi->hline_time, 15, 0);
 		break;
 	case DFR_MODE_LONG_VH:
@@ -39,10 +41,10 @@ static void mipi_dsi_dfr_set_porch_reg(struct mipi_panel_info *mipi,
 }
 
 static void mipi_dsi_dfr_porch_update(struct dpu_connector *connector,
-	int target_framerate, int mode)
+	uint32_t target_framerate, int mode)
 {
 	uint32_t frm_rate_index = 0;
-	struct mipi_panel_info *mipi = &connector->mipi;
+	struct mipi_panel_info *mipi = &connector->post_info[connector->active_idx]->mipi;
 	char __iomem *mipi_dsi_base = connector->connector_base;
 	uint32_t mipi_frm_rate_mode_num;
 
@@ -50,7 +52,7 @@ static void mipi_dsi_dfr_porch_update(struct dpu_connector *connector,
 		mipi->mipi_frm_rate_mode_num : MIPI_FRM_RATE_NUM_MAX;
 
 	for (frm_rate_index = 0; frm_rate_index < mipi_frm_rate_mode_num; frm_rate_index++) {
-		if (mipi->mipi_timing_modes[frm_rate_index].frame_rate == (uint32_t)target_framerate) {
+		if (mipi->mipi_timing_modes[frm_rate_index].frame_rate == target_framerate) {
 			mipi->hsa = mipi->mipi_timing_modes[frm_rate_index].mipi_timing.hsa;
 			mipi->hbp = mipi->mipi_timing_modes[frm_rate_index].mipi_timing.hbp;
 			mipi->dpi_hsize = mipi->mipi_timing_modes[frm_rate_index].mipi_timing.dpi_hsize;
@@ -61,7 +63,7 @@ static void mipi_dsi_dfr_porch_update(struct dpu_connector *connector,
 
 			mipi_dsi_dfr_set_porch_reg(mipi, mipi_dsi_base, mode);
 
-			dpu_pr_info("target framerate = %d, paramters:dpi_hsize = %u,hsa = %u, hbp = %u, hline_time = %u,"
+			dpu_pr_info("target framerate = %u, paramters:dpi_hsize = %u,hsa = %u, hbp = %u, hline_time = %u,"
 				"vsa=%u, vbp=%u, vfp=%u, vactive_line=%u\n",
 				target_framerate, mipi->dpi_hsize, mipi->hsa,
 				mipi->hbp, mipi->hline_time,
@@ -71,10 +73,10 @@ static void mipi_dsi_dfr_porch_update(struct dpu_connector *connector,
 		}
 	}
 
-	dpu_pr_info("unspported target frame rate %d\n");
+	dpu_pr_info("unspported target frame rate\n");
 }
 
-void mipi_dsi_dfr_update(struct dpu_connector *connector, int target_frmrate, int mode)
+void mipi_dsi_dfr_update(struct dpu_connector *connector, uint32_t target_frmrate, int mode)
 {
 	dpu_check_and_no_retval(!connector, err, "connector is null ptr\n");
 
@@ -82,4 +84,3 @@ void mipi_dsi_dfr_update(struct dpu_connector *connector, int target_frmrate, in
 	if (is_dual_mipi_panel(&connector->conn_info->base) && connector->bind_connector)
 		mipi_dsi_dfr_porch_update(connector->bind_connector, target_frmrate, mode);
 }
-

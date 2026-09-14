@@ -27,7 +27,7 @@ void vesa_dsc_info_print(struct dsc_info *dsc_info)
 		dsc_info->slice_bpg_offset
 	);
 
-	dpu_pr_info("[DSC] %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d\n",
+	dpu_pr_info("[DSC] %d, %d, %d, %d, %d, %d, %u, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d\n",
 		dsc_info->dsc_bpc,
 		dsc_info->dsc_bpp,
 		dsc_info->slice_width,

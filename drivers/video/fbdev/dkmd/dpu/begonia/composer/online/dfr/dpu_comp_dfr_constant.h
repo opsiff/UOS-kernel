@@ -21,5 +21,6 @@ int32_t dfr_constant_switch_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl, uint32_
 int32_t dfr_constant_commit(struct dpu_comp_dfr_ctrl *dfr_ctrl);
 int32_t dfr_constant_send_dcs_cmds(struct dpu_comp_dfr_ctrl *dfr_ctrl, struct disp_effect_params *effect_params);
 int32_t dfr_constant_send_dcs_cmds_with_refresh(struct dpu_comp_dfr_ctrl *dfr_ctrl, uint32_t bl_level);
+void dfr_constant_register_ops(struct dpu_comp_dfr_ctrl *dfr_ctrl);
 
 #endif

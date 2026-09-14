@@ -16,18 +16,19 @@
 #include "dkmd_log.h"
 #include "dpu_connector.h"
 #include "mipi_dsi_dev.h"
+#include "mipi_config_utils.h"
 
 static void mipi_dsi_get_ulps_stopstate(struct dpu_connector *connector, uint32_t *cmp_ulpsactivenot_val,
 	uint32_t *cmp_stopstate_val, bool is_ulps)
 {
 	if (is_ulps) {
-		if (connector->mipi.lane_nums >= DSI_4_LANES) {
+		if (connector->post_info[connector->active_idx]->mipi.lane_nums >= DSI_4_LANES) {
 			*cmp_ulpsactivenot_val = (BIT(5) | BIT(8) | BIT(10) | BIT(12));
 			*cmp_stopstate_val = (BIT(4) | BIT(7) | BIT(9) | BIT(11));
-		} else if (connector->mipi.lane_nums >= DSI_3_LANES) {
+		} else if (connector->post_info[connector->active_idx]->mipi.lane_nums >= DSI_3_LANES) {
 			*cmp_ulpsactivenot_val = (BIT(5) | BIT(8) | BIT(10));
 			*cmp_stopstate_val = (BIT(4) | BIT(7) | BIT(9));
-		} else if (connector->mipi.lane_nums >= DSI_2_LANES) {
+		} else if (connector->post_info[connector->active_idx]->mipi.lane_nums >= DSI_2_LANES) {
 			*cmp_ulpsactivenot_val = (BIT(5) | BIT(8));
 			*cmp_stopstate_val = (BIT(4) | BIT(7));
 		} else {
@@ -35,20 +36,20 @@ static void mipi_dsi_get_ulps_stopstate(struct dpu_connector *connector, uint32_
 			*cmp_stopstate_val = (BIT(4));
 		}
 	} else { /* ulps exit */
-		if (connector->mipi.lane_nums >= DSI_4_LANES) {
+		if (connector->post_info[connector->active_idx]->mipi.lane_nums >= DSI_4_LANES) {
 			*cmp_ulpsactivenot_val = (BIT(3) | BIT(5) | BIT(8) | BIT(10) | BIT(12));
 			*cmp_stopstate_val = (BIT(2) | BIT(4) | BIT(7) | BIT(9) | BIT(11));
-		} else if (connector->mipi.lane_nums >= DSI_3_LANES) {
+		} else if (connector->post_info[connector->active_idx]->mipi.lane_nums >= DSI_3_LANES) {
 			*cmp_ulpsactivenot_val = (BIT(3) | BIT(5) | BIT(8) | BIT(10));
 			*cmp_stopstate_val = (BIT(2) | BIT(4) | BIT(7) | BIT(9));
-		} else if (connector->mipi.lane_nums >= DSI_2_LANES) {
+		} else if (connector->post_info[connector->active_idx]->mipi.lane_nums >= DSI_2_LANES) {
 			*cmp_ulpsactivenot_val = (BIT(3) | BIT(5) | BIT(8));
 			*cmp_stopstate_val = (BIT(2) | BIT(4) | BIT(7));
 		} else {
 			*cmp_ulpsactivenot_val = (BIT(3) | BIT(5));
 			*cmp_stopstate_val = (BIT(2) | BIT(4));
 		}
-		if (connector->mipi.phy_mode == CPHY_MODE) {
+		if (connector->post_info[connector->active_idx]->mipi.phy_mode == CPHY_MODE) {
 			*cmp_ulpsactivenot_val &= ~(BIT(3));
 			*cmp_stopstate_val &= ~(BIT(2));
 		}
@@ -67,12 +68,12 @@ static int mipi_dsi_check_ulps_stopstate(struct dpu_connector *connector, char _
 		udelay(10);
 		if (++try_times > 100) {  /* try 1ms */
 			dpu_pr_info("dsi%d, check phy data and clk lane stop state failed! "
-				"PHY_STATUS=0x%x", connector->connector_id, temp);
+				"PHY_STATUS=0x%x", get_connector_phy_id(connector->connector_id), temp);
 			return -1;
 		}
 		if (((temp & cmp_stopstate_val) == (cmp_stopstate_val & ~BIT(2))) && is_ulps) {
 			dpu_pr_info("dsi%d, datalanes are in stop state, pull down phy_txrequestclkhs",
-				connector->connector_id);
+				get_connector_phy_id(connector->connector_id));
 			set_reg(DPU_DSI_LP_CLK_CTRL_ADDR(mipi_dsi_base), 0x1, 1, 1);
 			set_reg(DPU_DSI_LP_CLK_CTRL_ADDR(mipi_dsi_base), 0x0, 1, 0);
 		}
@@ -97,13 +98,13 @@ static void mipi_dsi_data_clock_lane_enter_ulps(struct dpu_connector *connector,
 		udelay(10);  /* 10us */
 		if (++try_times > 100) {  /* try 1ms */
 			dpu_pr_info("dsi%d, request phy data lane enter ulps failed! "
-				"PHY_STATUS=0x%x.", connector->connector_id, temp);
+				"PHY_STATUS=0x%x.", get_connector_phy_id(connector->connector_id), temp);
 			break;
 		}
 		temp = inp32(DPU_DSI_CDPHY_STATUS_ADDR(mipi_dsi_base));
 	}
 
-	if (connector->mipi.phy_mode != DPHY_MODE)
+	if (connector->post_info[connector->active_idx]->mipi.phy_mode != DPHY_MODE)
 		return;
 
 	/* request clock lane enter ULPS */
@@ -116,7 +117,7 @@ static void mipi_dsi_data_clock_lane_enter_ulps(struct dpu_connector *connector,
 		udelay(10); /* 10us */
 		if (++try_times > 100) { /* try 1ms */
 			dpu_pr_info("dsi%d, request phy clk lane enter ulps failed! "
-				"PHY_STATUS=0x%x", connector->connector_id, temp);
+				"PHY_STATUS=0x%x", get_connector_phy_id(connector->connector_id), temp);
 			break;
 		}
 		temp = inp32(DPU_DSI_CDPHY_STATUS_ADDR(mipi_dsi_base));
@@ -131,12 +132,12 @@ static int mipi_dsi_ulps_enter(struct dpu_connector *connector)
 	bool is_ready = false;
 	uint32_t temp;
 
-	dpu_pr_info("dsi%d, %s +!", connector->connector_id, __func__);
+	dpu_pr_info("dsi%d, %s +!", get_connector_phy_id(connector->connector_id), __func__);
 
 	mipi_dsi_get_ulps_stopstate(connector, &cmp_ulpsactivenot_val, &cmp_stopstate_val, true);
 
 	temp = (uint32_t)inp32(DPU_DSI_LP_CLK_CTRL_ADDR(mipi_dsi_base)) & BIT(1);
-	if (temp && (connector->mipi.phy_mode == DPHY_MODE))
+	if (temp && (connector->post_info[connector->active_idx]->mipi.phy_mode == DPHY_MODE))
 		cmp_stopstate_val |= BIT(2);
 
 	if (mipi_dsi_check_ulps_stopstate(connector, mipi_dsi_base, cmp_stopstate_val, true) != 0)
@@ -153,12 +154,12 @@ static int mipi_dsi_ulps_enter(struct dpu_connector *connector)
 	/* check phy lock == 0? */
 	is_ready = mipi_phy_status_check(mipi_dsi_base, 0x0);
 	if (!is_ready)
-		dpu_pr_info("dsi%u, phylock == 1!", connector->connector_id);
+		dpu_pr_info("dsi%u, phylock == 1!", get_connector_phy_id(connector->connector_id));
 
 	/* bit13 lock sel enable (dual_mipi_panel mipi_dsi1_base+bit13 set 1), close clock gate */
 	set_reg(DPU_DSI_DPHYTX_CTRL_ADDR(mipi_dsi_base), 0x1, 1, 13);
 
-	dpu_pr_info("dsi%d, %s -!", connector->connector_id, __func__);
+	dpu_pr_info("dsi%d, %s -!", get_connector_phy_id(connector->connector_id), __func__);
 
 	return 0;
 }
@@ -177,7 +178,7 @@ static void mipi_dsi_data_clock_lane_exit_ulps(struct dpu_connector *connector, 
 		udelay(10);  /* delay 10us */
 		if (++try_times > 100) {  /* try 1ms */
 			dpu_pr_info("dsi%d, request data clock lane exit ulps fail! "
-				"PHY_STATUS=0x%x", connector->connector_id, temp);
+				"PHY_STATUS=0x%x", get_connector_phy_id(connector->connector_id), temp);
 			break;
 		}
 		temp = inp32(DPU_DSI_CDPHY_STATUS_ADDR(mipi_dsi_base));
@@ -191,7 +192,7 @@ static int mipi_dsi_ulps_exit(struct dpu_connector *connector)
 	uint32_t cmp_stopstate_val = 0;
 	bool is_ready = false;
 
-	dpu_pr_info("dsi%d, %s +!", connector->connector_id, __func__);
+	dpu_pr_info("dsi%d, %s +!", get_connector_phy_id(connector->connector_id), __func__);
 
 	mipi_dsi_get_ulps_stopstate(connector, &cmp_ulpsactivenot_val, &cmp_stopstate_val, false);
 
@@ -203,7 +204,7 @@ static int mipi_dsi_ulps_exit(struct dpu_connector *connector)
 	/* check phy lock == 1? */
 	is_ready = mipi_phy_status_check(mipi_dsi_base, 0x1);
 	if (!is_ready)
-		dpu_pr_info("dsi%d, phylock == 0, phylock is not ready!", connector->connector_id);
+		dpu_pr_info("dsi%d, phylock == 0, phylock is not ready!", get_connector_phy_id(connector->connector_id));
 
 	/* bit13 lock sel enable (dual_mipi_panel mipi_dsi1_base+bit13 set 1), colse clock gate */
 	set_reg(DPU_DSI_DPHYTX_CTRL_ADDR(mipi_dsi_base), 0x0, 1, 13);
@@ -211,7 +212,7 @@ static int mipi_dsi_ulps_exit(struct dpu_connector *connector)
 	mipi_dsi_data_clock_lane_exit_ulps(connector, mipi_dsi_base, cmp_ulpsactivenot_val);
 
 	/* mipi spec */
-	mdelay(1);
+	mipi_ulps_delay();
 
 	/* clear PHY_ULPS_CTRL */
 	outp32(DPU_DSI_CDPHY_ULPS_CTRL_ADDR(mipi_dsi_base), 0x0);
@@ -220,7 +221,7 @@ static int mipi_dsi_ulps_exit(struct dpu_connector *connector)
 
 	/* enable DPHY clock lane's Hight Speed Clock */
 	set_reg(DPU_DSI_LP_CLK_CTRL_ADDR(mipi_dsi_base), 0x1, 1, 0);
-	if (connector->mipi.non_continue_en)
+	if (connector->post_info[connector->active_idx]->mipi.non_continue_en)
 		set_reg(DPU_DSI_LP_CLK_CTRL_ADDR(mipi_dsi_base), 0x1, 1, 1);
 
 	/* reset dsi */
@@ -229,7 +230,7 @@ static int mipi_dsi_ulps_exit(struct dpu_connector *connector)
 	/* power up dsi */
 	outp32(DPU_DSI_POR_CTRL_ADDR(mipi_dsi_base), 0x1);
 
-	dpu_pr_info("dsi%d, %s -!", connector->connector_id, __func__);
+	dpu_pr_info("dsi%d, %s -!", get_connector_phy_id(connector->connector_id), __func__);
 
 	return 0;
 }
@@ -261,7 +262,7 @@ void mipi_dsi_auto_ulps_config(struct mipi_dsi_timing *timing, struct dpu_connec
 	auto_ulps_enter_delay = timing->hline_time * (timing->vsa + timing->vbp + timing->vfp + 2);
 
 	/* twakeup_cnt * twakeup_clk_div * t_lanebyteclk > 1ms */
-	if (connector->mipi.phy_mode == CPHY_MODE)
+	if (connector->post_info[connector->active_idx]->mipi.phy_mode == CPHY_MODE)
 		t_lanebyteclk = (uint32_t)connector->dsi_phy_ctrl.lane_word_clk;
 	else
 		t_lanebyteclk = (uint32_t)connector->dsi_phy_ctrl.lane_byte_clk;
@@ -278,16 +279,16 @@ void mipi_auto_ulps_ctrl(struct dpu_connector *connector, bool is_auto_ulps)
 	char __iomem *mipi_dsi_base = connector->connector_base;
 	struct dkmd_connector_info *pinfo = connector->conn_info;
 
-	dpu_pr_info("dsi%u, config auto-ulps!", connector->connector_id);
+	dpu_pr_info("dsi%u, config auto-ulps!", get_connector_phy_id(connector->connector_id));
 
 	if (!is_mipi_cmd_panel(&pinfo->base))
 		return;
 
 	if (is_auto_ulps) {
-		dpu_pr_info("dsi%u, enter auto-ulps!", connector->connector_id);
+		dpu_pr_info("dsi%u, enter auto-ulps!", get_connector_phy_id(connector->connector_id));
 		set_reg(DPU_DSI_AUTO_ULPS_MODE_ADDR(mipi_dsi_base), 0x10001, 32, 0);
 	} else {
-		dpu_pr_info("dsi%u, exit auto-ulps!", connector->connector_id);
+		dpu_pr_info("dsi%u, exit auto-ulps!", get_connector_phy_id(connector->connector_id));
 		set_reg(DPU_DSI_APB_WR_LP_HDR_ADDR(mipi_dsi_base), 0xA06, 32, 0);
 		udelay(1);
 		set_reg(DPU_DSI_AUTO_ULPS_MODE_ADDR(mipi_dsi_base), 0x0, 32, 0);

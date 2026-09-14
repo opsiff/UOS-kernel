@@ -16,10 +16,7 @@
 
 #include "dpu_comp_dfr.h"
 
-void dfr_ltps_setup_data(struct dpu_comp_dfr_ctrl *dfr_ctrl);
-int32_t dfr_ltps_switch_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl, uint32_t frame_rate);
-int32_t dfr_ltps_commit(struct dpu_comp_dfr_ctrl *dfr_ctrl);
-int32_t dfr_ltps_send_dcs_cmds(struct dpu_comp_dfr_ctrl *dfr_ctrl, struct disp_effect_params *effect_params);
-int32_t dfr_ltps_update_frm_rate_isr_handler(struct dpu_comp_dfr_ctrl *dfr_ctrl);
+void dfr_ltps_register_ops(struct dpu_comp_dfr_ctrl *dfr_ctrl);
+void dfr_ltps_register_ops_by_mcu(struct dpu_comp_dfr_ctrl *dfr_ctrl);
 
 #endif

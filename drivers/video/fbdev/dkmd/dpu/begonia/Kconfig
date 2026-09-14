@@ -52,6 +52,12 @@ config WLT_DISPLAY
 	help
 	  This feature driver supports wireless low latency.
 
+config DKMD_PC_LTPO
+	bool "dkmd pc ltpo support"
+	default n
+	help
+	  This feature driver supports pc ltpo.
+ 
 config DKMD_DPU_OHOS
 	bool "dkmd dpu ohos adapter feature switch"
 	default n
@@ -63,5 +69,17 @@ config DPU_TBU_ECC
 	default n
 	help
 	  This feature driver supports tbu ecc.
+
+config DKMD_DPU_TUNNEL_PRESENT
+	bool "tunnel present is support"
+	default n
+	help
+	  This feature driver supports tunnel present.
+
+config DKMD_DPU_TUNNEL_DEVICE_PRESENT
+	bool "tunnel device present is support"
+	default n
+	help
+	  This feature driver supports tunnel device present.
 
 source "drivers/video/fbdev/dkmd/dpu/begonia/device/virtio/Kconfig"

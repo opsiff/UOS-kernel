@@ -682,9 +682,9 @@ static int32_t panel_of_device_setup(struct panel_drv_private *priv)
 	 * would be used for dsi & composer setup
 	 */
 #ifndef CLOSE_DSC
-	dsc_vesa3_75x_single_config(pinfo, &connector->dsc);
+	dsc_vesa3_75x_single_config(pinfo, &connector->post_info[0]->dsc);
 #endif
-	mipi_lcd_init_dsi_param(pinfo, &connector->mipi);
+	mipi_lcd_init_dsi_param(pinfo, &connector->post_info[0]->mipi);
 
 	/* dsi or composer need this param */
 	pinfo->dirty_region_updt_support = 0;

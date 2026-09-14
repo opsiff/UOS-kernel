@@ -20,11 +20,13 @@
 #include "dkmd_log.h"
 
 #define DSM_OCCUPY_RETRY_TIMES 10
+#define DSM_CLIENT_RETRY_TIME 2
 
 extern struct dsm_client *dsm_lcd_client;
 
 struct dsm_client* dkmd_get_dmd_client(void);
 void dksm_dmd_report_vactive_end_miss(uint32_t conn_id);
+void dksm_dmd_report_vactive_timeout(uint32_t scene_id, bool is_vactive_timeout , int32_t excess_time);
 
 #if defined (CONFIG_HUAWEI_DSM) || defined (CONFIG_HUAWEI_OHOS_DSM)
 void dksm_dmd_register(uint32_t index, const char *lcd_name);

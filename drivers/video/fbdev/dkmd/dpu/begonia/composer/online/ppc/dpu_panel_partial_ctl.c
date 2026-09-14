@@ -16,14 +16,14 @@
 #include "dkmd_log.h"
 #include "dkmd_peri.h"
 #include "cmdlist_interface.h"
-#include "dkmd_cmdlist.h"
+#include "ukmd_cmdlist.h"
 #include "panel_mgr.h"
 #include "dpu_conn_mgr.h"
 #include "dpu_connector.h"
 #include "dpu_comp_config_utils.h"
 #include "dpu_ppc_status_control.h"
+#include "res_mgr.h"
 
-#define DLEN_MAX 1024
 #define PPC_SET_ACTIVE_RECT_TIMEOUT_MS 150
 #define PPC_SET_ACTIVE_RECT_WAIT_CNT 3
 
@@ -31,20 +31,24 @@ static int32_t dpu_init_cmdlist(struct dpu_comp_ppc_ctrl *ppc_ctrl, uint32_t ppc
 {
 	int32_t ret;
 	struct panel_partial_ctrl *priv = (struct panel_partial_ctrl *)ppc_ctrl->priv_data;
+	uint32_t cmdlist_dev_id;
 
 	dpu_check_and_return(ppc_config_id > PPC_CONFIG_ID_TOTAL_CMDLIST_CNT, -1, err, "invalid cmdlist id");
 
+	cmdlist_dev_id = CMDLIST_DEV_ID_DPU;
+
 	priv->header_cmdlist_ids[ppc_config_id][dsi_idx] =
-		cmdlist_create_user_client(priv->cmdlist_scene_id, SCENE_NOP_TYPE, 0, 0);
+		cmdlist_create_user_client(cmdlist_dev_id, priv->cmdlist_scene_id, SCENE_NOP_TYPE, 0, 0);
 	if (unlikely(priv->header_cmdlist_ids[ppc_config_id][dsi_idx] == 0)) {
 		dpu_pr_err("scene_id=%u, create header cmdlist fail", priv->cmdlist_scene_id);
 		return -1;
 	}
 
 	priv->reg_cmdlist_ids[ppc_config_id][dsi_idx] =
-		cmdlist_create_user_client(priv->cmdlist_scene_id, REGISTER_CONFIG_TYPE, 0, PAGE_SIZE);
+		cmdlist_create_user_client(cmdlist_dev_id,priv->cmdlist_scene_id, REGISTER_CONFIG_TYPE, 0, PAGE_SIZE);
 	if (unlikely(priv->reg_cmdlist_ids[ppc_config_id][dsi_idx] == 0)) {
-		dkmd_cmdlist_release_locked(priv->cmdlist_scene_id, priv->header_cmdlist_ids[ppc_config_id][dsi_idx]);
+		ukmd_cmdlist_release_locked(cmdlist_dev_id,
+			priv->cmdlist_scene_id, priv->header_cmdlist_ids[ppc_config_id][dsi_idx]);
 		dpu_pr_err("scene_id=%u create reg cmdlist fail", priv->cmdlist_scene_id);
 		return -1;
 	}
@@ -52,10 +56,11 @@ static int32_t dpu_init_cmdlist(struct dpu_comp_ppc_ctrl *ppc_ctrl, uint32_t ppc
 	dpu_pr_info("ppc_config_id:%u, dsi_idx:%u, reg_cmdlist_ids %u",
 				ppc_config_id, dsi_idx, priv->reg_cmdlist_ids[ppc_config_id][dsi_idx]);
 
-	ret = cmdlist_append_client(priv->cmdlist_scene_id,
+	ret = cmdlist_append_client(cmdlist_dev_id, priv->cmdlist_scene_id,
 		priv->header_cmdlist_ids[ppc_config_id][dsi_idx], priv->reg_cmdlist_ids[ppc_config_id][dsi_idx]);
 	if (unlikely(ret != 0)) {
-		dkmd_cmdlist_release_locked(priv->cmdlist_scene_id, priv->header_cmdlist_ids[ppc_config_id][dsi_idx]);
+		ukmd_cmdlist_release_locked(cmdlist_dev_id,
+			priv->cmdlist_scene_id, priv->header_cmdlist_ids[ppc_config_id][dsi_idx]);
 		dpu_pr_err("append reg(%u) cmdlist fail", priv->reg_cmdlist_ids[ppc_config_id][dsi_idx]);
 		return -1;
 	}
@@ -100,7 +105,8 @@ static int32_t cmdlist_mipi_dsi_swrite_to(struct dsi_cmd_desc *cm, uint32_t dsi_
 	/* used for low power cmds trans under video mode */
 	hdr |= cm->dtype & GEN_VID_LP_CMD;
 
-	dkmd_set_reg(scene_id, cmdlist_id, DPU_DSI_GEN_HP_HDR_ADDR(dsi_offset), hdr);
+	ukmd_set_reg(CMDLIST_DEV_ID_DPU,
+		scene_id, cmdlist_id, DPU_DSI_GEN_HP_HDR_ADDR(dsi_offset), hdr);
 
 	dpu_pr_info("hdr = %#x!\n", hdr);
 	return (int32_t)len;  /* 4 bytes */
@@ -135,7 +141,8 @@ static int32_t cmdlist_mipi_dsi_lwrite_to(struct dsi_cmd_desc *cm, uint32_t dsi_
 			dpu_pr_info("pld2 = %#x!\n", pld);
 		}
 
-		dkmd_set_reg(scene_id, cmdlist_id, DPU_DSI_GEN_HP_PLD_DATA_ADDR(dsi_offset), pld);
+		ukmd_set_reg(CMDLIST_DEV_ID_DPU,
+			scene_id, cmdlist_id, DPU_DSI_GEN_HP_PLD_DATA_ADDR(dsi_offset), pld);
 		pld = 0;
 	}
 
@@ -146,7 +153,8 @@ static int32_t cmdlist_mipi_dsi_lwrite_to(struct dsi_cmd_desc *cm, uint32_t dsi_
 
 	/* used for low power cmds trans under video mode */
 	hdr |= cm->dtype & GEN_VID_LP_CMD;
-	dkmd_set_reg(scene_id, cmdlist_id, DPU_DSI_GEN_HP_HDR_ADDR(dsi_offset), hdr);
+	ukmd_set_reg(CMDLIST_DEV_ID_DPU,
+		scene_id, cmdlist_id, DPU_DSI_GEN_HP_HDR_ADDR(dsi_offset), hdr);
 
 	dpu_pr_info("hdr = %#x!\n", hdr);
 
@@ -228,7 +236,7 @@ static int32_t dpu_set_cmdlist_reg(struct dpu_comp_ppc_ctrl *ppc_ctrl, uint32_t 
 	} else if (ppc_config_id < PPC_CONFIG_ID_TOTAL_CMDLIST_CNT) {
 		real_connector_id = dpu_get_connector_id_sec_part(ppc_config_id);
 		start_idx = 0;
-	} 
+	}
 
 	connector = get_primary_connector(pinfo);
 	dpu_check_and_return(!connector, -1, err, "connector is null");
@@ -287,7 +295,7 @@ static int32_t dpu_ppc_init_cmdlist(struct dpu_comp_ppc_ctrl *ppc_ctrl)
 static int32_t panel_partial_ctrl_cmd_done_isr_notify(struct notifier_block *self,
 	unsigned long action, void *data)
 {
-	struct dkmd_listener_data *listener_data = (struct dkmd_listener_data *)data;
+	struct ukmd_listener_data *listener_data = (struct ukmd_listener_data *)data;
 	struct dpu_comp_ppc_ctrl *ppc_ctrl = (struct dpu_comp_ppc_ctrl *)(listener_data->data);
 
 	dpu_pr_info("+");
@@ -306,14 +314,14 @@ static struct notifier_block panel_partial_ctrl_cmd_done_isr_notifier = {
 
 static void panel_partial_ctrl_cmd_done_listener(struct dpu_comp_ppc_ctrl *ppc_ctrl)
 {
-	struct dkmd_isr *isr_ctrl = &ppc_ctrl->dpu_comp->comp_mgr->mdp_isr_ctrl;
+	struct ukmd_isr *isr_ctrl = &ppc_ctrl->dpu_comp->comp_mgr->mdp_isr_ctrl;
 	struct panel_partial_ctrl *priv = (struct panel_partial_ctrl *)ppc_ctrl->priv_data;
 
 	dpu_pr_info("+");
 
 	priv->notifier = &panel_partial_ctrl_cmd_done_isr_notifier;
 
-	dkmd_isr_register_listener(isr_ctrl, priv->notifier, NOTIFY_PPC_DONE, ppc_ctrl);
+	ukmd_isr_register_listener(isr_ctrl, priv->notifier, NOTIFY_PPC_DONE, ppc_ctrl);
 }
 
 struct panel_partial_ctrl g_panel_partial_ctrl = { 0 };
@@ -337,24 +345,100 @@ static void dpu_ppc_get_panel_estv_info(struct dpu_comp_ppc_ctrl *ppc_ctrl)
 	priv->ppc_enable_panel_estv_support_factory = panel_info->ppc_enable_panel_estv_support_factory;
 	priv->ppc_panel_estv_wait_te_cnt = panel_info->ppc_panel_estv_wait_te_cnt;
 
-	dpu_pr_info("panel_estv_support:%u, panel_estv_support_factory:%u, panel_estv_wait_te_cnt:%u",
+	dpu_pr_info("ppc_config_id_record:%u, panel_estv_support:%u, panel_estv_support_factory:%u, panel_estv_wait_te_cnt:%u",
+		ppc_ctrl->dpu_comp->conn_info->ppc_config_id_record,
 		priv->ppc_enable_panel_estv_support,
 		priv->ppc_enable_panel_estv_support_factory,
 		priv->ppc_panel_estv_wait_te_cnt);
+}
+
+static int32_t dpu_ppc_get_first_part_config_id(uint32_t ppc_mode)
+{
+	if (ppc_mode == PPC_CONFIG_ID_F_MODE) {
+		return PPC_CONFIG_ID_F_MODE_1ST_PART_IDX;
+	} else if (ppc_mode == PPC_CONFIG_ID_M_MODE) {
+		return PPC_CONFIG_ID_M_MODE_1ST_PART_IDX;
+	} else if (ppc_mode == PPC_CONFIG_ID_G_MODE) {
+		return PPC_CONFIG_ID_G_MODE_1ST_PART_IDX;
+	}
+
+	return 0;
+}
+
+static int32_t dpu_ppc_get_second_part_config_id(uint32_t ppc_mode)
+{
+	if (ppc_mode == PPC_CONFIG_ID_F_MODE) {
+		return PPC_CONFIG_ID_F_MODE_SECOND_PART_IDX;
+	} else if (ppc_mode == PPC_CONFIG_ID_M_MODE) {
+		return PPC_CONFIG_ID_M_MODE_SECOND_PART_IDX;
+	} else if (ppc_mode == PPC_CONFIG_ID_G_MODE) {
+		return PPC_CONFIG_ID_G_MODE_SECOND_PART_IDX;
+	}
+
+	return 0;
+}
+
+static int32_t dpu_ppc_get_cmdlist_phy_addr(struct dpu_comp_ppc_ctrl *ppc_ctrl)
+{
+	struct dkmd_connector_info *pinfo;
+	struct dpu_connector *connector;
+	struct panel_partial_ctrl *priv;
+	int i, j;
+	uint32_t first_part_config_id;
+	uint32_t second_part_config_id;
+	uint32_t cmdlist_dev_id;
+
+	pinfo = ppc_ctrl->dpu_comp->conn_info;
+	connector = get_primary_connector(pinfo);
+	priv = (struct panel_partial_ctrl *)ppc_ctrl->priv_data;
+	cmdlist_dev_id = CMDLIST_DEV_ID_DPU;
+	for (i = PPC_CONFIG_ID_F_MODE; i <= PPC_CONFIG_ID_G_MODE; i++) {
+		first_part_config_id = dpu_ppc_get_first_part_config_id(i);
+		second_part_config_id = dpu_ppc_get_second_part_config_id(i);
+
+		for (j = 0; j < DCS_CMDLIST_PACKET_NUM; ++j) {
+			priv->cmdlist_phy_addr[first_part_config_id + j][PPC_1ST_DSI_IDX] =
+				cmdlist_get_phy_addr(cmdlist_dev_id, priv->cmdlist_scene_id,
+				priv->reg_cmdlist_ids[first_part_config_id + j][PPC_1ST_DSI_IDX]);
+			if (connector->bind_connector) {
+				priv->cmdlist_phy_addr[first_part_config_id + j][PPC_2ND_DSI_IDX] =
+				cmdlist_get_phy_addr(cmdlist_dev_id, priv->cmdlist_scene_id,
+				priv->reg_cmdlist_ids[first_part_config_id + j][PPC_2ND_DSI_IDX]);
+			}
+		}
+
+		priv->cmdlist_phy_addr[second_part_config_id][PPC_1ST_DSI_IDX] =
+			cmdlist_get_phy_addr(cmdlist_dev_id, priv->cmdlist_scene_id,
+			priv->reg_cmdlist_ids[second_part_config_id][PPC_1ST_DSI_IDX]);
+		if (connector->bind_connector) {
+			priv->cmdlist_phy_addr[second_part_config_id][PPC_2ND_DSI_IDX] =
+			cmdlist_get_phy_addr(cmdlist_dev_id, priv->cmdlist_scene_id,
+			priv->reg_cmdlist_ids[second_part_config_id][PPC_2ND_DSI_IDX]);
+		}
+
+		if ((priv->cmdlist_phy_addr[second_part_config_id][PPC_1ST_DSI_IDX] == 0 ) ||
+			(priv->cmdlist_phy_addr[second_part_config_id][PPC_2ND_DSI_IDX] == 0)) {
+			dpu_pr_err("invalid TOTAL_CMDLIST_CNT %d, id1:%d, id2:%d, commit failed\n", PPC_CONFIG_ID_FIRST_PART_MAX_IDX,
+			priv->reg_cmdlist_ids[second_part_config_id][PPC_CONFIG_ID_1ST_PART_CMD],
+			priv->reg_cmdlist_ids[second_part_config_id][PPC_CONFIG_ID_2ND_PART_CMD]);
+			return -1;
+		}
+	}
+
+	return 0;
 }
 
 int32_t dpu_ppc_setup_priv_data(struct dpu_comp_ppc_ctrl *ppc_ctrl)
 {
 	struct panel_partial_ctrl *priv;
 	char __iomem *dpu_base = NULL;
-	struct dpu_connector *connector = NULL;
-	struct dkmd_connector_info *pinfo = NULL;
-	int i;
+	uint32_t ppc_config_id;
+	uint32_t first_part_config_id;
+	uint32_t second_part_config_id;
 
 	dpu_check_and_return(!ppc_ctrl, -1, err, "ppc_ctrl is null");
 	dpu_check_and_return(!ppc_ctrl->dpu_comp, -1, err, "dpu_comp is null");
 	dpu_check_and_return(!ppc_ctrl->dpu_comp->comp_mgr, -1, err, "comp_mgr is null");
-	pinfo = ppc_ctrl->dpu_comp->conn_info;
 
 	dpu_pr_info("index:%u", ppc_ctrl->dpu_comp->comp.index);
 
@@ -363,7 +447,6 @@ int32_t dpu_ppc_setup_priv_data(struct dpu_comp_ppc_ctrl *ppc_ctrl)
 		return 0;
 	}
 
-	connector = get_primary_connector(pinfo);
 	dpu_base = ppc_ctrl->dpu_comp->comp_mgr->dpu_base;
 
 	ppc_ctrl->priv_data = (void*)&g_panel_partial_ctrl;
@@ -382,29 +465,12 @@ int32_t dpu_ppc_setup_priv_data(struct dpu_comp_ppc_ctrl *ppc_ctrl)
 	if (dpu_ppc_init_cmdlist(ppc_ctrl) != 0)
 		return -1;
 
-	/* set default F mode phy_addr */
-	for (i = 0; i < DCS_CMDLIST_PACKET_NUM; ++i) {
-		priv->cmdlist_phy_addr[i][PPC_1ST_DSI_IDX] = cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-								priv->reg_cmdlist_ids[i][PPC_1ST_DSI_IDX]);
-		if (connector->bind_connector)
-			priv->cmdlist_phy_addr[i][PPC_2ND_DSI_IDX] = cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-									priv->reg_cmdlist_ids[i][PPC_2ND_DSI_IDX]);
-	}
-
-	priv->cmdlist_phy_addr[PPC_CONFIG_ID_F_MODE_SECOND_PART_IDX][PPC_1ST_DSI_IDX] =
-		cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-		priv->reg_cmdlist_ids[PPC_CONFIG_ID_F_MODE_SECOND_PART_IDX][PPC_1ST_DSI_IDX]);
-	priv->cmdlist_phy_addr[PPC_CONFIG_ID_F_MODE_SECOND_PART_IDX][PPC_2ND_DSI_IDX] =
-		cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-		priv->reg_cmdlist_ids[PPC_CONFIG_ID_F_MODE_SECOND_PART_IDX][PPC_2ND_DSI_IDX]);
-
-	if ((priv->cmdlist_phy_addr[PPC_CONFIG_ID_F_MODE_SECOND_PART_IDX][PPC_1ST_DSI_IDX] == 0 ) ||
-		(priv->cmdlist_phy_addr[PPC_CONFIG_ID_F_MODE_SECOND_PART_IDX][PPC_2ND_DSI_IDX] == 0)) {
-		dpu_pr_err("invalid TOTAL_CMDLIST_CNT %d, id1:%d, id2:%d, commit failed\n", PPC_CONFIG_ID_FIRST_PART_MAX_IDX,
-				priv->reg_cmdlist_ids[PPC_CONFIG_ID_F_MODE_SECOND_PART_IDX][PPC_CONFIG_ID_1ST_PART_CMD],
-				priv->reg_cmdlist_ids[PPC_CONFIG_ID_F_MODE_SECOND_PART_IDX][PPC_CONFIG_ID_2ND_PART_CMD]);
+	if (dpu_ppc_get_cmdlist_phy_addr(ppc_ctrl) != 0)
 		return -1;
-	}
+
+	ppc_config_id = ppc_ctrl->dpu_comp->conn_info->ppc_config_id_record;
+	first_part_config_id = dpu_ppc_get_first_part_config_id(ppc_config_id);
+	second_part_config_id = dpu_ppc_get_second_part_config_id(ppc_config_id);
 
 	dpu_ppc_get_panel_estv_info(ppc_ctrl);
 
@@ -412,10 +478,10 @@ int32_t dpu_ppc_setup_priv_data(struct dpu_comp_ppc_ctrl *ppc_ctrl)
 	dpu_ppc_init_interactive_reg(dpu_base, priv);
 
 	/* init 1st part */
-	dpu_ppc_set_1st_part_cmd_addr(dpu_base, priv, PPC_CONFIG_ID_F_MODE_1ST_PART_IDX);
+	dpu_ppc_set_1st_part_cmd_addr(dpu_base, priv, first_part_config_id);
 
 	/* init 2nd part */
-	dpu_ppc_set_2nd_part_cmd_addr(dpu_base, priv, PPC_CONFIG_ID_F_MODE_SECOND_PART_IDX);
+	dpu_ppc_set_2nd_part_cmd_addr(dpu_base, priv, second_part_config_id);
 
 	panel_partial_ctrl_cmd_done_listener(ppc_ctrl);
 
@@ -426,7 +492,7 @@ void dpu_ppc_release_priv_data(struct dpu_comp_ppc_ctrl *ppc_ctrl)
 {
 	struct dpu_composer *dpu_comp = NULL;
 	struct panel_partial_ctrl *priv = NULL;
-	struct dkmd_isr *isr_ctrl = NULL;
+	struct ukmd_isr *isr_ctrl = NULL;
 	char __iomem *dpu_base = NULL;
 	struct dkmd_connector_info *pinfo = NULL;
 	struct dpu_connector *connector = NULL;
@@ -449,23 +515,24 @@ void dpu_ppc_release_priv_data(struct dpu_comp_ppc_ctrl *ppc_ctrl)
 	connector = get_primary_connector(pinfo);
 	for (ppc_config_id = 0; ppc_config_id < PPC_CONFIG_ID_TOTAL_CMDLIST_CNT; ++ppc_config_id) {
 		if (priv->header_cmdlist_ids[ppc_config_id][PPC_1ST_DSI_IDX] != 0) {
-			dkmd_cmdlist_release_locked(priv->cmdlist_scene_id, priv->header_cmdlist_ids[ppc_config_id][PPC_1ST_DSI_IDX]);
+			ukmd_cmdlist_release_locked(CMDLIST_DEV_ID_DPU,
+				priv->cmdlist_scene_id, priv->header_cmdlist_ids[ppc_config_id][PPC_1ST_DSI_IDX]);
 			priv->header_cmdlist_ids[ppc_config_id][PPC_1ST_DSI_IDX] = 0;
 		}
 
 		if (connector->bind_connector) {
 			dpu_pr_info("release cmdlist for dual mipi");
 			if (priv->header_cmdlist_ids[ppc_config_id][PPC_2ND_DSI_IDX] != 0) {
-				dkmd_cmdlist_release_locked(priv->cmdlist_scene_id, priv->header_cmdlist_ids[ppc_config_id][PPC_2ND_DSI_IDX]);
+				ukmd_cmdlist_release_locked(CMDLIST_DEV_ID_DPU,
+					priv->cmdlist_scene_id, priv->header_cmdlist_ids[ppc_config_id][PPC_2ND_DSI_IDX]);
 				priv->header_cmdlist_ids[ppc_config_id][PPC_2ND_DSI_IDX] = 0;
 			}
 		}
 	}
 
-	/* disable ppc */
-	outp32(DPU_DM_LAYER_HEIGHT_ADDR(dpu_base + g_dm_tlb_info[priv->assist_scene_id].dm_data_addr, 1), 0);
+	dpu_disable_ppc(dpu_base, priv);
 
-	dkmd_isr_unregister_listener(isr_ctrl, priv->notifier, NOTIFY_PPC_DONE);
+	ukmd_isr_unregister_listener(isr_ctrl, priv->notifier, NOTIFY_PPC_DONE);
 }
 
 int32_t dpu_ppc_set_active_rect(struct dpu_comp_ppc_ctrl *ppc_ctrl, uint32_t ppc_config_id)
@@ -473,12 +540,10 @@ int32_t dpu_ppc_set_active_rect(struct dpu_comp_ppc_ctrl *ppc_ctrl, uint32_t ppc
 	struct panel_partial_ctrl *priv = NULL;
 	char __iomem *dpu_base = NULL;
 	uint32_t first_part_cmdlist_cnt;
-	uint32_t real_ppc_config_id = 0;
-	uint32_t sec_part_config_id = 0;
-	struct dpu_connector *connector = NULL;
+	uint32_t first_part_config_id;
+	uint32_t second_part_config_id;
 	struct dkmd_connector_info *pinfo = NULL;
 	int32_t ret;
-	uint32_t i;
 	uint32_t delay_count = 0;
 
 	dpu_check_and_return(!ppc_ctrl, -1, err, "ppc_ctrl is null");
@@ -492,45 +557,23 @@ int32_t dpu_ppc_set_active_rect(struct dpu_comp_ppc_ctrl *ppc_ctrl, uint32_t ppc
 
 	priv = (struct panel_partial_ctrl *)ppc_ctrl->priv_data;
 
-	if (ppc_config_id == PPC_CONFIG_ID_F_MODE) {
-		real_ppc_config_id = PPC_CONFIG_ID_F_MODE_1ST_PART_IDX;
-		sec_part_config_id = PPC_CONFIG_ID_F_MODE_SECOND_PART_IDX;
-	} else if (ppc_config_id == PPC_CONFIG_ID_M_MODE) {
-		real_ppc_config_id = PPC_CONFIG_ID_M_MODE_1ST_PART_IDX;
-		sec_part_config_id = PPC_CONFIG_ID_M_MODE_SECOND_PART_IDX;
-	} else if (ppc_config_id == PPC_CONFIG_ID_G_MODE) {
-		real_ppc_config_id = PPC_CONFIG_ID_G_MODE_1ST_PART_IDX;
-		sec_part_config_id = PPC_CONFIG_ID_G_MODE_SECOND_PART_IDX;
-	} else {
+    if (ppc_config_id > PPC_CONFIG_ID_G_MODE) {
 		dpu_pr_warn("invalid ppc_config_id:%u", ppc_config_id);
 		return -1;
 	}
+	first_part_config_id = dpu_ppc_get_first_part_config_id(ppc_config_id);
+	second_part_config_id = dpu_ppc_get_second_part_config_id(ppc_config_id);
 
 	first_part_cmdlist_cnt = priv->first_part_cmdlist_cnt[ppc_config_id];
-	dpu_pr_info("con_id:%u, real_con_id:%u, cmdlist_cnt:%u", ppc_config_id, real_ppc_config_id, first_part_cmdlist_cnt);
+	dpu_pr_info("con_id:%u, first_part_config_id:%u, cmdlist_cnt:%u", ppc_config_id,
+		first_part_config_id, first_part_cmdlist_cnt);
 
-	outp32(DPU_DM_LAYER_MASK_Y1_ADDR(dpu_base + g_dm_tlb_info[priv->assist_scene_id].dm_data_addr, 1),
-			first_part_cmdlist_cnt);
+	dpu_ppc_set_1st_cmdlist_cnt(dpu_base, priv, first_part_cmdlist_cnt);
 
-	connector = get_primary_connector(pinfo);
-	for (i = 0; i < DCS_CMDLIST_PACKET_NUM; ++i) {
-		priv->cmdlist_phy_addr[real_ppc_config_id + i][PPC_1ST_DSI_IDX] = cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-								priv->reg_cmdlist_ids[real_ppc_config_id + i][PPC_1ST_DSI_IDX]);
-		if (connector->bind_connector)
-			priv->cmdlist_phy_addr[real_ppc_config_id + i][PPC_2ND_DSI_IDX] = cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-									priv->reg_cmdlist_ids[real_ppc_config_id + i][PPC_2ND_DSI_IDX]);
-	}
+	dpu_ppc_set_1st_part_cmd_addr(dpu_base, priv, first_part_config_id);
+	dpu_ppc_set_2nd_part_cmd_addr(dpu_base, priv, second_part_config_id);
 
-	dpu_ppc_set_1st_part_cmd_addr(dpu_base, priv, real_ppc_config_id);
-
-	priv->cmdlist_phy_addr[sec_part_config_id][PPC_1ST_DSI_IDX] = cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-		priv->reg_cmdlist_ids[sec_part_config_id][PPC_1ST_DSI_IDX]);
-	if (connector->bind_connector)
-		priv->cmdlist_phy_addr[sec_part_config_id][PPC_2ND_DSI_IDX] = cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-		priv->reg_cmdlist_ids[sec_part_config_id][PPC_2ND_DSI_IDX]);
-	dpu_ppc_set_2nd_part_cmd_addr(dpu_base, priv, sec_part_config_id);
-
-	outp32(DPU_DM_LAYER_MASK_Y0_ADDR(dpu_base + g_dm_tlb_info[priv->assist_scene_id].dm_data_addr, 1), 1);
+	dpu_start_ppc(dpu_base, priv);
 
 	while (true) {
 		ret = (int32_t)wait_event_interruptible_timeout(ppc_ctrl->wait, ppc_ctrl->dacc_send_cmd_done,
@@ -541,6 +584,7 @@ int32_t dpu_ppc_set_active_rect(struct dpu_comp_ppc_ctrl *ppc_ctrl, uint32_t ppc
 			break;
 	}
 
+	(void)pipeline_next_ops_handle(pinfo->base.peri_device, pinfo, SET_PPC_CONFIG_ID, &ppc_config_id);
 	dpu_pr_info("ppc_ctrl->dacc_send_cmd_done:%u", ppc_ctrl->dacc_send_cmd_done);
 	ppc_ctrl->dacc_send_cmd_done = 0;
 
@@ -585,19 +629,19 @@ int32_t dpu_set_active_rect(uint32_t ppc_config_id)
 	first_part_cmdlist_cnt = priv->first_part_cmdlist_cnt[ppc_config_id];
 	dpu_pr_info("con_id:%u, real_con_id:%u, cmdlist_cnt:%u", ppc_config_id, real_ppc_config_id,
 																first_part_cmdlist_cnt);
-	outp32(DPU_DM_LAYER_MASK_Y1_ADDR(dpu_base + g_dm_tlb_info[priv->assist_scene_id].dm_data_addr, 1),
-			first_part_cmdlist_cnt);
+	dpu_ppc_set_1st_cmdlist_cnt(dpu_base, priv, first_part_cmdlist_cnt);
 
 	for (i = 0; i < DCS_CMDLIST_PACKET_NUM; ++i) {
-		priv->cmdlist_phy_addr[real_ppc_config_id + i][PPC_1ST_DSI_IDX] = cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-								priv->reg_cmdlist_ids[real_ppc_config_id + i][PPC_1ST_DSI_IDX]);
+		priv->cmdlist_phy_addr[real_ppc_config_id + i][PPC_1ST_DSI_IDX] =
+			cmdlist_get_phy_addr(CMDLIST_DEV_ID_DPU, priv->cmdlist_scene_id,
+				priv->reg_cmdlist_ids[real_ppc_config_id + i][PPC_1ST_DSI_IDX]);
 		dpu_pr_info("first dsi cmdlist_phy_addr:%u, reg_cmdlist_ids:%u",
 						priv->cmdlist_phy_addr[real_ppc_config_id + i][PPC_1ST_DSI_IDX],
 						priv->reg_cmdlist_ids[real_ppc_config_id + i][PPC_1ST_DSI_IDX]);
 		if (connector->bind_connector)
 			priv->cmdlist_phy_addr[real_ppc_config_id + i][PPC_2ND_DSI_IDX] =
-										cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-										priv->reg_cmdlist_ids[real_ppc_config_id + i][PPC_2ND_DSI_IDX]);
+				cmdlist_get_phy_addr(CMDLIST_DEV_ID_DPU, priv->cmdlist_scene_id,
+					priv->reg_cmdlist_ids[real_ppc_config_id + i][PPC_2ND_DSI_IDX]);
 		dpu_pr_info("second dsi cmdlist_phy_addr:%u, reg_cmdlist_ids:%u",
 						priv->cmdlist_phy_addr[real_ppc_config_id + i][PPC_2ND_DSI_IDX],
 						priv->reg_cmdlist_ids[real_ppc_config_id + i][PPC_2ND_DSI_IDX]);
@@ -605,14 +649,14 @@ int32_t dpu_set_active_rect(uint32_t ppc_config_id)
 
 	dpu_ppc_set_1st_part_cmd_addr(dpu_base, priv, real_ppc_config_id);
 
-	priv->cmdlist_phy_addr[sec_part_config_id][PPC_1ST_DSI_IDX] = cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-		priv->reg_cmdlist_ids[sec_part_config_id][PPC_1ST_DSI_IDX]);
+	priv->cmdlist_phy_addr[sec_part_config_id][PPC_1ST_DSI_IDX] = cmdlist_get_phy_addr(CMDLIST_DEV_ID_DPU,
+		priv->cmdlist_scene_id, priv->reg_cmdlist_ids[sec_part_config_id][PPC_1ST_DSI_IDX]);
 	if (connector->bind_connector)
-		priv->cmdlist_phy_addr[sec_part_config_id][PPC_2ND_DSI_IDX] = cmdlist_get_phy_addr(priv->cmdlist_scene_id,
-		priv->reg_cmdlist_ids[sec_part_config_id][PPC_2ND_DSI_IDX]);
+		priv->cmdlist_phy_addr[sec_part_config_id][PPC_2ND_DSI_IDX] = cmdlist_get_phy_addr(CMDLIST_DEV_ID_DPU,
+		priv->cmdlist_scene_id, priv->reg_cmdlist_ids[sec_part_config_id][PPC_2ND_DSI_IDX]);
 	dpu_ppc_set_2nd_part_cmd_addr(dpu_base, priv, sec_part_config_id);
 
-	outp32(DPU_DM_LAYER_MASK_Y0_ADDR(dpu_base + g_dm_tlb_info[priv->assist_scene_id].dm_data_addr, 1), 1);
+	dpu_start_ppc(dpu_base, priv);
 
 	mdelay(5);
 

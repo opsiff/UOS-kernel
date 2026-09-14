@@ -6,12 +6,36 @@ dpu_res_mgr-objs := \
 	config/dpu_config_utils.o \
 	config/v$(CONFIG_DKMD_DPU_VERSION)/dpu_config.o \
 	config/v$(CONFIG_DKMD_DPU_VERSION)/dpu_dvfs.o \
-	config/v$(CONFIG_DKMD_DPU_VERSION)/dpu_opr_config.o \
 	dvfs/dvfs.o \
+	dvfs/ddr_dvfs.o \
 	gr_dev/gr_dev.o \
 	opr_mgr/opr_mgr.o \
-	scene_id_mgr/scene_id_mgr.o \
+	scene_id_mgr/scene_id_mgr.o
+
+ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 9200))
+dpu_res_mgr-objs += \
+	config/v900/dpu_opr_config.o
+else ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 840))
+dpu_res_mgr-objs += \
+	config/v820/dpu_opr_config.o
+else
+dpu_res_mgr-objs += \
+	config/v$(CONFIG_DKMD_DPU_VERSION)/dpu_opr_config.o
+endif
+
+ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 800 820 840 900 9200))
+dpu_res_mgr-objs += \
+	lbuf_mgr/lbuf_mgr_v8xx.o
+else
+dpu_res_mgr-objs += \
 	lbuf_mgr/lbuf_mgr.o
+endif
+
+ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 800))
+ifeq ("$(chip_type)", "scout")
+EXTRA_CFLAGS += -DDPU_NSV_SCOUT
+endif
+endif
 
 ifeq ($(CONFIG_DKMD_DPU_VERSION),741)
 dpu_res_mgr-objs += \
@@ -23,6 +47,8 @@ endif
 
 EXTRA_CFLAGS += \
 	-I$(srctree)/include/platform_include/display/dkmd/ \
+	-I$(srctree)/include/platform_include/display/ukmd/ \
+	-I$(srctree)/include/platform_include/display/linux/ \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr/config \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr/dvfs \
@@ -32,8 +58,10 @@ EXTRA_CFLAGS += \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr/scene_id_mgr \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr/lbuf_mgr \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/chrdev \
-	-I$(srctree)/drivers/video/fbdev/dkmd/cmdlist \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/chrdev \
+	-I$(srctree)/drivers/video/fbdev/ukmd/cmdlist \
+	-I$(srctree)/drivers/video/fbdev/ukmd/cmdlist/include \
 	-I$(srctree)/arch/arm64/include/ \
 	-I$(srctree)/include/
 

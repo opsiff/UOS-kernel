@@ -94,6 +94,8 @@ int blpwm_drv_on(struct panel_drv_private *priv)
 	}
 
 	ret = peri_pinctrl_cmds_tx(g_blpwm_drv->pdev, blpwm_pinctrl_normal_cmds, ARRAY_SIZE(blpwm_pinctrl_normal_cmds));
+	if (ret)
+		dpu_pr_err("blpwm_pinctrl_normal_cmds cmds_tx failed, error = %d!\n", ret);
 
 	outp32(SOC_BLPWM_OUT_CTRL_ADDR(blpwm_base), 0x1);
 	outp32(SOC_BLPWM_OUT_DIV_ADDR(blpwm_base), g_blpwm_out_info[priv->blpwm_precision_type].div);

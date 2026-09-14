@@ -17,6 +17,7 @@
 #ifdef CONFIG_HIBERNATION
 #include <linux/pm.h>
 #endif
+#include "dkmd_object.h"
 
 #define PANEL_PRIMARY_NAME "gfx_primary"
 #define PANEL_BUILTIN_NAME "gfx_builtin"
@@ -52,6 +53,29 @@ static void mipi_lcd_init_dsi_param_for_fake_panel(struct dkmd_connector_info *p
 	mipi->phy_mode = DPHY_MODE;
 }
 
+void base_panel_connector_id_convert(struct dkmd_connector_info *pinfo)
+{
+	uint32_t i;
+	uint32_t connector_count = 0;
+	uint32_t connector_num = pinfo->sw_post_chn_num;
+
+	if ((pinfo->base.type & PANEL_EXTERNAL) == 0)
+		return;
+
+	for (i = 0; i < connector_num; i++) {
+		if (connector_count >= MAX_CONNECT_CHN_NUM)
+			break;
+
+		if (pinfo->connector_idx[i] == CONNECTOR_ID_DSI2)
+			pinfo->connector_idx[connector_count] = CONNECTOR_ID_DSI2_BUILTIN;
+		else
+			pinfo->connector_idx[connector_count] = CONNECTOR_ID_DSI0_BUILTIN;
+
+		connector_count++;
+	}
+	dpu_pr_info("connector_idx:%u %u\n", pinfo->connector_idx[0], pinfo->connector_idx[1]);
+}
+
 int32_t panel_base_of_device_setup(struct panel_drv_private *priv)
 {
 	int32_t ret;
@@ -75,7 +99,7 @@ int32_t panel_base_of_device_setup(struct panel_drv_private *priv)
 	* would be used for dsi & composer setup
 	*/
 	if(is_fake_panel(&pinfo->base))
-		mipi_lcd_init_dsi_param_for_fake_panel(pinfo, &get_primary_connector(pinfo)->mipi);
+		mipi_lcd_init_dsi_param_for_fake_panel(pinfo, &(get_primary_connector(pinfo)->post_info[0]->mipi));
 
 	ret = of_property_read_u32(np, FPGA_FLAG_NAME, &pinfo->base.fpga_flag);
 	if (ret) {
@@ -110,7 +134,13 @@ int32_t panel_base_of_device_setup(struct panel_drv_private *priv)
 		pinfo->base.fake_panel_flag = 0;
 	dpu_pr_info("fake_panel_flag=%#x", pinfo->base.fake_panel_flag);
 
+	ret = of_property_read_u32(np, "dbuf_discount_factor", &pinfo->base.dbuf_discount_factor);
+	if (ret)
+		pinfo->base.dbuf_discount_factor = 0;
+	dpu_pr_info("[DP] dbuf_discount_factor val: %u\n", pinfo->base.dbuf_discount_factor);
+
 	base_panel_connector_dts_parse(pinfo, np);
+	base_panel_connector_id_convert(pinfo);
 
 	/* 2. config connector info
 	 * would be used for dsi & composer setup
@@ -197,6 +227,10 @@ static const struct of_device_id panel_device_match_table[] = {
 		.data = &rm69091_panel_info,
 	},
 	{
+		.compatible = DTS_COMP_PANEL_RM6d030,
+		.data = &rm6d030_panel_info,
+	},
+	{
 		.compatible = DTS_COMP_PANEL_HX5293,
 		.data = &hx5293_panel_info,
 	},
@@ -205,25 +239,27 @@ static const struct of_device_id panel_device_match_table[] = {
 		.data = &nt36870_panel_info,
 	},
 	{
-		.compatible = DTS_COMP_PANEL_VISIONOX_6P39,
-		.data = &visionox_6p39_panel_info,
+		.compatible = DTS_COMP_PANEL_VXN_6P69,
+		.data = &vxn_6p69_panel_info,
 	},
 	{
-		.compatible = DTS_COMP_PANEL_BOE_6P39,
-		.data = &boe_6p39_panel_info,
-	},
-	{
-		.compatible = DTS_COMP_PANEL_VISIONOX310,
-		.data = &visionox310_panel_info,
-	},
-	{
-		.compatible = DTS_COMP_PANEL_BOE7P847,
-		.data = &boe7p847_panel_info,
+		.compatible = DTS_COMP_PANEL_BOE_6P69,
+		.data = &boe_6p69_panel_info,
 	},
 	{
 		.compatible = DTS_COMP_PANEL_HX83121,
 		.data = &hx83121_panel_info,
 	},
+	{
+		.compatible = DTS_COMP_PANEL_RM692H5,
+		.data = &rm692h5_panel_info,
+	},
+#ifdef CONFIG_DKMD_DPU_DYNAMIC_FAKE_PANEL
+	{
+		.compatible = DTS_COMP_DYNAMIC_FAKE,
+		.data = &dynamic_switch_fake_panel_info,
+	},
+#endif
 	{},
 };
 MODULE_DEVICE_TABLE(of, panel_device_match_table);
@@ -235,59 +271,43 @@ static void get_panel_user_info(struct dkmd_connector_info *pinfo, struct user_p
 	*user_pinfo = priv->user_pinfo;
 }
 
-static void get_panel_ppc_config_id_rect_info(struct dkmd_connector_info *pinfo,
-	struct dpu_ppc_config_id_rect_info *ppc_config_id_rect_info)
+static void get_ppu_config_info(struct dkmd_connector_info *pinfo, struct ppu_config_info *ppu_cfg_info)
 {
-	uint32_t i = 0;
-	struct dpu_panel_ops *entry_pops = NULL;
-	struct dpu_panel_info *panel_info = NULL;
+	struct panel_drv_private *priv = to_panel_private(pinfo);
 
-	entry_pops = get_panel_ops(pinfo->base.id);
-	dpu_check_and_no_retval(!entry_pops, err, "entry pops is null\n");
-
-	panel_info = entry_pops->get_panel_info();
-	dpu_check_and_no_retval(!panel_info, err, "panel info is null\n");
-
-	for (i = 0; i < PPC_CONFIG_ID_CNT; ++i) {
-		ppc_config_id_rect_info[i] = panel_info->ppc_config_id_rect_info[i];
-		dpu_pr_info("lcdkit panel fold state info(id, l, t, r, b): %u, %d, %d, %d, %d",
-			panel_info->ppc_config_id_rect_info[i].id,
-			panel_info->ppc_config_id_rect_info[i].rect.left, panel_info->ppc_config_id_rect_info[i].rect.top,
-			panel_info->ppc_config_id_rect_info[i].rect.right, panel_info->ppc_config_id_rect_info[i].rect.bottom);
-	}
+	*ppu_cfg_info = priv->ppu_cfg_info;
 }
 
-static int32_t get_active_display_rect(struct dkmd_connector_info *pinfo, struct dkmd_rect *active_rect)
+static int32_t get_display_rect_by_config_id(struct dkmd_connector_info *pinfo,
+	uint32_t config_id, struct dkmd_rect *display_rect)
 {
-	struct dpu_ppc_config_id_rect_info ppc_rect_info[PPC_CONFIG_ID_CNT] = {0};
-	struct dkmd_rect_coord *ppc_active_rect = NULL;
+	struct dkmd_rect_coord *ppc_rect_coord = NULL;
 
-	dpu_check_and_return(!active_rect, -1, err, "active_rect is null");
+	dpu_check_and_return(!display_rect, -1, err, "display_rect is null");
 	dpu_check_and_return(!pinfo, -1, err, "pinfo is null");
 
 	/* not 3 fold panel */
-	if (!pinfo->get_panel_ppc_config_id_rect_info) {
-		active_rect->x = 0;
-		active_rect->y = 0;
-		active_rect->w = pinfo->base.xres;
-		active_rect->h = pinfo->base.yres;
+	if (!is_ppc_support(&pinfo->base)) {
+		display_rect->x = 0;
+		display_rect->y = 0;
+		display_rect->w = pinfo->base.xres;
+		display_rect->h = pinfo->base.yres;
 		return 0;
 	}
 
 	/* 3 fold panel */
-	if (pinfo->ppc_config_id_active >= PPC_CONFIG_ID_CNT) {
+	if (config_id >= PPC_CONFIG_ID_CNT) {
 		dpu_pr_err("ppc_config_id match error\n");
 		return -1;
 	}
 
-	pinfo->get_panel_ppc_config_id_rect_info(pinfo, ppc_rect_info);
-	ppc_active_rect = &ppc_rect_info[pinfo->ppc_config_id_active].rect;
-	active_rect->x = (int32_t)ppc_active_rect->left;
-	active_rect->y = (int32_t)ppc_active_rect->top;
-	active_rect->w = ppc_active_rect->right - ppc_active_rect->left;
-	active_rect->h = ppc_active_rect->bottom - ppc_active_rect->top;
-	dpu_pr_debug("ppc_active_rect[l,t,r,b]=[%u, %u, %u, %u], id=%u\n", ppc_active_rect->left,
-		ppc_active_rect->top, ppc_active_rect->right, ppc_active_rect->bottom,	pinfo->ppc_config_id_active);
+	ppc_rect_coord = &pinfo->ppc_rect_info[config_id].rect;
+	display_rect->x = (int32_t)ppc_rect_coord->left;
+	display_rect->y = (int32_t)ppc_rect_coord->top;
+	display_rect->w = ppc_rect_coord->right - ppc_rect_coord->left;
+	display_rect->h = ppc_rect_coord->bottom - ppc_rect_coord->top;
+	dpu_pr_debug("ppc_rect_coord[l,t,r,b]=[%u, %u, %u, %u], id=%u\n", ppc_rect_coord->left,
+		ppc_rect_coord->top, ppc_rect_coord->right, ppc_rect_coord->bottom, config_id);
 
 	return 0;
 }
@@ -295,6 +315,18 @@ static int32_t get_active_display_rect(struct dkmd_connector_info *pinfo, struct
 static void get_dfr_info(struct dkmd_connector_info *pinfo, struct dfr_info **out)
 {
 	struct panel_drv_private *priv = to_panel_private(pinfo);
+	struct dpu_connector *connector = get_primary_connector(pinfo);
+
+	if (unlikely(connector->active_idx >= MAX_CONN_POST_INFO_NUM)) {
+		dpu_pr_warn("post_info %u is not exist", connector->active_idx);
+		*out = &priv->dfr_info;
+		return;
+	}
+
+	if (pinfo->dsc_switch_enable) {
+		*out = &connector->post_info[connector->active_idx]->dfr_info;
+		return;
+	}
 
 	*out = &priv->dfr_info;
 }
@@ -313,6 +345,69 @@ static void get_ddic_cmds(struct dkmd_connector_info *pinfo,
 	dpu_pr_debug("exit\n");
 }
 
+static void get_cmds_tx_params(struct dkmd_connector_info *pinfo,
+	const struct dkmd_cmds_info *cmds_info, struct mipi_dsi_tx_params *params)
+{
+	struct dpu_panel_ops *entry_pops = NULL;
+
+	dpu_pr_debug("enter\n");
+
+	entry_pops = get_panel_ops(pinfo->base.id);
+	dpu_check_and_no_retval(!entry_pops, err, "panel ops is null\n");
+	if (entry_pops->get_cmds_tx_params)
+		entry_pops->get_cmds_tx_params(cmds_info, params);
+
+	dpu_pr_debug("exit\n");
+}
+
+static void get_dual_cmds_tx_params(struct dkmd_connector_info *pinfo, const struct dkmd_cmds_info *cmds_info,
+	struct mipi_dsi_tx_params *params0, struct mipi_dsi_tx_params *params1)
+{
+	struct dpu_panel_ops *entry_pops = get_panel_ops(pinfo->base.id);
+	dpu_check_and_no_retval(!entry_pops, err, "panel ops is null\n");
+	if (entry_pops->get_dual_cmds_tx_params)
+		entry_pops->get_dual_cmds_tx_params(cmds_info, params0, params1);
+}
+
+#ifdef CONFIG_DKMD_DPU_DYNAMIC_FAKE_PANEL
+bool is_hitest_panel_ready(struct platform_device *pdev)
+{
+	int ret = 0;
+	struct file *fp = NULL;
+	int retry_times = 1;
+	uint32_t is_fpga = 0;
+	struct device_node *np = pdev->dev.of_node;
+
+	ret = of_property_read_u32(np, "fpga_flag", &is_fpga);
+	if (ret) {
+		dpu_pr_info("read get fpga_flag failed!\n");
+		is_fpga = 1;
+	}
+	// fpga need retry more 30 times
+	retry_times = is_fpga ? 30 : 1;
+
+	while (retry_times) {
+		fp = filp_open("/dev/block/by-name/disp_panel_info", O_RDONLY, 0600);
+		if (IS_ERR(fp)) {
+			set_current_state(TASK_INTERRUPTIBLE);
+			// delay 2000ms retry
+			(void)schedule_timeout(msecs_to_jiffies(2000));
+			retry_times--;
+		} else {
+			break;
+		}
+	};
+
+	if (IS_ERR(fp)) {
+		dpu_pr_err("filp_open part disp_panel_info failed errno = %d", IS_ERR(fp));
+		return false;
+	} else {
+		filp_close(fp, NULL);
+	}
+	return true;
+}
+#endif
+
 static int32_t panel_probe(struct platform_device *pdev)
 {
 	struct panel_drv_private *priv = NULL;
@@ -327,6 +422,13 @@ static int32_t panel_probe(struct platform_device *pdev)
 	if (!is_connector_manager_available())
 		return -EPROBE_DEFER;
 
+#ifdef CONFIG_DKMD_DPU_DYNAMIC_FAKE_PANEL
+	if (strcmp(dev_name(&pdev->dev), "dynamic_fake_panel") == 0) {
+		if (!is_hitest_panel_ready(pdev))
+			return -EPROBE_DEFER;
+	}
+#endif
+
 	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv) {
 		dpu_pr_err("alloc panel driver private data failed!\n");
@@ -338,6 +440,8 @@ static int32_t panel_probe(struct platform_device *pdev)
 	priv->connector_info.base.peri_device = pdev;
 	priv->connector_info.get_dfr_info = get_dfr_info;
 	priv->connector_info.get_ddic_cmds = get_ddic_cmds;
+	priv->connector_info.get_cmds_tx_params = get_cmds_tx_params;
+	priv->connector_info.get_dual_cmds_tx_params = get_dual_cmds_tx_params;
 	platform_set_drvdata(pdev, priv);
 
 	ret = prepare_panel_dev_data(priv);
@@ -365,15 +469,21 @@ static int32_t panel_probe(struct platform_device *pdev)
 		dpu_pr_warn("device register failed, need retry!\n");
 		return -EPROBE_DEFER;
 	}
+	if (get_lcdkit_connector(&priv->connector_info) != 0) {
+		dpu_pr_warn("device register failed, need retry!\n");
+		return -EPROBE_DEFER;
+	}
 
 	priv->connector_info.get_panel_user_info = get_panel_user_info;
-	priv->connector_info.get_active_display_rect = get_active_display_rect;
+	priv->connector_info.get_display_rect_by_config_id = get_display_rect_by_config_id;
+	priv->connector_info.get_ppu_config_info = get_ppu_config_info;
 
 	if (is_ppc_support(&priv->connector_info.base)) {
-		priv->connector_info.get_panel_ppc_config_id_rect_info = get_panel_ppc_config_id_rect_info;
 		priv->connector_info.ppc_config_id_record = PPC_CONFIG_ID_G_MODE;
 		priv->connector_info.ppc_config_id_active = PPC_CONFIG_ID_G_MODE;
 	}
+
+	priv->connector_info.ppc_switch_flag = 0;
 
 	dpu_pr_info("exit\n");
 	return 0;

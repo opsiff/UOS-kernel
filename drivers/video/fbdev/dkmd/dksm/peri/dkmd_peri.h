@@ -22,6 +22,7 @@
 #include <linux/regulator/consumer.h>
 
 #include "dkmd_connector.h"
+#include "ukmd_utils.h"
 
 #define GEN_VID_LP_CMD BIT(24) /* vid lowpwr cmd write */
 /* dcs read/write */
@@ -61,6 +62,8 @@
 #define dsi_hdr_data1(data) (((data) & 0x0ff) << 8)
 #define dsi_hdr_data2(data) (((data) & 0x0ff) << 16)
 #define dsi_hdr_wc(wc) (((wc) & 0x0ffff) << 8)
+#define dsi_hdr_groupflag(group) (((group) & 0x03) << 25)
+#define dsi_hdr_singlemode(mode) (((mode) & 0x01) << 27)
 
 #define dsi_pld_data1(data) ((data) & 0x0ff)
 #define dsi_pld_data2(data) (((data) & 0x0ff) << 8)
@@ -108,7 +111,7 @@ enum panel_ops_cmd {
 
 	CHECK_LCD_STATUS ,
 	HANDLE_MIPI_ULPS,
-	MIPI_DSI_PARTIAL_UPDATE,
+	SET_PARTIAL_UPDATE,
 	RESET_PARTIAL_UPDATE,
 	LCD_SEND_HS_CMD,
 	LCD_SET_DISPLAY_REGION,
@@ -117,9 +120,14 @@ enum panel_ops_cmd {
 	SET_REFRESH_STATISTIC,
 	GET_STATISTIC_CLEAR_FLAG,
 	SET_PPC_CONFIG_ID,
-	UPDATE_SAFE_FRM_RATE,
+	NOTIFY_SFR_INFO,
+	SET_DSC_CONFIG,
+	DDIC_EXCEPTION_MODE_CFG,
 	PANEL_OPS_MAX,
-	MIPI_DSI_BIT_CLK_UPT
+	MIPI_DSI_BIT_CLK_UPT,
+	LCD_DOZE,
+	LCD_DOZE_SUSPEND,
+	LCD_SKIP_TP,
 };
 
 struct gpio_desc {
@@ -159,9 +167,15 @@ int32_t peri_pinctrl_cmds_tx(struct platform_device *pdev, struct pinctrl_cmd_de
 
 int32_t pipeline_next_on(struct platform_device *pdev, struct dkmd_connector_info *pinfo);
 int32_t pipeline_next_off(struct platform_device *pdev, struct dkmd_connector_info *pinfo);
+int32_t pipeline_next_handle_event(struct platform_device *pdev, struct dkmd_connector_info *pinfo,
+	uint32_t event, const void *data, bool is_isr_event);
 int32_t pipeline_next_ops_handle(struct platform_device *pdev, struct dkmd_connector_info *pinfo,
 	uint32_t ops_cmd_id, void *value);
-bool check_addr_status_is_valid(const char __iomem* check_addr, uint32_t status,
-	uint32_t udelay_time, uint32_t times);
+int32_t pipeline_next_connect(struct platform_device *pdev, struct dkmd_connector_info *pinfo);
+int32_t pipeline_next_disconnect(struct platform_device *pdev, struct dkmd_connector_info *pinfo);
+int32_t pipeline_next_disconnect_post_handle(struct platform_device *pdev, struct dkmd_connector_info *pinfo,
+	char __iomem *dpu_base);
+int32_t pipeline_next_set_timing(struct platform_device *pdev, struct dkmd_connector_info *pinfo,
+	uint32_t timing_index);
 
 #endif

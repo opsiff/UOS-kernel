@@ -19,6 +19,7 @@
 #include "config/dpu_opr_config.h"
 #include "cmdlist_interface.h"
 #include "dkmd_log.h"
+#include "dkmd_rect.h"
 
 struct opr_cmd_data *init_dpp_cmd_data(union dkmd_opr_id id)
 {
@@ -89,7 +90,8 @@ int32_t opr_set_dpp_data(struct opr_cmd_data *cmd_data, const struct dkmd_base_l
 	dpp_info->dpp_output_img_width.reg.dpp_output_img_height = height - 1;
 
 	set_dpp_sel_info(BIT(cmd_data->data->opr_id.info.ins),
-	    (uint32_t)opr_dpu_to_soc_type(next_cmd_datas[0]->data->opr_id.info.type), dpp_info);
+		(uint32_t)get_opr_oder(next_cmd_datas[0]->data->opr_id.info.type,
+		next_cmd_datas[0]->data->opr_id.info.ins), dpp_info);
 	dpp_info->dpp_reserved.reg.dpp_output_fmt = (uint32_t)dpu_fmt_to_sdma(cmd_data->data->out_common_data.format);
 	dpp_info->dpp_reserved.reg.dpp_input_fmt = (uint32_t)dpu_fmt_to_sdma(cmd_data->data->in_common_data.format);
 

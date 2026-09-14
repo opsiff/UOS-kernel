@@ -14,19 +14,22 @@
 #include "cmd_manager_impl.h"
 #include <linux/slab.h>
 #include <dpu/dpu_dm.h>
-#include <dkmd_cmdlist.h>
+#include <ukmd_cmdlist.h>
 #include "dkmd_base_frame.h"
+#include "dkmd_rect.h"
 #include "dkmd_network.h"
 #include "opr_cmd_data_interface.h"
 #include "cmdlist_interface.h"
 #include "dkmd_log.h"
 #include "config/dpu_config_utils.h"
+#include "res_mgr.h"
 
 int32_t request_scene_client(struct dkmd_base_frame *frame)
 {
-	frame->scene_cmdlist_id = cmdlist_create_user_client((uint32_t)frame->scene_id, SCENE_NOP_TYPE, 0, 0);
+	frame->scene_cmdlist_id = cmdlist_create_user_client(CMDLIST_DEV_ID_DPU,
+		(uint32_t)frame->scene_id, SCENE_NOP_TYPE, 0, 0);
 	if (unlikely(frame->scene_cmdlist_id == 0)) {
-		dpu_pr_err("scene_id=%u create scene cmdlist client fail", frame->scene_id);
+		dpu_pr_err("scene_id=%d create scene cmdlist client fail", frame->scene_id);
 		return -1;
 	}
 
@@ -36,21 +39,24 @@ int32_t request_scene_client(struct dkmd_base_frame *frame)
 int32_t request_dm_client(const struct dkmd_base_frame *frame, struct dkmd_network *network)
 {
 	struct dpu_dm_param *dm_param = NULL;
+	uint32_t cmdlist_dev_id = CMDLIST_DEV_ID_DPU;
 
-	network->dm_cmdlist_id = cmdlist_create_user_client((uint32_t)frame->scene_id, DM_TRANSPORT_TYPE,
+	network->dm_cmdlist_id = cmdlist_create_user_client(cmdlist_dev_id,
+		(uint32_t)frame->scene_id, DM_TRANSPORT_TYPE,
 		g_dm_tlb_info[frame->scene_id].dm_data_addr, sizeof(struct dpu_dm_param));
 	if (unlikely(network->dm_cmdlist_id == 0)) {
-		dpu_pr_err("scene_id=%u create dm cmdlist client fail", frame->scene_id);
+		dpu_pr_err("scene_id=%d create dm cmdlist client fail", frame->scene_id);
 		return -1;
 	}
 
-	if (unlikely(cmdlist_append_client((uint32_t)frame->scene_id, frame->scene_cmdlist_id,
+	if (unlikely(cmdlist_append_client(cmdlist_dev_id, (uint32_t)frame->scene_id, frame->scene_cmdlist_id,
 		network->dm_cmdlist_id) != 0)) {
 		dpu_pr_err("append cmdlist client dm(%u) to scene(%u) fail", network->dm_cmdlist_id, frame->scene_cmdlist_id);
 		return -1;
 	}
 
-	dm_param = (struct dpu_dm_param *)cmdlist_get_payload_addr((uint32_t)frame->scene_id, network->dm_cmdlist_id);
+	dm_param = (struct dpu_dm_param *)cmdlist_get_payload_addr(cmdlist_dev_id,
+		(uint32_t)frame->scene_id, network->dm_cmdlist_id);
 	if (unlikely(!dm_param))
 		return -1;
 	set_dm_scene_info((uint32_t)frame->scene_id, (uint32_t)frame->scene_mode, dm_param);
@@ -58,32 +64,36 @@ int32_t request_dm_client(const struct dkmd_base_frame *frame, struct dkmd_netwo
 	dm_param->cmdlist_addr.cmdlist_h_addr.value = 0;
 
 	dm_param->cmdlist_addr.cmdlist_next_addr.reg.cmdlist_addr0 =
-		cmdlist_get_phy_addr((uint32_t)frame->scene_id, network->dm_cmdlist_id);
+		cmdlist_get_phy_addr(cmdlist_dev_id, (uint32_t)frame->scene_id, network->dm_cmdlist_id);
 
 	if (!network->is_first_block) {
-		dm_param = (struct dpu_dm_param *)cmdlist_get_payload_addr((uint32_t)frame->scene_id, network->pre_dm_cmdlist_id);
+		dm_param = (struct dpu_dm_param *)cmdlist_get_payload_addr(cmdlist_dev_id,
+			(uint32_t)frame->scene_id, network->pre_dm_cmdlist_id);
 		if (unlikely(!dm_param))
 			return -1;
 		dm_param->cmdlist_addr.cmdlist_next_addr.reg.cmdlist_addr0 =
-			cmdlist_get_phy_addr((uint32_t)frame->scene_id, network->pre_dm_cmdlist_id);
+			cmdlist_get_phy_addr(cmdlist_dev_id, (uint32_t)frame->scene_id, network->pre_dm_cmdlist_id);
 	}
 
 	return 0;
 }
 
-int32_t request_reg_client(const struct dkmd_base_frame *frame, struct dkmd_network *network)
+int32_t request_reg_client(struct dkmd_base_frame *frame, struct dkmd_network *network)
 {
-	network->reg_cmdlist_id = cmdlist_create_user_client((uint32_t)frame->scene_id, REGISTER_CONFIG_TYPE, 0, PAGE_SIZE);
+	network->reg_cmdlist_id = cmdlist_create_user_client(CMDLIST_DEV_ID_DPU,
+		(uint32_t)frame->scene_id, REGISTER_CONFIG_TYPE, 0, PAGE_SIZE);
 	if (unlikely(network->reg_cmdlist_id == 0)) {
-		dpu_pr_err("scene_id=%u create reg cmdlist client fail", frame->scene_id);
+		dpu_pr_err("scene_id=%d create reg cmdlist client fail", frame->scene_id);
 		return -1;
 	}
+	frame->reg_cmdlist_id = network->reg_cmdlist_id;
 	return 0;
 }
 
 int32_t append_reg_client(const struct dkmd_base_frame *frame, const struct dkmd_network *network)
 {
-	if (unlikely((cmdlist_append_client((uint32_t)frame->scene_id, frame->scene_cmdlist_id,
+	if (unlikely((cmdlist_append_client(CMDLIST_DEV_ID_DPU,
+		(uint32_t)frame->scene_id, frame->scene_cmdlist_id,
 		network->reg_cmdlist_id)) != 0)) {
 		dpu_pr_err("append cmdlist client reg(%u) to scene(%u) fail", network->reg_cmdlist_id, frame->scene_cmdlist_id);
 		return -1;
@@ -97,26 +107,30 @@ static int32_t request_opr_cfg_client(const struct dkmd_base_frame *frame, struc
 	uint32_t i;
 	uint32_t cfg_cmdlist_id;
 	struct opr_cmd_data_base *data = cmd_data->data;
+	uint32_t cmdlist_dev_id = CMDLIST_DEV_ID_DPU;
 
 	for (i = 0; i < data->cfg_addr_num; ++i) {
-		cfg_cmdlist_id = cmdlist_create_user_client((uint32_t)data->scene_id, DATA_TRANSPORT_TYPE,
+		cfg_cmdlist_id = cmdlist_create_user_client(cmdlist_dev_id,
+			(uint32_t)data->scene_id, DATA_TRANSPORT_TYPE,
 			data->cfg_addr_info[i].reg_addr, data->cfg_addr_info[i].reg_size);
 		if (unlikely(cfg_cmdlist_id == 0)) {
-			dpu_pr_err("scene_id=%u create opr cfg cmdlist client fail", data->scene_id);
+			dpu_pr_err("scene_id=%d create opr cfg cmdlist client fail", data->scene_id);
 			return -1;
 		}
 
-		data->cfg_addr_info[i].payload_addr = cmdlist_get_payload_addr((uint32_t)data->scene_id, cfg_cmdlist_id);
+		data->cfg_addr_info[i].payload_addr = cmdlist_get_payload_addr(cmdlist_dev_id,
+			(uint32_t)data->scene_id, cfg_cmdlist_id);
 		if (unlikely(!(data->cfg_addr_info[i].payload_addr))) {
 			dpu_pr_err("payload_addr is null");
 			return -1;
 		}
 
-		if (unlikely(cmdlist_append_client((uint32_t)frame->scene_id, frame->scene_cmdlist_id, cfg_cmdlist_id) != 0)) {
+		if (unlikely(cmdlist_append_client(cmdlist_dev_id,
+			(uint32_t)frame->scene_id, frame->scene_cmdlist_id, cfg_cmdlist_id) != 0)) {
 			dpu_pr_err("append cmdlist client cfg(%u) to scene(%u) fail", cfg_cmdlist_id, frame->scene_cmdlist_id);
 			return -1;
 		}
-		cmdlist_flush_client((uint32_t)frame->scene_id, cfg_cmdlist_id);
+		cmdlist_flush_client(cmdlist_dev_id, (uint32_t)frame->scene_id, cfg_cmdlist_id);
 	}
 
 	return 0;
@@ -124,10 +138,10 @@ static int32_t request_opr_cfg_client(const struct dkmd_base_frame *frame, struc
 
 void flush_all_cmdlist_client(const struct dkmd_base_frame *frame, const struct dkmd_network *network)
 {
-	cmdlist_flush_client((uint32_t)frame->scene_id, network->dm_cmdlist_id);
+	cmdlist_flush_client(CMDLIST_DEV_ID_DPU, (uint32_t)frame->scene_id, network->dm_cmdlist_id);
 
 	if (network->is_last_block)
-		cmdlist_flush_client((uint32_t)frame->scene_id, frame->scene_cmdlist_id);
+		cmdlist_flush_client(CMDLIST_DEV_ID_DPU, (uint32_t)frame->scene_id, frame->scene_cmdlist_id);
 }
 
 static struct opr_cmd_data *set_opr_cmd_data(const struct dkmd_base_frame *frame, const struct dkmd_network *network,
@@ -138,12 +152,13 @@ static struct opr_cmd_data *set_opr_cmd_data(const struct dkmd_base_frame *frame
 	dpu_check_and_return(!cmd_data, NULL, err, "cmd_data is NULL");
 	dpu_check_and_return(!cmd_data->data, NULL, err, "cmd_data->data is NULL");
 
-	dpu_pr_debug("cur_opr_id=%#x", cur_opr_id);
+	dpu_pr_debug("cur_opr_id=%#x", cur_opr_id.id);
 	cmd_data->data->opr_id = cur_opr_id;
 	cmd_data->data->scene_id = frame->scene_id;
 	cmd_data->data->scene_mode = frame->scene_mode;
 	cmd_data->data->dm_param =
-		(struct dpu_dm_param *)cmdlist_get_payload_addr((uint32_t)frame->scene_id, network->dm_cmdlist_id);
+		(struct dpu_dm_param *)cmdlist_get_payload_addr(CMDLIST_DEV_ID_DPU,
+			(uint32_t)frame->scene_id, network->dm_cmdlist_id);
 	cmd_data->data->reg_cmdlist_id = network->reg_cmdlist_id;
 
 	return cmd_data;
@@ -167,7 +182,7 @@ static int32_t gen_opr_cmd(struct opr_cmd_data *cmd_data, const struct dkmd_base
 	for (i = 0; i < next_opr_ids_num; ++i) {
 		next_cmd_datas[i] = get_opr_cmd_data(next_opr_ids[i]);
 		if (unlikely(!next_cmd_datas[i])) {
-			dpu_pr_err("opr_id[%u]=%#x get cmd data fail", i, next_opr_ids[i]);
+			dpu_pr_err("opr_id[%u]=%#x get cmd data fail", i, next_opr_ids[i].id);
 			return -1;
 		}
 	}
@@ -214,7 +229,7 @@ static int32_t set_head_oprs_info(union dkmd_opr_id *post_head_opr_ids, const st
 			return -1;
 		}
 		post_head_opr_ids[i] = post_pipelines[i].opr_ids[0];
-		dpu_pr_debug("post_pipeline=%u post_head_opr_id=%#x", i, post_head_opr_ids[i]);
+		dpu_pr_debug("post_pipeline=%u post_head_opr_id=%#x", i, post_head_opr_ids[i].id);
 		cmd_data = get_opr_cmd_data(post_head_opr_ids[i]);
 		if (unlikely(!cmd_data)) {
 			dpu_pr_err("post_pipelines[%u] get_opr_cmd_data fail", i);
@@ -328,7 +343,10 @@ void set_frame_cmd_data(const struct dkmd_base_frame *frame, const struct dkmd_n
 	uint32_t xres = 0;
 	uint32_t yres = 0;
 	uint32_t i;
-	struct dbuf_config_info* dbuf_info = NULL;
+	struct dbuf_config_info *dbuf_info = NULL;
+	struct dpu_dyn_configs dyn_config = {0};
+	struct dbuf_calc_thd_input dbuf_calc_input = {0};
+
 	if (unlikely(!frame || !network)) {
 		dpu_pr_err("frame or network is null\n");
 		return;
@@ -340,10 +358,23 @@ void set_frame_cmd_data(const struct dkmd_base_frame *frame, const struct dkmd_n
 	yres = rect_height(&frame->layers[0].src_rect);
 
 	/* config dbuf threshold */
-	dbuf_info = dbuf_get_config_info(xres, yres, block_layer->dsc_en, block_layer->dsc_out_width, frame->fps);
+	dbuf_calc_input.xres = xres;
+	dbuf_calc_input.yres = yres;
+	dbuf_calc_input.dsc_en = block_layer->dsc_en;
+	dbuf_calc_input.dsc_out_width = block_layer->dsc_out_width;
+	dbuf_calc_input.fps = frame->fps;
+	dbuf_calc_input.scene_id = (uint32_t)frame->scene_id;
+
+	dbuf_info = dbuf_get_config_info(&dbuf_calc_input);
 	if (unlikely(dbuf_info == NULL))
 		return;
-
 	for (i = 0; i < DPU_DBUF_REG_NUM; i++)
-		dkmd_set_reg((uint32_t)frame->scene_id, network->reg_cmdlist_id, dbuf_info->addr_offset[i], dbuf_info->value[i]);
+		ukmd_set_reg(CMDLIST_DEV_ID_DPU,
+			(uint32_t)frame->scene_id, network->reg_cmdlist_id, dbuf_info->addr_offset[i], dbuf_info->value[i]);
+
+	dyn_config.config_cnt = 0;
+	dpu_get_dyn_config_info(&dyn_config, xres, yres, block_layer->dsc_en, block_layer->dsc_out_width, frame->fps);
+	for (i = 0; i < dyn_config.config_cnt; i++)
+		ukmd_set_reg(CMDLIST_DEV_ID_DPU, (uint32_t)frame->scene_id, network->reg_cmdlist_id,
+			dyn_config.dyn_configs[i].addr_offset, dyn_config.dyn_configs[i].value);
 }

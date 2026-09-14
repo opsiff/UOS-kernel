@@ -19,6 +19,7 @@
 #include <linux/interrupt.h>
 #include "dkmd_dsc_info.h"
 
+#define range_max(x, max) ((x) > (max) ? (max) : (x))
 #define range_clamp(x, min, max) ((x) > (max) ? (max) : ((x) < (min) ? (min) : (x)))
 #define range_check(s, x, low_bound, upper_bound) \
 	do { \
@@ -112,6 +113,28 @@
 #define RC_MODEL_YUV422_DEFAULT 3
 #define RC_MODEL_RGB_DEFAULT 4
 #define DSC_OUTPUT_MODE 24
+
+#define PIC_WIDTH_MAX 4096
+#define PIC_HEIGHT_MAX 8192
+#define RC_MODE_SIZE_MAX 8192
+#define RC_TGT_OFFSET_HI_MAX 15
+#define RC_TGT_OFFSET_LO_MAX 15
+#define RC_EDGE_FACTOR_MAX 15
+#define RC_QUANT_INCR_LIMIT1 31
+#define RC_QUANT_INCR_LIMIT0 31
+
+#define LINEBUF_DEPTH_MIN 8
+#define LINEBUF_DEPTH_MAX 11
+
+#define FIRST_LINE_BPG_OFFSET_MAX 31
+#define SECOND_LINE_BPG_OFFSET_MAX 31
+
+#define INITIAL_SCALE_VALUE_MAX 63
+#define INITIAL_XMIT_DELAY_MAX 1023
+#define SCALE_DECREMENT_INTERVAL 4095
+
+#define FLATNESS_MIN_QP_MAX 31
+#define FLATNESS_MAX_QP_MAX 31
 
 struct rc_table_param {
 	uint32_t min_qp : 5;

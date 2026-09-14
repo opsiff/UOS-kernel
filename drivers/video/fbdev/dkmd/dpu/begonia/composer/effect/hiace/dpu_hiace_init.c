@@ -268,13 +268,14 @@ void dpu_hiace_init_params(struct dpu_composer *dpu_comp)
 
 	dpu_comp_active_vsync(dpu_comp);
 
-	// only for cmd panel
+	// only for cmd panle
 	if (!is_mipi_video_panel(&dpu_comp->conn_info->base))
 		set_reg(DPU_HIACE_BYPASS_ACE_ADDR(hiace_base), 0x0, 1, 0);
 
 	set_reg(DPU_HIACE_INIT_GAMMA_ADDR(hiace_base), 0x1, 1, 0);
 	set_reg(DPU_HIACE_UPDATE_LOCAL_ADDR(hiace_base), 0x1, 1, 0);
 	set_reg(DPU_HIACE_UPDATE_FNA_ADDR(hiace_base), 0x1, 1, 0);
+	set_reg(DPU_DPP_HIGHLIGHT_ADDR(dpp_base), 0x0, 32, 0);
 
 	/* PIPE_CFG default value */
 	/* init ace param 0x30~ 0x60 */

@@ -14,6 +14,7 @@
 #include "dpu_panel_partial_ctl.h"
 #include "dkmd_log.h"
 #include "dkmd_notify.h"
+#include "dksm_debug.h"
 
 void dpu_comp_ppc_ctrl_setup(struct dpu_composer *dpu_comp, struct comp_online_present *present)
 {
@@ -59,7 +60,7 @@ int32_t dpu_comp_preprocess_set_active_rect(struct dpu_composer *dpu_comp, uint3
 	pinfo->ppc_config_id_record = ppc_config_id;
 
 	event.data = NULL;
-	event.value = pinfo->ppc_config_id_record;
+	event.value = (int32_t)pinfo->ppc_config_id_record;
 	dkmd_notifier_call_chain(DKMD_EVENT_SET_ACTIVE_RECT, (void *)&event);
 
 	if (alsc_need_update)

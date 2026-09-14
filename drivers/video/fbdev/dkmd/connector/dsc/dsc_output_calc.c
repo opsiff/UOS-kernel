@@ -96,6 +96,7 @@ void dsc_calculation(struct dsc_calc_info *dsc, uint32_t ifbc_type)
 static uint32_t get_hsize_after_spr_dsc(struct dsc_calc_info *dsc, uint32_t input_width, uint32_t panel_xres)
 {
 	uint32_t hsize = input_width;
+	uint32_t slice_num;
 
 	dpu_check_and_return((!dsc), hsize, err, "dsc is invalid\n");
 
@@ -114,8 +115,9 @@ static uint32_t get_hsize_after_spr_dsc(struct dsc_calc_info *dsc, uint32_t inpu
 	 * bits_per_component * 3: 3 means GPR888 have 3 component
 	 * pinfo->vesa_dsc.bits_per_pixel / 2: 2 means YUV422 BPP nead plus 2 config.
 	 */
+	slice_num = dsc->dsc_info.slice_width == 0 ? 2 : dsc->dsc_info.pic_width / dsc->dsc_info.slice_width;
 	if ((dsc->dsc_en != 0) && (dsc->spr_en != 0)) { /* dsc1.2+spr */
-		hsize = ((dsc->dsc_info.chunk_size + dsc->dsc_insert_byte_num) * (dsc->dual_dsc_en + 1)) * 8 / DSC_OUTPUT_MODE;
+		hsize = ((dsc->dsc_info.chunk_size + dsc->dsc_insert_byte_num) * slice_num) * 8 / DSC_OUTPUT_MODE;
 		hsize = hsize / (panel_xres / input_width);
 	} else if (dsc->spr_en != 0) { /* only spr */
 		hsize = input_width * 2 / 3;
@@ -127,6 +129,7 @@ static uint32_t get_hsize_after_spr_dsc(struct dsc_calc_info *dsc, uint32_t inpu
 uint32_t get_dsc_out_width(struct dsc_calc_info *dsc, uint32_t ifbc_type, uint32_t input_width, uint32_t panel_xres)
 {
 	uint32_t xres_div;
+	uint32_t slice_num;
 	uint32_t output_width = input_width;
 
 	dpu_check_and_return((!dsc), output_width, err, "dsc is invalid\n");
@@ -143,10 +146,11 @@ uint32_t get_dsc_out_width(struct dsc_calc_info *dsc, uint32_t ifbc_type, uint32
 	 * bpc = 10 && bpp = 8, xres_div = 3.75
 	 * after dsc, data stream map to 8 bit dsi out: input_width * 8 / 8 / 3
 	 */
+	slice_num = dsc->dsc_info.slice_width == 0 ? 2 : dsc->dsc_info.pic_width / dsc->dsc_info.slice_width;
 	if ((dsc->dsc_info.dsc_bpc == DSC_10BPC) && (ifbc_type == IFBC_TYPE_VESA3X_DUAL)) {
 		output_width = output_width * 30 / 24 / xres_div;
 	} else if ((output_width % xres_div) > 0) {
-		output_width = ((dsc->dsc_info.chunk_size + dsc->dsc_insert_byte_num) * (dsc->dual_dsc_en + 1)) / xres_div;
+		output_width = ((dsc->dsc_info.chunk_size + dsc->dsc_insert_byte_num) * slice_num) / xres_div;
 	} else {
 		output_width /= xres_div;
 	}

@@ -25,7 +25,7 @@ struct dkmd_pipeline;
 
 int32_t request_scene_client(struct dkmd_base_frame *frame);
 int32_t request_dm_client(const struct dkmd_base_frame *frame, struct dkmd_network *network);
-int32_t request_reg_client(const struct dkmd_base_frame *frame, struct dkmd_network *network);
+int32_t request_reg_client(struct dkmd_base_frame *frame, struct dkmd_network *network);
 int32_t append_reg_client(const struct dkmd_base_frame *frame, const struct dkmd_network *network);
 void flush_all_cmdlist_client(const struct dkmd_base_frame *frame, const struct dkmd_network *network);
 

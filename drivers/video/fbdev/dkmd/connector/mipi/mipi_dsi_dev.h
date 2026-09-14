@@ -14,13 +14,20 @@
 #ifndef __MIPI_DSI_DEV_H__
 #define __MIPI_DSI_DEV_H__
 
+#include <linux/device.h>
+#include <linux/types.h>
+#include <linux/spinlock.h>
+#include <linux/semaphore.h>
+
 #include "dkmd_mipi_panel_info.h"
+#include "dkmd_cmds_info.h"
 
 #define DPHYTX_TRSTOP_FLAG_TIMEOUT_TIMES (10)
 #define DSI_ADDR_TO_OFFSET (0)
 #define READ_MAX 100
 #define BUF_MAX (4 * READ_MAX)
 #define TX_CMD_MAX 1000
+#define DLEN_MAX 1024
 
 enum {
 	DSI_LANE_NUMS_DEFAULT = 0,
@@ -106,15 +113,36 @@ struct mipi_dual_dsi_param {
 	int cmdset_cnt;
 };
 
+struct mipi_dsi_cmds_info {
+	struct dkmd_cmds_info cmds_info;
+	bool follow_frame;
+	bool is_force_sync;
+};
+
+struct mipi_dsi_cmds_window_info {
+	uint32_t frm_rate;
+	ktime_t timestamp;
+	uint32_t vsync_offset_threshold;
+	bool is_adapt_vsync;
+};
+
 struct dpu_connector;
 struct dkmd_connector_info;
 
 void mipi_init(struct dpu_connector *connector);
 int32_t mipi_dsi_cmds_tx(struct dsi_cmd_desc *cmds, int32_t cnt, char __iomem *dsi_base);
 int32_t mipi_dsi_cmd_add(struct dsi_cmd_desc *cm, char __iomem *dsi_base);
+int32_t mipi_dsi_cmd_add_nolock(struct dsi_cmd_desc *cm, char __iomem *dsi_base);
+int32_t mipi_dsi_cmd_add_to_cmdlist(uint32_t dev_id, uint32_t scene_id,uint32_t cmdlist_id,
+	uint32_t dsi_offset, struct dsi_cmd_desc *cm);
 int32_t mipi_dsi_lread_reg(uint32_t *out, int out_len, struct dsi_cmd_desc *cm, uint32_t len, char *dsi_base);
-void delay_for_next_cmd_by_sleep(uint32_t wait, uint32_t waittype);
-bool mipi_panel_check_reg(struct dpu_connector *connector);
+int32_t mipi_dsi_lread_group_reg(uint32_t *out, int out_len, struct dsi_cmd_desc *cm, uint32_t len, char *dsi_base);
+void delay_for_next_cmd(uint32_t wait, uint32_t waittype);
+
+void mipi_dsi_tx_lp_mode_cfg(char __iomem *dsi_base);
+void mipi_dsi_rx_lp_mode_cfg(char __iomem *dsi_base);
+void mipi_dsi_tx_hs_mode_cfg(char __iomem *dsi_base);
+void mipi_dsi_rx_hs_mode_cfg(char __iomem *dsi_base);
 
 int mipi_dsi_get_read_value(struct dsi_cmd_desc *dsi_cmd,
 	uint8_t *dest, uint32_t *src, uint32_t len, bool little_endian_support);
@@ -124,21 +152,29 @@ int32_t mipi_dsi_fifo_idle_cycle(const char __iomem *dsi_base);
 int mipi_dsi_fifo_is_full(const char __iomem *dsi_base);
 void mipi_dsi_max_return_packet_size(struct dsi_cmd_desc *cm, char __iomem *dsi_base);
 void mipi_dsi_sread_request(struct dsi_cmd_desc *cm, char __iomem *dsi_base);
+uint32_t mipi_dsi_read(uint32_t *out, const char __iomem *dsi_base, uint32_t wait_us, uint32_t present_time_us);
 
 void mipi_dsi_default_setup(struct dpu_connector *connector);
+void mipi_dsi_default_release(struct dpu_connector *connector);
 bool mipi_phy_status_check(const char __iomem *mipi_dsi_base, uint32_t expected_value);
 void mipi_dsi_ulps_cfg(struct dpu_connector *connector, bool is_ulps);
 
 void mipi_dsi_auto_ulps_config(struct mipi_dsi_timing *timing, struct dpu_connector *connector,
 	char __iomem *mipi_dsi_base);
 void mipi_auto_ulps_ctrl(struct dpu_connector *connector, bool is_auto_ulps);
+int mipi_dual_dsi_fifo_is_full(const char __iomem *dsi_base_0, const char __iomem *dsi_base_1);
 int32_t  mipi_dual_dsi_cmds_tx(struct dsi_cmd_desc *cmd0, int cnt0, char __iomem *dsi_base_0,
 	struct dsi_cmd_desc *cmd1, int cnt1, char __iomem *dsi_base_1, uint8_t tx_mode, bool need_check_fifo);
+int32_t mipi_dual_dsi_lread_reg(struct mipi_dual_dsi_param *dual_dsi0,
+	struct dsi_cmd_desc *p_cmd, uint32_t dlen, struct mipi_dual_dsi_param *dual_dsi1);
+int32_t mipi_dual_dsi_lread_group_reg(struct mipi_dual_dsi_param *dual_dsi0, struct dsi_cmd_desc *p_cmd,
+	uint32_t dlen, struct mipi_dual_dsi_param *dual_dsi1);
 int32_t mipi_dual_dsi_cmds_rx(char __iomem *dsi_base_0, uint8_t *dsi0_out, char __iomem *dsi_base_1,
 	uint8_t *dsi1_out, int out_len, struct dsi_cmd_desc *cmd,  bool little_endian_support);
 void mipi_transfer_lock_init(void);
 
-void mipi_dsi_dfr_update(struct dpu_connector *connector, int target_frmrate, int mode);
+void mipi_dsi_dfr_update(struct dpu_connector *connector, uint32_t target_frmrate, int mode);
 int32_t mipi_wait_ldi_vstate_idle(struct dpu_connector *connector, const void *value);
-
+int32_t mipi_update_info(struct dpu_connector *connector, const void *value);
+void mipi_dsi_set_interval(struct dpu_connector *connector, uint32_t hardware_time, uint32_t cmd_nums);
 #endif

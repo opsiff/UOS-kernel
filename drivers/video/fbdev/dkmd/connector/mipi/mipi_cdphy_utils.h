@@ -18,7 +18,6 @@
 
 #define DEFAULT_MAX_TX_ESC_CLK (10 * 1000000UL)
 #define DEFAULT_MIPI_CLK_RATE  (192 * 100000L)
-#define DEFAULT_MIPI_REF_CLK_RATE  (384 * 100000L)
 
 #define VFP_TIME_MASK 0x7fff
 #define VFP_TIME_OFFSET 10
@@ -45,6 +44,13 @@
 #define T3_POST_PHY_TIMING 0x1e
 
 #define phy_reduce(x) ((x) > 0 ? ((x) - 1) : (x))
+
+#define MAX_LANE_NUMS 4
+
+#define TE_MAX_DELAY_CYCLE 0XFFF
+#define TE_DELAY_TIMES_US  30
+
+#define MAX_TIMEOUT_WAIT 500000
 
 struct dpu_connector;
 struct mipi_panel_info;
@@ -141,5 +147,12 @@ void get_mipi_dsi_timing_config_para(struct mipi_panel_info* mipi,
 	struct mipi_dsi_phy_ctrl* phy_ctrl, struct mipi_dsi_timing* timing);
 void mipi_dsi_reset_init(struct dpu_connector* connector);
 void mipi_dsi_reset_deinit(struct dpu_connector* connector);
+void set_phy_ref_clk_ctl_en(struct dpu_connector *connector);
+void set_phy_ref_clk_ctl_disable(struct dpu_connector *connector);
 void mipi_dsi_convert_pxl2cycle(struct dpu_panel_info *pinfo);
+uint64_t get_default_lane_byte_clk(struct mipi_panel_info *mipi);
+uint32_t get_mipi_pixel_clk(struct mipi_panel_info *mipi);
+void mipi_dsi_te_delay_config(struct dpu_connector *connector, uint64_t lane_byte_clk);
+void mipi_pll_cfg_for_clk_upt(struct dpu_connector *connector,
+	struct mipi_dsi_phy_ctrl *phy_ctrl, char __iomem *mipi_dsi_base);
 #endif

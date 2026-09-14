@@ -20,11 +20,16 @@
 #include "dkmd_res_mgr.h"
 #include "dkmd_log.h"
 
+#define SCENE_ID_USER_TGID_MAX 5
+#define SCENE_ID_REQUEST_TIMES_MAX 10
 struct scene_id_node {
 	struct list_head list_node;
 
 	struct scene_id_info id_info;
+	uint32_t tgid_cnt;
+	int32_t user_tgid[SCENE_ID_USER_TGID_MAX];
 	atomic_t ref_cnt;
+	uint32_t req_cnt;
 };
 
 struct dpu_scene_id_mgr {

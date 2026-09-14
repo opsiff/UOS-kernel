@@ -24,6 +24,7 @@
 #define DVFS_PMCTRL_PERI_CTRL4_TEMPERATURE_MASK GENMASK(27, 26)
 #define DVFS_PMCTRL_PERI_CTRL4_TEMPERATURE_SHIFT 26
 #define DVFS_MIDIA_PERI_CTRL4 0x350
+#define FORCE_INTER_DVFS_CNT 3
 
 // g_dvfs_mgr protected by sem lock in dvfs.c
 struct dpu_dvfs *g_dvfs_mgr = NULL;
@@ -40,21 +41,28 @@ uint32_t dpu_dvfs_check_low_temperature(void)
 	return perictrl4;
 }
 
-static uint64_t dpu_dvfs_get_final_vote_freq(uint32_t comp_index, struct intra_frame_dvfs_info *info)
+static uint64_t dpu_dvfs_get_final_vote_freq(uint32_t comp_index, struct vote_freq_info vote_freq_info)
 {
 	uint32_t i = 0;
 	uint64_t final_total_freq = 0;
+	uint64_t ov_total_freq = 0;
+	uint64_t current_total_freq = 0;
 
-	g_dvfs_mgr->user_info[comp_index].vote_freq_info = info->vote_freq_info;
+	g_dvfs_mgr->user_info[comp_index].vote_freq_info = vote_freq_info;
 	for (; i < DEVICE_COMP_MAX_COUNT; i++) {
 		final_total_freq += g_dvfs_mgr->user_info[i].vote_freq_info.sdma_freq;
-		dpu_pr_debug("sdma freq[%d] is %llu", i, g_dvfs_mgr->user_info[i].vote_freq_info.sdma_freq);
+		ov_total_freq += g_dvfs_mgr->user_info[i].vote_freq_info.ov_freq;
+		current_total_freq = max(current_total_freq, g_dvfs_mgr->user_info[i].vote_freq_info.current_total_freq);
+		dpu_pr_debug("comp_index[%u], sdma freq is %llu, ov freq is %llu, current total freq is %llu",
+			i, g_dvfs_mgr->user_info[i].vote_freq_info.sdma_freq,
+			g_dvfs_mgr->user_info[i].vote_freq_info.ov_freq, g_dvfs_mgr->user_info[i].vote_freq_info.current_total_freq);
 	}
 
-	for (i = 0; i < DEVICE_COMP_MAX_COUNT; i++) {
-		final_total_freq = max(final_total_freq, g_dvfs_mgr->user_info[i].vote_freq_info.current_total_freq);
-		dpu_pr_debug("current total freq[%d] is %llu", i, g_dvfs_mgr->user_info[i].vote_freq_info.current_total_freq);
-	}
+	if (comp_index == DEVICE_COMP_VIRTUAL_ID)
+		final_total_freq = dpu_dvfs_freq_add_offline_axi(final_total_freq);
+
+	final_total_freq = max(final_total_freq, ov_total_freq);
+	final_total_freq = max(final_total_freq, current_total_freq);
 
 	dpu_pr_debug("final total freq is %llu", final_total_freq);
 
@@ -100,8 +108,10 @@ static void dpu_dvfs_debug_vote_level(uint32_t comp_index, uint32_t perf_level,
 			vote_level = g_debug_dpu_perf_level;
 	}
 
-	if (vote_level == g_dvfs_mgr->voted_level)
+	if (vote_level == g_dvfs_mgr->voted_level) {
+		dpu_pr_info("vote_level = %u the same as record, do not need vote again", vote_level);
 		return;
+	}
 
 	if (g_debug_dvfs_type == DVFS_INTER_HW_TYPE)
 		dpu_dvfs_direct_process(vote_level, need_config_qos);
@@ -113,6 +123,7 @@ static void dpu_dvfs_debug_vote_level(uint32_t comp_index, uint32_t perf_level,
 
 void dpu_dvfs_inter_frame_vote(uint32_t comp_index, struct intra_frame_dvfs_info *info)
 {
+	uint32_t vote_level = 0;
 	dpu_pr_debug("+");
 
 	if (unlikely(info == NULL) || unlikely(g_dvfs_mgr == NULL))
@@ -128,31 +139,32 @@ void dpu_dvfs_inter_frame_vote(uint32_t comp_index, struct intra_frame_dvfs_info
 
 	down(&g_dvfs_mgr->sem);
 
-	info->perf_level = dpu_config_get_perf_level(dpu_dvfs_get_final_vote_freq(comp_index, info));
-	dpu_pr_debug("perf_level=%u", info->perf_level);
+	vote_level = dpu_config_get_perf_level(dpu_dvfs_get_final_vote_freq(comp_index, info->vote_freq_info));
+	dpu_pr_debug("perf_level=%u", vote_level);
 
-	if((dpu_dvfs_check_low_temperature() != 0) && (info->perf_level == DPU_PERF_LEVEL_MAX)) {
+	if((dpu_dvfs_check_low_temperature() != 0) && (vote_level == DPU_PERF_LEVEL_MAX)) {
 		dpu_pr_debug("low temp and perf_level=%u", DPU_PERF_LEVEL_MAX);
-		info->perf_level = DPU_PERF_LEVEL_MAX - 1;
+		vote_level = DPU_PERF_LEVEL_MAX - 1;
 	}
 	// debug for switch to other dvfs type
 	if (g_debug_dvfs_type != DVFS_INTRA_TYPE) {
-		dpu_dvfs_debug_vote_level(comp_index, info->perf_level, true, false);
+		dpu_dvfs_debug_vote_level(comp_index, vote_level, true, false);
+		g_dvfs_mgr->inter_dvfs_locked_count++;
 		up(&g_dvfs_mgr->sem);
 		return;
 	}
 
 	if (g_debug_dpu_perf_level != 0 && g_debug_dpu_perf_level <= DPU_PERF_LEVEL_MAX)
-		info->perf_level = g_debug_dpu_perf_level;
+		vote_level = g_debug_dpu_perf_level;
 
-	g_dvfs_mgr->user_info[comp_index].voted_level = info->perf_level;
+	g_dvfs_mgr->user_info[comp_index].voted_level = vote_level;
 	// if copybit vote LEVEL_1, do not need vote perf level
-	if (info->perf_level == DPU_CORE_LEVEL_ON) {
+	if (vote_level == DPU_CORE_LEVEL_ON) {
 		up(&g_dvfs_mgr->sem);
 		return;
 	}
 
-	dpu_dvfs_inter_process(info->perf_level, true);
+	dpu_dvfs_inter_process(vote_level, true);
 	g_dvfs_mgr->inter_dvfs_locked_count++;
 
 	up(&g_dvfs_mgr->sem);
@@ -160,10 +172,10 @@ void dpu_dvfs_inter_frame_vote(uint32_t comp_index, struct intra_frame_dvfs_info
 	dpu_pr_debug("-");
 }
 
-void dpu_dvfs_intra_frame_vote(uint32_t comp_index, struct intra_frame_dvfs_info *info,
-	bool need_direct_vote)
+void dpu_dvfs_intra_frame_vote(uint32_t comp_index, struct intra_frame_dvfs_info *info, bool is_support_doze1)
 {
 	bool inter_locked = false;
+	uint32_t vote_level = 0;
 
 	dpu_pr_debug("+");
 
@@ -182,31 +194,39 @@ void dpu_dvfs_intra_frame_vote(uint32_t comp_index, struct intra_frame_dvfs_info
 
 	down(&g_dvfs_mgr->sem);
 
-	info->perf_level = dpu_config_get_perf_level(dpu_dvfs_get_final_vote_freq(comp_index, info));
-	dpu_pr_debug("perf_level=%u", info->perf_level);
+	vote_level = dpu_config_get_perf_level(dpu_dvfs_get_final_vote_freq(comp_index, info->vote_freq_info));
+	dpu_pr_debug("perf_level=%u", vote_level);
+	g_dvfs_mgr->last_intra_frame_voted_level = vote_level;
 
 	// debug for switch to other dvfs type
 	if (g_debug_dvfs_type != DVFS_INTRA_TYPE) {
-		dpu_dvfs_debug_vote_level(comp_index, info->perf_level, true, false);
+		dpu_dvfs_debug_vote_level(comp_index, vote_level, true, false);
 		up(&g_dvfs_mgr->sem);
 		return;
 	}
 
 	if (g_debug_dpu_perf_level != 0 && g_debug_dpu_perf_level <= DPU_PERF_LEVEL_MAX)
-		info->perf_level = g_debug_dpu_perf_level;
+		vote_level = g_debug_dpu_perf_level;
 
-	if (need_direct_vote || !info->is_supported_intra_dvfs) {
-		dpu_dvfs_inter_process(info->perf_level, false);
+	if (!info->is_supported_intra_dvfs) {
+		dpu_dvfs_inter_process(vote_level, false);
 		up(&g_dvfs_mgr->sem);
 		return;
 	}
 
+	if (g_debug_dvfs_auto_test_enable == 1)
+		g_dvfs_mgr->inter_dvfs_locked_count = 0;
 	dpu_pr_debug("inter_dvfs_locked_count=%d", g_dvfs_mgr->inter_dvfs_locked_count);
 
-	if (g_dvfs_mgr->inter_dvfs_locked_count != 0)
+	if (g_dvfs_mgr->inter_dvfs_locked_count != 0) {
 		inter_locked = true;
+	    is_support_doze1 = false;
+	}
 
-	dpu_dvfs_intra_process(info, inter_locked);
+	/* notify dacc is supp doze1 */
+	dpu_dvfs_notify_dacc_doze1_flag(is_support_doze1);
+
+	dpu_dvfs_intra_process(info, vote_level, inter_locked, is_support_doze1);
 
 	if ((inter_locked) && (g_dvfs_mgr->inter_dvfs_locked_count != 0))
 		g_dvfs_mgr->inter_dvfs_locked_count--;
@@ -238,7 +258,7 @@ void dpu_dvfs_enable_core_clock(bool need_config_qos)
 	return;
 }
 
-void dpu_dvfs_disable_core_clock(void)
+void dpu_dvfs_disable_core_clock(bool need_config_qos)
 {
 	dpu_pr_debug("+");
 
@@ -251,7 +271,48 @@ void dpu_dvfs_disable_core_clock(void)
 		return;
 
 	down(&g_dvfs_mgr->sem);
-	dpu_disable_core_clock();
+	dpu_disable_core_clock(need_config_qos);
+	up(&g_dvfs_mgr->sem);
+
+	dpu_pr_debug("-");
+}
+
+void dpu_dvfs_enable_vivo_clock(bool need_config_qos)
+{
+	dpu_pr_debug("+");
+
+	if (unlikely(g_dvfs_mgr == NULL)) {
+		dpu_pr_err("g_dvfs_mgr is NULL");
+		return;
+	}
+
+	if (!is_dpu_dvfs_enable())
+		return;
+
+	down(&g_dvfs_mgr->sem);
+
+	dpu_enable_vivo_clock(need_config_qos);
+
+	up(&g_dvfs_mgr->sem);
+
+	dpu_pr_debug("-");
+	return;
+}
+
+void dpu_dvfs_disable_vivo_clock(void)
+{
+	dpu_pr_debug("+");
+
+	if (unlikely(g_dvfs_mgr == NULL)) {
+		dpu_pr_err("g_dvfs_mgr is NULL");
+		return;
+	}
+
+	if (!is_dpu_dvfs_enable())
+		return;
+
+	down(&g_dvfs_mgr->sem);
+	dpu_disable_vivo_clock();
 	up(&g_dvfs_mgr->sem);
 
 	dpu_pr_debug("-");
@@ -289,6 +350,78 @@ void dpu_dvfs_direct_vote(uint32_t comp_index, uint32_t perf_level, bool need_co
 		perf_level = perf_level != DPU_CORE_LEVEL_OFF ? g_debug_dpu_perf_level : DPU_CORE_LEVEL_OFF;
 
 	dpu_dvfs_direct_process(perf_level, need_config_qos);
+	if (g_debug_dvfs_auto_test_enable == 0)
+		g_dvfs_mgr->inter_dvfs_locked_count = FORCE_INTER_DVFS_CNT;
+
+	up(&g_dvfs_mgr->sem);
+
+	dpu_pr_debug("-");
+}
+
+void dpu_legacy_direct_vote_power_on(uint32_t comp_index, uint32_t perf_level, bool need_config_qos)
+{
+	dpu_pr_debug("+");
+
+	dpu_pr_debug("perf_level=%u", perf_level);
+
+	if (unlikely(g_dvfs_mgr == NULL)) {
+		dpu_pr_err("g_dvfs_mgr is NULL");
+		return;
+	}
+
+	down(&g_dvfs_mgr->sem);
+
+	/* for first vote */
+	if (unlikely(g_dvfs_mgr->voted_level == PERF_INIT_VALUE))
+		g_dvfs_mgr->voted_level = DPU_CORE_LEVEL_OFF;
+
+	// debug for switch to other dvfs type
+	if (g_debug_dvfs_type != DVFS_INTRA_TYPE) {
+		dpu_dvfs_debug_vote_level(comp_index, perf_level, need_config_qos, true);
+		up(&g_dvfs_mgr->sem);
+		return;
+	}
+
+	if (g_debug_dpu_perf_level != 0 && g_debug_dpu_perf_level <= DPU_PERF_LEVEL_MAX)
+		perf_level = perf_level != DPU_CORE_LEVEL_OFF ? g_debug_dpu_perf_level : DPU_CORE_LEVEL_OFF;
+
+	dpu_legacy_direct_process_power_on(perf_level, need_config_qos);
+	if (g_debug_dvfs_auto_test_enable == 0)
+		g_dvfs_mgr->inter_dvfs_locked_count = FORCE_INTER_DVFS_CNT;
+
+	up(&g_dvfs_mgr->sem);
+
+	dpu_pr_debug("-");
+}
+
+void dpu_legacy_direct_vote_power_off(uint32_t comp_index, uint32_t perf_level, bool need_config_qos)
+{
+	dpu_pr_debug("+");
+
+	dpu_pr_debug("perf_level=%u", perf_level);
+
+	if (unlikely(g_dvfs_mgr == NULL)) {
+		dpu_pr_err("g_dvfs_mgr is NULL");
+		return;
+	}
+
+	down(&g_dvfs_mgr->sem);
+
+	/* for first vote */
+	if (unlikely(g_dvfs_mgr->voted_level == PERF_INIT_VALUE))
+		g_dvfs_mgr->voted_level = DPU_CORE_LEVEL_OFF;
+
+	// debug for switch to other dvfs type
+	if (g_debug_dvfs_type != DVFS_INTRA_TYPE) {
+		dpu_dvfs_debug_vote_level(comp_index, perf_level, need_config_qos, true);
+		up(&g_dvfs_mgr->sem);
+		return;
+	}
+
+	if (g_debug_dpu_perf_level != 0 && g_debug_dpu_perf_level <= DPU_PERF_LEVEL_MAX)
+		perf_level = perf_level != DPU_CORE_LEVEL_OFF ? g_debug_dpu_perf_level : DPU_CORE_LEVEL_OFF;
+
+	dpu_legacy_direct_process_power_off(perf_level, need_config_qos);
 
 	up(&g_dvfs_mgr->sem);
 
@@ -323,6 +456,7 @@ void dpu_dvfs_reset_comp_vote(uint32_t comp_index)
 	g_dvfs_mgr->user_info[comp_index].voted_level = DPU_CORE_LEVEL_OFF;
 	g_dvfs_mgr->user_info[comp_index].vote_freq_info.current_total_freq = 0;
 	g_dvfs_mgr->user_info[comp_index].vote_freq_info.sdma_freq = 0;
+	g_dvfs_mgr->user_info[comp_index].vote_freq_info.ov_freq = 0;
 
 	up(&g_dvfs_mgr->sem);
 
@@ -348,6 +482,7 @@ void dpu_dvfs_reset_vote(uint32_t comp_index)
 	g_dvfs_mgr->user_info[comp_index].voted_level = DPU_CORE_LEVEL_OFF;
 	g_dvfs_mgr->user_info[comp_index].vote_freq_info.current_total_freq = 0;
 	g_dvfs_mgr->user_info[comp_index].vote_freq_info.sdma_freq = 0;
+	g_dvfs_mgr->user_info[comp_index].vote_freq_info.ov_freq = 0;
 
 	up(&g_dvfs_mgr->sem);
 
@@ -357,6 +492,16 @@ void dpu_dvfs_reset_vote(uint32_t comp_index)
 void dpu_dvfs_qos_qic_media1_config(uint32_t level)
 {
 	dpu_qos_qic_media1_config(level);
+}
+
+void dpu_dvfs_ctrl_config(char __iomem *dpu_base)
+{
+	if (unlikely(!dpu_base)) {
+		dpu_pr_err("dpu_base is null");
+		return;
+	}
+
+	dpu_dvfs_ctrl(dpu_base);
 }
 
 static void* dvfs_init(struct dpu_res_data *rm_data)
@@ -479,4 +624,58 @@ void dpu_dvfs_set_inter_vote_index_count(uint32_t count)
 	dpu_pr_debug("-");
 
 	return;
+}
+
+void dpu_dvfs_restore_vote_level(uint32_t comp_index)
+{
+	uint32_t vote_level = 0;
+	if (unlikely(g_dvfs_mgr == NULL))
+		return;
+
+	if (!is_dpu_dvfs_enable())
+		return;
+
+	if (g_debug_dvfs_type != DVFS_INTRA_TYPE)
+		return;
+
+	down(&g_dvfs_mgr->sem);
+	vote_level = g_dvfs_mgr->last_intra_frame_voted_level;
+	if ((dpu_dvfs_check_low_temperature() != 0) && (vote_level == DPU_PERF_LEVEL_MAX)) {
+		vote_level = DPU_PERF_LEVEL_MAX - 1;
+		dpu_pr_info("low temp so perf_level=%u", vote_level);
+	}
+	up(&g_dvfs_mgr->sem);
+
+	dpu_dvfs_direct_vote(comp_index, vote_level, false);
+}
+
+void dpu_dvfs_set_level_on(uint32_t comp_index)
+{
+	if (unlikely(g_dvfs_mgr == NULL))
+		return;
+
+	if (!is_dpu_dvfs_enable())
+		return;
+
+	if (g_debug_dvfs_type != DVFS_INTRA_TYPE)
+		return;
+
+	dpu_dvfs_direct_vote(comp_index, DPU_CORE_LEVEL_ON, false);
+}
+
+uint32_t dpu_dvfs_get_last_voted_level(void)
+{
+	return g_dvfs_mgr->last_intra_frame_voted_level;
+}
+
+uint64_t dpu_dvfs_get_last_dss_clk(void)
+{
+	if (g_debug_dvfs_type != DVFS_INTRA_TYPE) {
+		if (g_debug_dvfs_type == DVFS_INTER_SW_TYPE)
+			dpu_pr_warn("regulator level = %u", g_dvfs_mgr->voted_level);
+
+		return dpu_config_get_core_rate(g_dvfs_mgr->voted_level);
+	}
+
+    return dpu_config_get_core_rate(dpu_get_record_level());
 }

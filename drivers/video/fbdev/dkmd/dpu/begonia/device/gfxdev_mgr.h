@@ -23,9 +23,9 @@ enum {
 	DRMDEV_ARCH
 };
 
-int32_t gfxdev_blank_power_on(struct composer *comp);
-int32_t gfxdev_blank_power_off(struct composer *comp, int32_t off_mode);
-int32_t gfxdev_blank_fake_off(struct composer *comp);
+int32_t gfxdev_blank_power_on(struct composer *comp, uint8_t on_mode);
+int32_t gfxdev_blank_power_off(struct composer *comp, uint8_t off_mode);
+int32_t gfxdev_blank_peri_handle(struct composer *comp, int32_t blank_mode);
 int32_t device_mgr_create_gfxdev(struct composer *comp);
 void device_mgr_destroy_gfxdev(struct composer *comp);
 void device_mgr_shutdown_gfxdev(struct composer *comp);

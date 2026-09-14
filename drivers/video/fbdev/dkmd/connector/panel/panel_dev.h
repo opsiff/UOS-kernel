@@ -21,6 +21,7 @@
 
 void panel_drv_data_setup(struct panel_drv_private *priv, struct device_node *np);
 void panel_dev_data_setup(struct panel_drv_private *priv);
+int32_t register_customized_ops_handle(uint32_t ops_cmd_id, void *new_ops_func);
 int32_t panel_probe_sub(struct panel_drv_private *priv);
 
 extern struct panel_match_data nt35521_panel_info;
@@ -31,12 +32,15 @@ extern struct panel_match_data nt37290_panel_info;
 extern struct panel_match_data nt37701_brq_panel_info;
 extern struct panel_match_data nt37701a_panel_info;
 extern struct panel_match_data rm69091_panel_info;
+extern struct panel_match_data rm6d030_panel_info;
 extern struct panel_match_data hx5293_panel_info;
 extern struct panel_match_data nt36870_panel_info;
-extern struct panel_match_data visionox310_panel_info;
-extern struct panel_match_data boe7p847_panel_info;
-extern struct panel_match_data visionox_6p39_panel_info;
-extern struct panel_match_data boe_6p39_panel_info;
 extern struct panel_match_data hx83121_panel_info;
+extern struct panel_match_data vxn_6p69_panel_info;
+extern struct panel_match_data boe_6p69_panel_info;
+extern struct panel_match_data rm692h5_panel_info;
+#ifdef CONFIG_DKMD_DPU_DYNAMIC_FAKE_PANEL
+extern struct panel_match_data dynamic_switch_fake_panel_info;
+#endif
 
 #endif

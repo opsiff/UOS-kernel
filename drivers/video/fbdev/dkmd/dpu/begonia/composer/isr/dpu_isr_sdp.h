@@ -23,5 +23,5 @@ void dkmd_sdp_isr_enable(struct composer_manager *comp_mgr);
 void dkmd_sdp_isr_disable(struct composer_manager *comp_mgr);
 void dkmd_sdp_isr_hiace_enable(struct dpu_composer *dpu_comp);
 void dkmd_sdp_isr_hiace_disable(struct dpu_composer *dpu_comp);
-
+void dkmd_sdp_isr_get_unmask(uint32_t *unmask);
 #endif

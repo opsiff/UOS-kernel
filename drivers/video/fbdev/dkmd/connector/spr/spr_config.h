@@ -27,6 +27,13 @@ enum SPR_GAMMA_TYPE {
 	SPR_GAMMA_LUT_ROW
 };
 
+enum SPR_GAMMA_LOW_TYPE {
+	SPR_GAMMA_LOW_R = 0,
+	SPR_GAMMA_LOW_G,
+	SPR_GAMMA_LOW_B,
+	SPR_GAMMA_LOW_LUT_ROW
+};
+
 #define SPR_GAMMA_LUT_COLUMN 258
 #define SPR_GAMMA_LUT_SIZE (SPR_GAMMA_LUT_ROW * SPR_GAMMA_LUT_COLUMN)
 #define COEF_PER_REG 2
@@ -39,6 +46,8 @@ enum SPR_GAMMA_TYPE {
 #define DATAPACK_UNPACK 0
 #define GMP_BITEXT_COPY_HIGH_TO_LOW 1
 
-void spr_init(struct spr_info *spr, char __iomem * dpp_base, char __iomem * dsc_base);
+void spr_init(struct spr_info *spr, char __iomem *dpp_base, char __iomem *dsc_base, struct dkmd_connector_info *pinfo);
 bool is_spr_enabled(struct spr_info *spr);
+void spr_lut_config(char __iomem *spr_base, struct spr_info *spr);
+void spr_update_position(struct spr_info *spr, char __iomem *dpp_base, struct dkmd_rect_coord *rect_coord);
 #endif

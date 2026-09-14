@@ -51,7 +51,7 @@ void dpu_res_register_opr_mgr(struct list_head *resource_head);
 
 static inline void dpu_pr_req_cmd_info(const struct res_opr_info *info)
 {
-	dpu_pr_debug("scene_id=%d, scene_type=%u, opr_id=%u", info->scene_id, info->scene_type, info->opr_id);
+	dpu_pr_debug("scene_id=%d, scene_type=%u, opr_id=%d", info->scene_id, info->scene_type, info->opr_id);
 }
 
 static inline void dpu_pr_info_opr(const struct opr *opr)

@@ -15,34 +15,9 @@
 #include "dpu_comp_mgr.h"
 #include "dkmd_log.h"
 #include "dkmd_peri.h"
-#include "present/dpu_comp_present.h"
+#include "dpu_comp_config_utils.h"
 
 #define MSEC_PER_FRAME 17
-
-enum dpu_bl_setting_mode {
-	/* panel with fixed frame rate, or other bl setting type, blpmw etc.. */
-	BL_SETTING_MODE_DIRECT,
-
-	/* ltpo panel with dynamic frame rate need use this mode,
-	because bl setting will lead to refresh, we need update
-	it to dacc, and send bl ddic cmd at riscv-capture time */
-	BL_SETTING_MODE_BY_RISCV,
-
-	BL_SETTING_MODE_INVALID
-};
-
-static int dpu_bl_select_setting_mode(struct dkmd_connector_info *pinfo)
-{
-	struct dfr_info *dfr_info = dkmd_get_dfr_info(pinfo);
-	if (!dfr_info)
-		return BL_SETTING_MODE_DIRECT;
-	if (dfr_info->oled_info.oled_type == PANEL_OLED_LTPO &&
-		(dfr_info->dfr_mode == DFR_MODE_TE_SKIP_BY_MCU || dfr_info->dfr_mode == DFR_MODE_LONGH_TE_SKIP_BY_MCU) &&
-		pinfo->bl_info.bl_type == BL_SET_BY_MIPI)
-		return BL_SETTING_MODE_BY_RISCV;
-
-	return BL_SETTING_MODE_DIRECT;
-}
 
 static int32_t dpu_backlight_adjust_bl_value(struct bl_info *bl_info, uint32_t bl_value)
 {
@@ -90,8 +65,7 @@ void dpu_backlight_update_level(struct dpu_bl_ctrl *bl_ctrl, struct disp_effect_
 
 static int dpu_bl_set_backlight(struct dpu_bl_ctrl *bl_ctrl, uint32_t bl_lvl, bool enforce)
 {
-	enum dpu_bl_setting_mode setting_mode;
-	int32_t bl_ret;
+	int32_t ret;
 	if (bl_ctrl == NULL || bl_ctrl->conn_info == NULL) {
 		dpu_pr_err("bl_ctrl is NULL\n");
 		return -EINVAL;
@@ -111,35 +85,28 @@ static int dpu_bl_set_backlight(struct dpu_bl_ctrl *bl_ctrl, uint32_t bl_lvl, bo
 	}
 
 	dpu_pr_debug("[backlight] last_bl_level %d, new backlight level = %d\n", bl_ctrl->bl_level_old, bl_lvl);
-
 	bl_ctrl->bl_level = bl_lvl;
 	bl_ctrl->bl_level_old = bl_lvl;
 	bl_ctrl->bl_timestamp = ktime_get();
-	dpu_comp_active_vsync(bl_ctrl->parent_composer);
 
-	setting_mode = dpu_bl_select_setting_mode(bl_ctrl->conn_info);
-	if (setting_mode == BL_SETTING_MODE_DIRECT) {
-		pipeline_next_ops_handle(bl_ctrl->conn_info->conn_device, bl_ctrl->conn_info, SET_BACKLIGHT, &bl_ctrl->bl_level);
-	} else if (setting_mode == BL_SETTING_MODE_BY_RISCV) {
-		bl_ret = composer_present_dfr_send_dcs_by_riscv(bl_ctrl->parent_composer, bl_lvl);
-		if (bl_ret == -1)
-			dpu_pr_err("set backlight error\n");
-	} else {
-		dpu_comp_deactive_vsync(bl_ctrl->parent_composer);
-		return -1;
-	}
+	dpu_comp_active_vsync(bl_ctrl->parent_composer);
+	ret = dpu_send_bl_cmds(bl_ctrl);
 	dpu_comp_deactive_vsync(bl_ctrl->parent_composer);
 
-	return 0;
+	if (ret)
+		dpu_pr_err("set backlight error, ret=%d", ret);
+	return ret;
 }
 
 void dpu_backlight_update(struct dpu_bl_ctrl *bl_ctrl, bool enforce)
 {
-	unsigned long backlight_duration = 1 * MSEC_PER_FRAME;
-	struct bl_info *bl_info = NULL;
+	if (bl_ctrl == NULL) {
+		dpu_pr_err( "[backlight] bl_ctrl is NULL\n");
+		return;
+	}
 
-	if (bl_ctrl == NULL || bl_ctrl->conn_info == NULL) {
-		dpu_pr_err( "[backlight] bl_ctrl or conn_info is NULL\n");
+	if (bl_ctrl->conn_info == NULL) {
+		dpu_pr_err( "[backlight] conn_info is NULL\n");
 		return;
 	}
 
@@ -154,21 +121,18 @@ void dpu_backlight_update(struct dpu_bl_ctrl *bl_ctrl, bool enforce)
 				bl_ctrl->bl_level, bl_ctrl->bl_updated, enforce);
 
 	/* make sure only after the first frame refresh, backlight will be set */
-	if (bl_ctrl->bl_updated == 0) {
-		bl_info = &bl_ctrl->conn_info->bl_info;
-		if (bl_info->delay_set_bl_support)
-			backlight_duration = bl_info->delay_set_bl_thr * MSEC_PER_FRAME;
-
-		schedule_delayed_work(&bl_ctrl->bl_worker, msecs_to_jiffies((uint32_t)backlight_duration));
-	} else {
-		down(&bl_ctrl->bl_sem);
+	if (bl_ctrl->bl_updated != 0) {
+		if (down_trylock(&bl_ctrl->bl_sem) != 0) {
+			dpu_pr_debug("[backlight] don't get trylock\n");
+			return;
+		}
 		bl_ctrl->bl_updated = 1;
 		dpu_bl_set_backlight(bl_ctrl, bl_ctrl->bl_level, false);
 		up(&bl_ctrl->bl_sem);
 	}
 }
 
-void dpu_backlight_cancel(struct dpu_bl_ctrl *bl_ctrl)
+void dpu_backlight_cancel(struct dpu_bl_ctrl *bl_ctrl, bool lcd_keep_on)
 {
 	uint32_t bl_level;
 
@@ -178,14 +142,31 @@ void dpu_backlight_cancel(struct dpu_bl_ctrl *bl_ctrl)
 	}
 	dpu_pr_debug("[backlight] bl_updated 0 and level 0\n");
 
-	cancel_delayed_work(&bl_ctrl->bl_worker);
-
 	down(&bl_ctrl->bl_sem);
 	bl_ctrl->bl_updated = 0;
 
-	bl_level = bl_ctrl->bl_level;
-	dpu_bl_set_backlight(bl_ctrl, 0, true);
-	bl_ctrl->bl_level = bl_level;
+	if (lcd_keep_on == false) {
+		bl_ctrl->is_force_sync = 1;
+		bl_level = bl_ctrl->bl_level;
+		dpu_bl_set_backlight(bl_ctrl, 0, true);
+
+		/* When an exception such as underflow occurs and the DPU needs to be restarted,
+		 * the kernel display module automatically triggers power-on and power-off operations.
+		 * However, upper-layer applications are unaware of the power-on and power-off operations
+		 * and do not proactively re-deliver the backlight.
+		 * Therefore, in this case, the backlight needs to be backed up.
+		 */
+		if ((bl_ctrl->parent_composer != NULL) &&
+			(bl_ctrl->parent_composer->comp_mgr != NULL) &&
+			bl_ctrl->parent_composer->comp_mgr->is_power_restarting) {
+			dpu_pr_info("[backlight] cur bl_level = %u, backup old bl_level = %u\n",
+				bl_ctrl->bl_level, bl_level);
+			bl_ctrl->bl_level = bl_level;
+		} else {
+			dpu_pr_info("[backlight] cur bl_level = %u, not backup old bl_level = %u\n",
+				bl_ctrl->bl_level, bl_level);
+		}
+	}
 	up(&bl_ctrl->bl_sem);
 }
 
@@ -199,7 +180,7 @@ static ssize_t dpu_bl_brightness_show(struct device *dev, struct device_attribut
 		return -1;
 	}
 
-	ret = snprintf_s(buf, PAGE_SIZE, PAGE_SIZE - 1, "%u", bl_ctrl->bl_level_old);
+	ret = snprintf_s(buf, PAGE_SIZE, PAGE_SIZE - 1, "%u", bl_ctrl->bl_level);
 	if (ret < 0)
 		dpu_pr_err("snprintf_s failed, ret value is %d\n", ret);
 
@@ -240,7 +221,16 @@ static ssize_t dpu_bl_brightness_store(struct device *dev, struct device_attribu
 	down(&bl_ctrl->parent_composer->comp_mgr->power_sem);
 	if (!composer_check_power_status(bl_ctrl->parent_composer)) {
 		dpu_pr_warn("already power off, set backlight:%u failed!", bl_value);
+		bl_ctrl->bl_level_old = BL_MAX_16BIT;
 		bl_ctrl->bl_level = bl_value;
+		up(&bl_ctrl->parent_composer->comp_mgr->power_sem);
+		return (ssize_t)count;
+	}
+
+	if (bl_ctrl->bl_updated == 0) {
+		bl_ctrl->bl_level_old = BL_MAX_16BIT;
+		bl_ctrl->bl_level = bl_value;
+		dpu_pr_warn("bl should be set after present, bl_value[%d], updated[%d]!", bl_value, bl_ctrl->bl_updated);
 		up(&bl_ctrl->parent_composer->comp_mgr->power_sem);
 		return (ssize_t)count;
 	}
@@ -250,7 +240,7 @@ static ssize_t dpu_bl_brightness_store(struct device *dev, struct device_attribu
 	up(&bl_ctrl->bl_sem);
 	up(&bl_ctrl->parent_composer->comp_mgr->power_sem);
 
-	dpu_pr_debug("set brightness value:%u", bl_value);
+	dpu_pr_debug("set brightness value:%u,bl_updated %d!", bl_value, bl_ctrl->bl_updated);
 	return (ssize_t)count;
 }
 
@@ -280,11 +270,11 @@ static ssize_t dpu_bl_max_brightness_show(struct device *dev, struct device_attr
 static DEVICE_ATTR(brightness, 0640, dpu_bl_brightness_show, dpu_bl_brightness_store);
 static DEVICE_ATTR(max_brightness, 0440, dpu_bl_max_brightness_show, NULL);
 
-static void dpu_bl_workqueue_handler(struct work_struct *work)
+static void dpu_bl_workqueue_handler(struct kthread_work *work)
 {
 	struct dpu_bl_ctrl *bl_ctrl = NULL;
 
-	bl_ctrl = container_of(to_delayed_work(work), struct dpu_bl_ctrl, bl_worker); //lint !e666
+	bl_ctrl = container_of(work, struct dpu_bl_ctrl, bl_work); //lint !e666
 	if (!bl_ctrl) {
 		dpu_pr_err("[backlight] pbl_ctrl is NULL\n");
 		return;
@@ -330,7 +320,7 @@ void bl_lcd_set_backlight(struct led_classdev *led_cdev,
 }
 #endif
 
-void dpu_backlight_init(struct dpu_bl_ctrl *bl_ctrl, struct dkmd_attr *attrs, struct dpu_composer *dpu_comp)
+void dpu_backlight_init(struct dpu_bl_ctrl *bl_ctrl, struct ukmd_attr *attrs, struct dpu_composer *dpu_comp)
 {
 	if ((bl_ctrl == NULL) || (attrs == NULL) || dpu_comp == NULL) {
 		dpu_pr_err("bl_ctrl or attrs or conn_info is null");
@@ -338,22 +328,26 @@ void dpu_backlight_init(struct dpu_bl_ctrl *bl_ctrl, struct dkmd_attr *attrs, st
 	}
 
 	dpu_pr_debug("the bl_type in dpu_backlight_init is: %d", dpu_comp->conn_info->bl_info.bl_type);
-	if (dpu_comp->conn_info->bl_info.bl_type == 0)
+	if (dpu_comp->conn_info->bl_info.bl_type == 0) {
+		dpu_pr_err("bl_type is invalid");
 		return;
+	}
 
 	bl_ctrl->bl_updated = 0;
 	bl_ctrl->bl_level = dpu_comp->conn_info->bl_info.bl_default;
-	bl_ctrl->bl_level_old = 0;
+	bl_ctrl->bl_level_old = BL_MAX_16BIT;
 #ifdef CONFIG_CMDLINE_PARSE
 	bl_ctrl->is_recovery_mode = get_boot_into_recovery_flag();
 #else
 	bl_ctrl->is_recovery_mode = 0;
 #endif
+	bl_ctrl->is_force_sync = 0;
 	bl_ctrl->conn_info = dpu_comp->conn_info;
 	bl_ctrl->parent_composer = dpu_comp;
 	sema_init(&bl_ctrl->bl_sem, 1);
-	INIT_DELAYED_WORK(&bl_ctrl->bl_worker, dpu_bl_workqueue_handler);
+	kthread_init_work(&bl_ctrl->bl_work, dpu_bl_workqueue_handler);
+	bl_ctrl->is_inited = true;
 
-	dkmd_sysfs_attrs_append(attrs, &dev_attr_brightness.attr);
-	dkmd_sysfs_attrs_append(attrs, &dev_attr_max_brightness.attr);
+	ukmd_sysfs_attrs_append(attrs, &dev_attr_brightness.attr);
+	ukmd_sysfs_attrs_append(attrs, &dev_attr_max_brightness.attr);
 }

@@ -19,15 +19,26 @@
 #include <linux/regulator/consumer.h>
 
 #include "scene/dpu_comp_scene.h"
-#include "timeline/dkmd_timeline.h"
+#include "timeline/ukmd_timeline.h"
 #include "online/dpu_comp_vsync.h"
 #include "online/dpu_comp_maintain.h"
 #include "dfr/dpu_comp_dfr.h"
 #include "ppc/dpu_comp_ppc.h"
-#include "isr/dkmd_isr.h"
+#include "cmdlist/dpu_cmdlist.h"
+#include "tunnel/dpu_comp_tunnel_present_ctl.h"
+#include "tunnel/dpu_comp_tunnel_power_ctl.h"
 
 #define COMP_FRAME_MAX 3
 
+struct dpu_self_healing_ctrl {
+	time64_t first_time; // first underflow time
+	time64_t second_time; // next underflow time
+	bool early_stage_sh_flag; // self health flag
+	bool vote;            // is voted m1 voltage
+	bool stop_try_sh;     // self health is invalid，dont try
+	uint32_t underflow_cnt; // happend underflow cnt
+	struct kthread_work sh_work;
+};
 struct comp_online_present {
 	/* online compose info */
 	struct dpu_comp_frame frames[COMP_FRAME_MAX];
@@ -38,6 +49,7 @@ struct comp_online_present {
 	uint32_t vactive_start_flag;
 	uint32_t frame_start_flag;
 	wait_queue_head_t vactive_start_wq;
+	wait_queue_head_t vactive_end_wq;
 	ktime_t vactive_start_timestamp;
 	uint32_t vactive_end_flag;
 	int32_t vactive_ldi_status;
@@ -45,25 +57,33 @@ struct comp_online_present {
 	uint32_t frame_rate;
 	struct dpu_comp_dfr_ctrl dfr_ctrl;
 	struct dpu_comp_ppc_ctrl ppc_ctrl;
+#ifdef CONFIG_DKMD_DPU_TUNNEL_DEVICE_PRESENT
+	struct dpu_tunnel_ctrl tunnel_ctrl;
+#endif
 
 	struct dpu_vsync vsync_ctrl;
-	struct dkmd_timeline timeline;
+	struct ukmd_timeline timeline;
 
 	struct dpu_comp_maintain comp_maintain;
 
 	struct kthread_work m1_qic_handle_work;
 	/* abnormal could be underflow or frame_end timeout */
 	struct kthread_work abnormal_handle_work;
+	struct kthread_work pmic_abnormal_handle_work;
+	struct kthread_work edp_abnormal_handle_work;
 
 	struct dpu_composer *dpu_comp;
 	uint32_t buffers;
+	struct dpu_cmdlist_frame_info curr_cmdlist_frm_info;
+	struct dpu_cmdlist_frame_info last_cmdlist_frm_info;
+	struct dpu_self_healing_ctrl self_healing_ctrl;
 };
-
 static inline void composer_online_update_frame_rate(struct comp_online_present *present,
 													 uint32_t active_frame_rate)
 {
 	present->frame_rate = active_frame_rate;
 }
+
 void composer_online_setup(struct dpu_composer *dpu_comp, struct comp_online_present *present);
 void composer_online_release(struct dpu_composer *dpu_comp, struct comp_online_present *present);
 void composer_online_recovery(struct dpu_composer *dpu_comp);

@@ -18,19 +18,22 @@
 #include "dpu_comp_mgr.h"
 
 
-void dpu_comp_alsc_handle_init(struct dkmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit);
-void dpu_comp_alsc_handle_deinit(struct dkmd_isr *isr_ctrl, uint32_t listening_bit);
+void dpu_comp_alsc_handle_init(struct ukmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit);
+void dpu_comp_alsc_handle_deinit(struct ukmd_isr *isr_ctrl, uint32_t listening_bit);
 
-void dpu_comp_hiace_handle_init(struct dkmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit);
-void dpu_comp_hiace_handle_deinit(struct dkmd_isr *isr_ctrl, uint32_t listening_bit);
+void dpu_comp_hiace_handle_init(struct ukmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit);
+void dpu_comp_hiace_handle_deinit(struct ukmd_isr *isr_ctrl, uint32_t listening_bit);
 
-void dpu_comp_m1_qic_handle_init(struct dkmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit);
-void dpu_comp_m1_qic_handle_deinit(struct dkmd_isr *isr_ctrl, uint32_t listening_bit);
+void dpu_comp_m1_qic_handle_init(struct ukmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit);
+void dpu_comp_m1_qic_handle_deinit(struct ukmd_isr *isr_ctrl, uint32_t listening_bit);
 
-void dpu_comp_hdr_handle_init(struct dkmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit);
-void dpu_comp_hdr_handle_deinit(struct dkmd_isr *isr_ctrl, uint32_t listening_bit);
+void dpu_comp_hdr_handle_init(struct ukmd_isr *isr_ctrl, struct dpu_composer *dpu_comp);
+void dpu_comp_hdr_handle_deinit(struct ukmd_isr *isr_ctrl, struct dpu_composer *dpu_comp);
 
-void dpu_comp_mipi_dsi_bit_clk_upt_handle_init(struct dkmd_isr *isr_ctrl,
+void dpu_comp_mipi_dsi_bit_clk_upt_handle_init(struct ukmd_isr *isr_ctrl,
 	struct dpu_composer *dpu_comp, uint32_t listening_bit);
-void dpu_comp_mipi_dsi_bit_clk_upt_handle_deinit(struct dkmd_isr *isr_ctrl, uint32_t listening_bit);
+void dpu_comp_mipi_dsi_bit_clk_upt_handle_deinit(struct ukmd_isr *isr_ctrl, uint32_t listening_bit);
+
+void dpu_comp_rgb_hist_handle_init(struct ukmd_isr *isr_ctrl, struct dpu_composer *dpu_comp, uint32_t listening_bit);
+void dpu_comp_rgb_hist_handle_deinit(struct ukmd_isr *isr_ctrl, uint32_t listening_bit);
 #endif

@@ -23,10 +23,14 @@
 #include "dpu_offline_dev.h"
 #include "dkmd_mipi_panel_info.h"
 #include "dkmd_esd_panel_info.h"
+#include "mipi_dsi_async.h"
+#include <linux/spinlock.h>
 
 #ifdef CONFIG_DKMD_DPU_DP
 #include "dp_ctrl_dev.h"
 #endif
+
+#define MAX_CONN_POST_INFO_NUM 2
 
 /* mipi cdphy and dpctrl clk nums_max is same */
 enum {
@@ -48,11 +52,12 @@ enum {
 	CONNECTOR_ID_OFFLINE, /* fake */
 	CONNECTOR_ID_HDMITX, /* fake */
 	CONNECTOR_ID_DSI0_BUILTIN,
+	CONNECTOR_ID_DSI2_BUILTIN,
 	/* add for v740 dp */
-	CONNECTOR_ID_DP1, // 8
-	CONNECTOR_ID_DP2, // 9
-	CONNECTOR_ID_DP3, // 10
-	CONNECTOR_ID_EDP1, // 11
+	CONNECTOR_ID_DP1, // 9
+	CONNECTOR_ID_DP2,
+	CONNECTOR_ID_DP3,
+	CONNECTOR_ID_EDP1,
 	CONNECTOR_ID_MAX
 };
 
@@ -67,6 +72,15 @@ struct connector_dsi_match {
 	uint32_t connector_id;
 	uint32_t connector_phy_id;
 };
+
+struct connector_post_info {
+	uint32_t ifbc_type;
+	struct mipi_panel_info mipi;
+	struct dsc_calc_info dsc;
+	struct spr_info spr;
+	struct dfr_info dfr_info;
+};
+
 struct dpu_connector {
 	uint32_t connector_id;
 
@@ -82,8 +96,9 @@ struct dpu_connector {
 	struct clk *connector_clk[CLK_GATE_MAX_IDX];
 
 	/* used for dsi or composer */
-	struct mipi_panel_info mipi;
 	struct mipi_dsi_phy_ctrl dsi_phy_ctrl;
+	struct mipi_dsi_async_ctrl dsi_async_ctrl;
+	struct mipi_dsi_tx_params *dsi_tx_params;
 
 	/* used for esd */
 	struct esd_panel_info esd_info;
@@ -95,10 +110,6 @@ struct dpu_connector {
 
 	/* partial update */
 	struct dkmd_rect dirty_rect;
-
-	/* TODO: add other struct define such as DSC or SPR etc. */
-	struct dsc_calc_info dsc;
-	struct spr_info spr;
 
 	/* cphy 1+1 or dual-mipi  */
 	struct dpu_connector *bind_connector;
@@ -114,11 +125,41 @@ struct dpu_connector {
 
 	/* detect cross te */
 	enum vactive_end_type is_vactive_end_recieved;
+	bool is_vactive_start_missed;
+	struct mutex mipi_itf_async_lock;
+	struct mutex mipi_cmds_lock;
+	struct mutex mipi_itf_sync_lock;
+	atomic64_t cmds_window_start_timestamp;
+	atomic64_t cmds_window_end_timestamp;
+	atomic_t mipi_dsi_on_flag;
+	atomic_t need_wait_window;
+	uint32_t frm_rate;
+	atomic_t mipi_dsi_read_enable;
+	bool cmds_send_succ;
 
+	/* post_info: [0]-default, [1]-used for ext */
+	struct connector_post_info *post_info[MAX_CONN_POST_INFO_NUM];
+
+	/* indicates the currently activated post_info */
+	uint32_t active_idx;
+
+	/* Indicates whether to check the mipi connection, mipi connection needs to be checked by default.
+	but when connect DP, do not need to check mipi connection */
+	bool need_check_mipi_connected;
+	bool need_wait_idle_flag;
+	bool is_connected;
+	// Indicate whether the device has ever connected successfully after plug in
+	bool has_ever_connected_after_plugin;
 	/* there would be null if no next device */
 	int32_t (*on_func)(struct dkmd_connector_info *pinfo);
 	int32_t (*off_func)(struct dkmd_connector_info *pinfo);
 	int32_t (*ops_handle_func)(struct dkmd_connector_info *pinfo, uint32_t ops_cmd_id, void *value);
+	int32_t (*notify_hdm)(struct dkmd_connector_info *pinfo, DPU_HOT_PLUG_TYPE hot_plug_type);
+	int32_t (*connect_func)(struct dkmd_connector_info *pinfo);
+	int32_t (*disconnect_func)(struct dkmd_connector_info *pinfo);
+	int32_t (*disconnect_post_handle_func)(struct dkmd_connector_info *pinfo, char __iomem *dpu_base);
+	int32_t (*notify_audio)(struct dkmd_connector_info *pinfo, DPU_HOT_PLUG_TYPE hot_plug_type);
+	void (*connect_revert_func)(struct dkmd_connector_info *pinfo);
 };
 
 static const uint32_t g_connector_offset[CONNECTOR_ID_MAX] = {
@@ -130,6 +171,20 @@ static const uint32_t g_connector_offset[CONNECTOR_ID_MAX] = {
 	0, /* offline offset */
 	0, /* hdmi offset */
 	DPU_MIPI_DSI0_OFFSET,
+	DPU_MIPI_DSI2_OFFSET,
+};
+
+struct panel_timing_cfg {
+    uint64_t hsa;
+    uint64_t hbp;
+    uint64_t hactive;
+    uint64_t htotal;
+    uint64_t vfp;
+    uint64_t vsa;
+    uint64_t vbp;
+    uint64_t vactive;
+    uint64_t vtotal;
+    uint64_t clock;
 };
 
 struct connector_ops_handle_data {
@@ -168,6 +223,7 @@ static inline bool is_connector_dp_or_edp(uint32_t connector_id)
 }
 
 void dpu_connector_setup(struct dpu_connector *connector);
+void dpu_connector_release(struct dpu_connector *connector);
 uint32_t get_connector_phy_id(uint32_t connector_id);
-
+int dpu_connector_edid_timing_calc(struct edid_timing_info *edid_timing, struct dkmd_connector_info *pinfo);
 #endif

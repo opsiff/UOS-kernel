@@ -22,7 +22,7 @@
 #include <linux/types.h>
 #include <linux/semaphore.h>
 
-#include "dkmd_chrdev.h"
+#include "ukmd_chrdev.h"
 #include "dpu_config_utils.h"
 
 struct dpu_res_data {
@@ -30,6 +30,7 @@ struct dpu_res_data {
 
 	uint32_t offline_scene_id_count;
 	uint32_t *offline_scene_ids;
+	struct ukmd_chrdev rm_chrdev;
 };
 
 /**
@@ -45,8 +46,6 @@ struct res_process_data {
 
 struct dpu_res {
 	struct platform_device *pdev;
-	struct dkmd_chrdev rm_chrdev;
-
 	struct dpu_res_data data;
 
 	struct list_head resource_list;
@@ -82,6 +81,11 @@ void dpu_res_send_uevent(int32_t event);
 static inline void dpu_res_register_screen_info(uint32_t xres, uint32_t yres)
 {
 	dpu_config_set_screen_info(xres, yres);
+}
+
+static inline void dpu_res_set_product_type(uint32_t product_type)
+{
+	dpu_config_set_product_type(product_type);
 }
 
 #endif /* DPU_RES_MGR_H */

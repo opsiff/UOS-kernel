@@ -18,9 +18,9 @@
 
 /* if not defined AP_SPR_DSC1_2_EN and TXIP_RXIP_ON, means dsc1.1 and ic spr */
 #ifdef DFR90
-#define MIPI_HLINE_TIME 520 /* 90hz */
+#define MIPI_HLINE_TIME 487 /* 90hz */
 #else
-#define MIPI_HLINE_TIME 770 /* 60hz */
+#define MIPI_HLINE_TIME 710 /* 60hz */
 #endif
 
 /* Power ON Sequence */
@@ -1339,7 +1339,7 @@ static void mipi_lcd_init_dsi_param(struct dkmd_connector_info *pinfo, struct mi
 		dpu_pr_info("[37800a probe] udp mipi param set\n");
 		mipi->hsa = 13;
 		mipi->hbp = 5;
-		mipi->dpi_hsize = 344;
+		mipi->dpi_hsize = 338;
 		mipi->hline_time = MIPI_HLINE_TIME;
 		mipi->vsa = 4;
 		mipi->vbp = 58;
@@ -1480,9 +1480,9 @@ static int32_t panel_of_device_setup(struct panel_drv_private *priv)
 	/* 2. config connector info
 	 * would be used for dsi & composer setup
 	 */
-	mipi_lcd_init_dsi_param(pinfo, &get_primary_connector(pinfo)->mipi);
-	spr_param_set(pinfo, &connector->spr);
-	dsc_param_set(pinfo, &connector->dsc);
+	mipi_lcd_init_dsi_param(pinfo, &get_primary_connector(pinfo)->post_info[0]->mipi);
+	spr_param_set(pinfo, &connector->post_info[0]->spr);
+	dsc_param_set(pinfo, &connector->post_info[0]->dsc);
 
 	/* dsi or composer need this param */
 	pinfo->dirty_region_updt_support = 1;

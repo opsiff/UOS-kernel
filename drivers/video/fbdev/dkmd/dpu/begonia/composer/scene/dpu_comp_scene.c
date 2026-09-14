@@ -63,9 +63,10 @@ void dpu_comp_scene_switch(struct dkmd_connector_info *pinfo, struct composer_sc
 		set_reg(DPU_PIPE_SW_SPLIT_HSIZE_ADDR(scene->dpu_base + DPU_PIPE_SW_OFFSET),
 			((pinfo->base.dsc_out_width / 2 - 1) << 13) | (pinfo->base.dsc_out_width - 1), 26, 0);
 
-		set_reg(DPU_PIPE_SW_SPLIT_CTL_ADDR(scene->dpu_base + DPU_PIPE_SW_OFFSET), 0x0, 1, 0);
 		if (pinfo->split_swap_enable)
 			set_reg(DPU_PIPE_SW_SPLIT_CTL_ADDR(scene->dpu_base + DPU_PIPE_SW_OFFSET), 0x1, 1, 0);
+		else
+			set_reg(DPU_PIPE_SW_SPLIT_CTL_ADDR(scene->dpu_base + DPU_PIPE_SW_OFFSET), 0x0, 1, 0);
 	}
 	/* these code below may be deleted, but only kernel test case would be needed */
 	if (is_dp_panel(&pinfo->base) || is_hdmi_panel(&pinfo->base)) {
@@ -79,11 +80,10 @@ void dpu_comp_scene_switch(struct dkmd_connector_info *pinfo, struct composer_sc
 				((pinfo->base.xres / 12 - 1) << 24) | 0x1, 32, 0);
 			set_reg(DPU_ITF_CH_CLRBAR_START_ADDR(scene->dpu_base + pre_itfch_offset), 0x1, 32, 0);
 		}
-		set_reg(DPU_ITF_CH_REG_CTRL_FLUSH_EN_ADDR(scene->dpu_base + pre_itfch_offset), 0x1, 32, 0);
 	}
 }
 
-static int32_t composer_scene_present(struct composer_scene *scene, uint32_t cmdlist_id)
+static int32_t composer_scene_present(struct composer_scene *scene, uint64_t cmdlist_id)
 {
 	dpu_cmdlist_present_commit(scene->dpu_base, scene->scene_id, cmdlist_id);
 	dpu_dacc_config_scene(scene->dpu_base, scene->scene_id, true);

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copyright (c) Huawei Technologies Co., Ltd. 2023-2023. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -69,6 +69,8 @@ static int32_t dpu_fb_get_product_config(struct device_fb *dpu_fb, void __user *
 
 	config.drv_feature.bits.drv_framework = DRV_FB;
 	config.drv_feature.bits.is_pluggable = 0;
+	config.drv_feature.bits.is_dynamic_connect = 0;
+	config.drv_feature.bits.is_plugin = 1;
 
 	config.scene_info = comp->base.scene_info;
 	config.opr_policy = comp->base.opr_policy;
@@ -120,6 +122,44 @@ static int dpu_fb_get_hdr_mean(struct device_fb *fb_dev, void __user *argp)
 	return 0;
 }
 
+static int32_t dpu_fb_get_hdr_statistic(struct device_fb *fb_dev, void __user* argp)
+{
+	struct composer *comp = fb_dev->composer;
+	dpu_check_and_return(unlikely(!argp), -EINVAL, err, "argp is null pointer");
+	dpu_check_and_return(unlikely(!comp), -EINVAL, err, "comp is null pointer");
+
+	if (!comp->get_hdr_statistic) {
+		dpu_pr_info("comp fb hdr get gtm hist function is nullptr");
+		return -1;
+	}
+
+	comp->get_hdr_statistic(comp, argp);
+	return 0;
+}
+#ifdef CONFIG_DKMD_DEBUG_ENABLE
+static int dpu_fb_get_online_crc(struct device_fb *fb_dev, void __user *argp)
+{
+	int32_t ret = -1;
+	uint32_t crc_value = 0;
+	struct composer *comp = fb_dev->composer;
+	dpu_check_and_return(unlikely(!argp), -EINVAL, err, "argp is null pointer");
+
+	if (!comp) {
+		dpu_pr_info("comp is nullptr");
+		return -1;
+	}
+
+	if (comp->get_online_crc) {
+		comp->get_online_crc(comp, &crc_value);
+	}
+	ret = (int32_t)copy_to_user(argp, &crc_value, sizeof(uint32_t));
+	if (ret) {
+		dpu_pr_err("copy_to_user failed ret=%d.\n", ret);
+		return -1;
+	}
+	return 0;
+}
+#endif
 static int dpu_fb_get_alsc_info(struct device_fb *fb_dev, void __user *argp)
 {
 	int32_t ret = -1;
@@ -176,6 +216,40 @@ static int dpu_fb_get_fusa_info(struct device_fb *fb_dev, void __user *argp)
 	}
 
 	ret = (int32_t)copy_to_user(argp, &info, sizeof(struct dkmd_ffd_cfg));
+	if (ret) {
+		dpu_pr_err("copy_to_user failed ret=%d.\n", ret);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int dpu_fb_get_tui_level1_layer_info(struct device_fb *fb_dev, void __user *argp)
+{
+	int32_t ret = -1;
+	struct tui_level1_layer_info info;
+	struct composer *comp = fb_dev->composer;
+	dpu_check_and_return(unlikely(!argp), -EINVAL, err, "argp is null pointer");
+	dpu_check_and_return(unlikely(!comp), -EINVAL, info, "comp is null");
+
+	if (!comp->power_on) {
+		dpu_pr_info("comp is poweroff! quit get layer info now");
+		return -1;
+	}
+
+	if (!comp->get_tui_level1_layer_info) {
+		dpu_pr_info("the comp %s get_tui_level1_layer_info failed", comp->base.name);
+		return 0;
+	}
+
+	dpu_pr_info("++");
+	ret = comp->get_tui_level1_layer_info(comp, &info);
+	if (unlikely(ret != 0)) {
+		dpu_pr_err("%s get tui level1 layer info fail", comp->base.name);
+		return -1;
+	}
+
+	ret = (int32_t)copy_to_user(argp, &info, sizeof(struct tui_level1_layer_info));
 	if (ret) {
 		dpu_pr_err("copy_to_user failed ret=%d.\n", ret);
 		return -1;
@@ -254,7 +328,7 @@ static int32_t dpu_fb_release(struct fb_info *info, int32_t user)
 	}
 
 	if (!atomic_sub_and_test(1, &dpu_fb->ref_cnt)) {
-		dpu_pr_info("gfx%u not need release, cnt = %u", dpu_fb->index, dpu_fb->ref_cnt);
+		dpu_pr_info("gfx%u not need release, cnt = %d", dpu_fb->index, atomic_read(&dpu_fb->ref_cnt));
 		return 0;
 	}
 
@@ -490,6 +564,33 @@ static int32_t dpu_fb_wake_up_hiace_hist(struct composer *comp)
 	return comp->effect_wake_up_hiace_hist(comp);
 }
 
+static int32_t dpu_fb_rgb_hist_get_hist(struct fb_info *info, void __user* argp)
+{
+	struct composer *comp = (struct composer *)info->par;
+
+	if (!argp) {
+		dpu_pr_err("argp is nullptr");
+		return -1;
+	}
+
+	if (!comp->effect_rgb_hist_get_hist) {
+		dpu_pr_info("comp fb rgb_hist get hist function is nullptr");
+		return -1;
+	}
+
+	return comp->effect_rgb_hist_get_hist(comp, argp);
+}
+
+static int32_t dpu_fb_wake_up_rgb_hist(struct composer *comp)
+{
+	if (!comp->effect_wake_up_rgb_hist) {
+		dpu_pr_info("comp wake up rgb hist function is nullptr");
+		return -1;
+	}
+
+	return comp->effect_wake_up_rgb_hist(comp);
+}
+
 static int32_t dpu_fb_ioctl(struct fb_info *info, uint32_t cmd, unsigned long arg)
 {
 	int32_t ret = 0;
@@ -497,15 +598,11 @@ static int32_t dpu_fb_ioctl(struct fb_info *info, uint32_t cmd, unsigned long ar
 	struct device_fb *dpu_fb = NULL;
 	void __user *argp = (void __user *)(uintptr_t)arg;
 
-	if (unlikely(!argp))
-		return -EINVAL;
-
-	if (unlikely(!info))
-		return -ENODEV;
+	dpu_check_and_return(unlikely(!argp), -EINVAL, err, "argp is null");
+	dpu_check_and_return(unlikely(!info), -ENODEV, err, "info is null");
 
 	comp = (struct composer *)info->par;
-	if (unlikely(!comp))
-		return -EINVAL;
+	dpu_check_and_return(unlikely(!comp), -EINVAL, err, "comp is null");
 
 	dpu_fb = (struct device_fb *)comp->device_data;
 	if (unlikely(!dpu_fb)) {
@@ -523,6 +620,9 @@ static int32_t dpu_fb_ioctl(struct fb_info *info, uint32_t cmd, unsigned long ar
 	case DISP_RELEASE_FENCE:
 		ret = dpu_gfxdev_release_fence(dpu_fb->composer, argp);
 		break;
+	case DISP_NOTIFY_ABNORMAL_HANDLE:
+		ret = dpu_gfxdev_notify_abnormal_handle(dpu_fb->composer);
+		break;
 	case DISP_PRESENT:
 		ret = dpu_gfxdev_present(dpu_fb->composer, dpu_fb->pinfo, argp);
 		break;
@@ -532,11 +632,17 @@ static int32_t dpu_fb_ioctl(struct fb_info *info, uint32_t cmd, unsigned long ar
 	case DISP_GET_HDR_MEAN:
 		ret = dpu_fb_get_hdr_mean(dpu_fb, argp);
 		break;
+	case DISP_GET_HDR_STATISTIC:
+		ret = dpu_fb_get_hdr_statistic(dpu_fb, argp);
+		break;
 	case DISP_GET_ALSC_INFO:
 		ret = dpu_fb_get_alsc_info(dpu_fb, argp);
 		break;
 	case DISP_GET_FUSA_INFO:
 		ret = dpu_fb_get_fusa_info(dpu_fb, argp);
+		break;
+	case DISP_GET_TUI_LEVEL1_INFO:
+		ret = dpu_fb_get_tui_level1_layer_info(dpu_fb, argp);
 		break;
 	case DISP_GET_HIACE_HIST:
 		ret = dpu_fb_hiace_get_hist(info, argp);
@@ -547,11 +653,39 @@ static int32_t dpu_fb_ioctl(struct fb_info *info, uint32_t cmd, unsigned long ar
 	case DISP_WAKE_UP_HIACE_HIST:
 		ret = dpu_fb_wake_up_hiace_hist(comp);
 		break;
+#ifdef CONFIG_DKMD_DEBUG_ENABLE
+	case DISP_GET_ONLINE_CRC:
+		ret = dpu_fb_get_online_crc(dpu_fb, argp);
+		break;
+#endif
 	case DISP_SAFE_FRM_RATE:
 		ret = dpu_gfxdev_set_safe_frm_rate(dpu_fb->composer, argp);
 		break;
 	case DISP_SET_ACTIVE_RECT:
 		ret = dpu_gfxdev_set_active_rect(dpu_fb->composer, argp);
+		break;
+	case DISP_SET_DISPLAY_ACTIVE_REGION:
+		ret = dpu_gfxdev_set_display_active_region(dpu_fb->composer, argp);
+		break;
+	case DISP_DEVICE_IOBLANK:
+		ret = dpu_gfxdev_blank(dpu_fb->composer, (int32_t)arg);
+		break;
+	case DISP_GET_PRODUCT_EXT_CONFIG:
+		ret = dpu_gfxdev_get_product_ext_config(dpu_fb->composer, argp);
+		break;
+	case DISP_DMD_REPORT:
+		ret = dpu_gfxdev_dmd_report(dpu_fb->composer, argp);
+		break;
+	case DISP_GET_RGB_HIST:
+		ret = dpu_fb_rgb_hist_get_hist(info, argp);
+		break;
+	case DISP_WAKE_UP_RGB_HIST:
+		ret = dpu_fb_wake_up_rgb_hist(comp);
+	case DISP_CONNECT:
+		ret = dpu_gfxdev_connect(dpu_fb->composer, (int32_t)arg);
+		break;
+	case DISP_TUNNEL_PRESENT:
+		ret = dpu_gfxdev_tunnel_present(dpu_fb->composer, argp);
 		break;
 	default:
 		if (dpu_fb_comp_lcdkit_ioctl(to_dpu_composer(comp), cmd, arg) >= 0) {
@@ -581,7 +715,6 @@ static int32_t dpu_fb_compat_ioctl(struct fb_info *info, uint32_t cmd, unsigned 
 static void fb_init_fbi_fix_info(struct device_fb *dpu_fb,
 	struct fix_var_screeninfo *screen_info, gfxdev_fix_screeninfo *fix)
 {
-	int32_t ret = 0;
 	struct composer *comp = dpu_fb->composer;
 
 	if (unlikely(!comp || !screen_info || !fix)) {
@@ -589,13 +722,8 @@ static void fb_init_fbi_fix_info(struct device_fb *dpu_fb,
 		return;
 	}
 
-	ret = gfxdev_init_fscreen_info(comp, screen_info, fix);
-	if (ret != 0) {
-		dpu_pr_err("init fscreen info err");
-		return;
-	}
-
-	return;
+	gfxdev_init_fbi_fix_info(comp, screen_info, fix);
+	dpu_res_register_screen_info(comp->base.xres, comp->base.yres);
 }
 
 static void fb_init_fbi_var_info(struct device_fb *fb,
@@ -650,7 +778,7 @@ int32_t fb_device_register(struct composer *comp)
 {
 	struct device_fb *fb = NULL;
 	struct fb_info *fbi = NULL;
-	struct dkmd_attr *comp_attr = NULL;
+	struct ukmd_attr *comp_attr = NULL;
 	struct dkmd_object_info *pinfo = &comp->base;
 	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
 	struct fix_var_screeninfo* screeninfo = get_fix_var_screeninfo();
@@ -677,6 +805,7 @@ int32_t fb_device_register(struct composer *comp)
 
 	fb_init_fbi_fix_info(fb, &screeninfo[GFXDEV_FORMAT_BGRA8888], &fbi->fix);
 	fb_init_fbi_var_info(fb, &screeninfo[GFXDEV_FORMAT_BGRA8888], &fbi->var);
+	dpu_res_set_product_type(pinfo->fold_type);
 
 	if (register_framebuffer(fbi) < 0) {
 		dpu_pr_err("gfx%u failed to register_framebuffer!", fb->index);
@@ -692,13 +821,15 @@ int32_t fb_device_register(struct composer *comp)
 	if (comp->get_sysfs_attrs) {
 		comp->get_sysfs_attrs(comp, &comp_attr);
 		if (comp_attr)
-			dkmd_sysfs_create(fbi->dev, comp_attr);
+			ukmd_sysfs_create(fbi->dev, comp_attr);
 	}
 
 #ifdef CONFIG_LEDS_CLASS
 	/* set backlight */
 	if (led_classdev_register(fbi->dev, &bl_backlight_led)) {
 		dpu_pr_err("led_classdev_register failed!");
+		if (comp_attr)
+			ukmd_sysfs_remove(fbi->dev, comp_attr);
 		dpu_free_fb_buffer(fbi);
 		framebuffer_release(fbi);
 		return -EINVAL;
@@ -714,7 +845,7 @@ int32_t fb_device_register(struct composer *comp)
 void fb_device_unregister(struct composer *comp)
 {
 	struct device_fb *fb = NULL;
-	struct dkmd_attr *comp_attr = NULL;
+	struct ukmd_attr *comp_attr = NULL;
 
 	dpu_pr_err("in fb_device_unregister");
 	if (!comp) {
@@ -727,18 +858,17 @@ void fb_device_unregister(struct composer *comp)
 		dpu_pr_err("fb is null!");
 		return;
 	}
+#ifdef CONFIG_LEDS_CLASS
+	led_classdev_unregister(&bl_backlight_led);
+#endif
 	if (comp->get_sysfs_attrs) {
 		comp->get_sysfs_attrs(comp, &comp_attr);
 		if (comp_attr)
-			dkmd_sysfs_remove(fb->fbi_info->dev, comp_attr);
+			ukmd_sysfs_remove(fb->fbi_info->dev, comp_attr);
 	}
 	unregister_framebuffer(fb->fbi_info);
 	dpu_free_fb_buffer(fb->fbi_info);
 	framebuffer_release(fb->fbi_info);
-
-#ifdef CONFIG_LEDS_CLASS
-	led_classdev_unregister(&bl_backlight_led);
-#endif
 }
 
 void fb_device_shutdown(struct composer *comp)

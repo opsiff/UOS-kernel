@@ -17,8 +17,8 @@
 #define ARSR_LUT_H_OFFSET 64
 #define MITM_COEF_OFFSET 0x200
 
-struct dpu_composer;
+struct composer_manager;
 
-int32_t dpu_lut_init(struct dpu_composer *dpu_comp);
+int32_t dpu_lut_init(struct composer_manager *comp_mgr);
 
 #endif

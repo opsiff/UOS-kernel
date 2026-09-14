@@ -13,27 +13,45 @@ dpu_operators-objs := \
 	dsc/dsc_cmd_data.o \
 	itfsw/itfsw_cmd_data.o \
 
-ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 800 820))
+ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 9200))
+dpu_operators-objs += \
+	sdma/sdma_cmd_data_plat_v9xxx.o
+else ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 800 820 840 900))
+dpu_operators-objs += \
+	sdma/sdma_cmd_data_plat_v8xx.o
+else
+dpu_operators-objs += \
+	sdma/sdma_cmd_data_plat_v7xx.o
+endif
+
+ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 800 820 840 900 9200))
 dpu_operators-objs += \
 	cmd_manager_scene_info_v8xx.o \
-	sdma/sdma_cmd_data_plat_v8xx.o \
 	ov/ov_cmd_data_plat_v8xx.o \
 	dpp/dpp_cmd_data_plat_v8xx.o \
-	itfsw/itfsw_cmd_data_plat_v8xx.o
+	itfsw/itfsw_cmd_data_plat_v8xx.o \
+	opr_cmd_data_v8xx.o
 else
 dpu_operators-objs += \
 	cmd_manager_scene_info_v7xx.o \
-	sdma/sdma_cmd_data_plat_v7xx.o \
 	ov/ov_cmd_data_plat_v7xx.o \
 	dpp/dpp_cmd_data_plat_v7xx.o \
-	itfsw/itfsw_cmd_data_plat_v7xx.o
+	itfsw/itfsw_cmd_data_plat_v7xx.o \
+	opr_cmd_data_v7xx.o
 endif
 
 EXTRA_CFLAGS += \
 	-I$(srctree)/include/platform_include/display/dkmd/ \
+	-I$(srctree)/include/platform_include/display/ukmd/ \
+	-I$(srctree)/include/platform_include/display/linux/ \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm \
-	-I$(srctree)/drivers/video/fbdev/dkmd/cmdlist \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/chrdev \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/isr \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/timeline \
+	-I$(srctree)/drivers/video/fbdev/ukmd/cmdlist \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr/ \
+	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr/config \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr/opr_mgr/operators \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/dkmd_interface \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/composer \

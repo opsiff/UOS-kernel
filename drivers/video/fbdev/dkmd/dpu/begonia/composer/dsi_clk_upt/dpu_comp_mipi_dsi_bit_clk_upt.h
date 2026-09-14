@@ -24,4 +24,6 @@
 #define MIPI_CLK_UPDT_TIMEOUT 30
 
 void dpu_comp_mipi_dsi_bit_clk_upt_init(struct dpu_composer *dpu_comp);
+ssize_t mipi_dsi_bit_clk_upt_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count);
 #endif

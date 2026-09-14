@@ -23,5 +23,5 @@ struct opr_cmd_data;
 struct opr_cmd_data *init_ov_cmd_data(union dkmd_opr_id id);
 int32_t opr_set_ov_data(struct opr_cmd_data *cmd_data, const struct dkmd_base_layer *base_layer,
 	const struct opr_cmd_data *pre_cmd_data, const struct opr_cmd_data **next_cmd_datas, uint32_t next_oprs_num);
-void ov_set_layer_fmt(uint32_t fmt, struct dpu_dm_layer_info *layer_info);
+void ov_set_layer_fmt(int32_t fmt, struct dpu_dm_layer_info *layer_info);
 #endif

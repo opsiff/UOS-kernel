@@ -12,6 +12,7 @@
  */
 
 #include <linux/mutex.h>
+#include <asm/cacheflush.h>
 #include "dpu_ion_mem.h"
 #include "res_mgr.h"
 #include "dkmd_log.h"
@@ -59,6 +60,16 @@ static unsigned long dpu_alloc_gfx_buffer(struct composer *comp)
 	}
 	dpu_pr_info("scene%d alloc framebuffer map sg 0x%zxB succuss", gfx_dev->pinfo->pipe_sw_itfch_idx, buf_size);
 
+	gfx_dev->screen_base = dpu_iommu_map_kernel(sg, buf_len);
+	if (gfx_dev->screen_base == NULL) {
+		dpu_pr_err("dpufb_iommu_map_kernel failed!");
+		mm_iommu_unmap_sg(dpu_res_get_device(), sg->sgl, buf_addr);
+		dpu_dma_free_mem(sg);
+		return 0;
+	}
+
+	__inval_dcache_area(gfx_dev->screen_base, (uint32_t)buf_len); /* before user using the physic addr, dcache the addr */
+
 	fix->smem_start = buf_addr;
 
 	gfx_dev->gfx_sg_table = sg;
@@ -89,9 +100,17 @@ void dpu_free_gfx_buffer(struct composer *comp)
 		return;
 	}
 
+	if (gfx_dev->screen_base == NULL) {
+		dpu_pr_warn("not need unmap");
+		mutex_unlock(&gfx_dev->lock);
+		return;
+	}
+
+	dpu_iommu_unmap_kernel(gfx_dev->screen_base);
 	mm_iommu_unmap_sg(dpu_res_get_device(), gfx_dev->gfx_sg_table->sgl, gfx_dev->gfx_fix.smem_start);
 	dpu_dma_free_mem(gfx_dev->gfx_sg_table);
 	gfx_dev->gfx_sg_table = NULL;
+	gfx_dev->screen_base = NULL;
 	gfx_dev->gfx_mem_acquired = false;
 	gfx_dev->gfx_fix.smem_start = 0;
 

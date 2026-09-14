@@ -13,15 +13,18 @@
 #ifndef DPU_COMP_BL_H
 #define DPU_COMP_BL_H
 
+#include <linux/kthread.h>
 #include <linux/types.h>
 #include <linux/ktime.h>
 #include <linux/semaphore.h>
 #include <linux/workqueue.h>
 #include <linux/leds.h>
-#include "chrdev/dkmd_sysfs.h"
+#include "chrdev/ukmd_sysfs.h"
 #include "peri/dkmd_connector.h"
 
 extern unsigned int get_boot_into_recovery_flag(void);
+
+#define BL_MAX_16BIT 65535
 
 /*
  * each composer have a bl_ctrl
@@ -33,8 +36,11 @@ struct dpu_bl_ctrl {
 	uint32_t bl_level_old;
 
 	ktime_t bl_timestamp;
-	struct delayed_work bl_worker;
+	struct kthread_work bl_work;
 	struct semaphore bl_sem;
+	bool is_inited;
+
+	int32_t is_force_sync;  /* when power off, force to sync send */
 
 	struct dkmd_connector_info *conn_info;
 	struct dpu_composer *parent_composer;
@@ -45,7 +51,7 @@ struct dpu_bl_ctrl {
  * bl_ctrl
  * attrs，dpu_composer's attrs
  */
-void dpu_backlight_init(struct dpu_bl_ctrl *bl_ctrl, struct dkmd_attr *attrs, struct dpu_composer *dpu_comp);
+void dpu_backlight_init(struct dpu_bl_ctrl *bl_ctrl, struct ukmd_attr *attrs, struct dpu_composer *dpu_comp);
 
 
 /*
@@ -59,7 +65,7 @@ void dpu_backlight_update(struct dpu_bl_ctrl *bl_ctrl, bool enforce);
 /*
  * close backlight
  */
-void dpu_backlight_cancel(struct dpu_bl_ctrl *bl_ctrl);
+void dpu_backlight_cancel(struct dpu_bl_ctrl *bl_ctrl, bool lcd_keep_on);
 
 /**
  * update bl_level

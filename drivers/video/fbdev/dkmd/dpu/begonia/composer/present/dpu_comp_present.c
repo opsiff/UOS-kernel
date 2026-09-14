@@ -15,8 +15,8 @@
 
 #include <linux/delay.h>
 #include <dpu/soc_dpu_define.h>
-#include "dkmd_release_fence.h"
-#include "dkmd_acquire_fence.h"
+#include "ukmd_release_fence.h"
+#include "ukmd_acquire_fence.h"
 #include "dpu_conn_mgr.h"
 #include "dpu_comp_mgr.h"
 #include "scene/dpu_comp_scene.h"
@@ -32,12 +32,14 @@
 #include "dpu_comp_ppc.h"
 #include "dpu_ppc_status_control.h"
 #include "dpu_comp_low_temp_handler.h"
+#include "spr/spr_config.h"
+#include "dpu_comp_ppu.h"
 
-void composer_present_timeline_resync(struct dpu_composer *dpu_comp)
+void composer_present_timeline_resync(struct dpu_composer *dpu_comp, uint32_t resync_step)
 {
 	struct comp_online_present *present = NULL;
-	struct dkmd_timeline *timeline = NULL;
-	struct dkmd_isr *isr_ctrl = NULL;
+	struct ukmd_timeline *timeline = NULL;
+	struct ukmd_isr *isr_ctrl = NULL;
 
 	if (unlikely(!dpu_comp)) {
 		dpu_pr_err("dpu_comp is null");
@@ -54,19 +56,20 @@ void composer_present_timeline_resync(struct dpu_composer *dpu_comp)
 	}
 
 	timeline = &present->timeline;
-	isr_ctrl = (struct dkmd_isr *)timeline->isr;
+	isr_ctrl = (struct ukmd_isr *)timeline->isr;
 	if (unlikely(!isr_ctrl)) {
 		dpu_pr_err("isr_ctrl is null");
 		return;
 	}
 
-	dkmd_timeline_resync_pt(timeline, 2);
+	ukmd_timeline_resync_pt(timeline, resync_step);
 
-	dkmd_timeline_set_reset_flag(timeline, true);
-	dkmd_isr_notify_listener(isr_ctrl, timeline->listening_isr_bit);
-	dkmd_timeline_set_reset_flag(timeline, false);
+	ukmd_timeline_set_reset_flag(timeline, true);
+	ukmd_timeline_resync(timeline);
+	ukmd_timeline_set_reset_flag(timeline, false);
 
 	present->vactive_start_flag = 1;
+	present->vactive_end_flag = 0;
 	present->frame_start_flag = 0;
 }
 
@@ -92,7 +95,7 @@ int32_t composer_manager_present(struct composer *comp, void *in_frame)
 
 	ret = dpu_comp->overlay(dpu_comp, frame);
 	if (ret != 0)
-		dpu_pr_err("scene_id=%d free cmdlist_id=%d buffer", frame->scene_id, frame->cmdlist_id);
+		dpu_pr_err("scene_id=%d cmdlist_id=%llu buffer", frame->scene_id, frame->cmdlist_id);
 
 	return ret;
 }
@@ -113,8 +116,8 @@ void composer_present_dfr_setup(struct dpu_composer *dpu_comp)
 
 	present = (struct comp_online_present *)dpu_comp->present_data;
 
-	if (present->dfr_ctrl.setup_data)
-		present->dfr_ctrl.setup_data(&present->dfr_ctrl);
+	if (present->dfr_ctrl.ops && present->dfr_ctrl.ops->setup_data)
+		present->dfr_ctrl.ops->setup_data(&present->dfr_ctrl);
 }
 
 static void composer_present_ppc_setup(struct dpu_composer *dpu_comp)
@@ -147,8 +150,8 @@ void composer_present_dfr_release(struct dpu_composer *dpu_comp)
 
 	present = (struct comp_online_present *)dpu_comp->present_data;
 
-	if (present->dfr_ctrl.release_data)
-		present->dfr_ctrl.release_data(&present->dfr_ctrl);
+	if (present->dfr_ctrl.ops && present->dfr_ctrl.ops->release_data)
+		present->dfr_ctrl.ops->release_data(&present->dfr_ctrl);
 }
 
 void composer_present_ppc_release(struct dpu_composer *dpu_comp)
@@ -177,16 +180,16 @@ void composer_present_power_on(struct dpu_composer *dpu_comp)
 
 	present = (struct comp_online_present *)dpu_comp->present_data;
 	present->vactive_start_flag = 1;
+	present->vactive_end_flag = 0;
 	present->frame_start_flag = 0;
 	present->buffers = 0;
 
-	dkmd_isr_request(&dpu_comp->isr_ctrl);
+	dpu_comp->isr_ctrl.handle_func(&dpu_comp->isr_ctrl, UKMD_ISR_REQUEST);
 	dpu_vsync_enable_routine(&present->vsync_ctrl);
-	dkmd_timeline_enable_routine(&present->timeline);
+	ukmd_timeline_enable_routine(&present->timeline);
 	comp_mntn_enable_routine(&present->comp_maintain);
 
 	composer_present_dfr_setup(dpu_comp);
-
 	composer_present_ppc_setup(dpu_comp);
 
 	/* NOTICE: stub max perf config when dptx connect */
@@ -194,6 +197,9 @@ void composer_present_power_on(struct dpu_composer *dpu_comp)
 		dpu_comp_active_vsync(dpu_comp);
 		dpu_dvfs_direct_vote(dpu_comp->comp.index, DPU_PERF_LEVEL_MAX, true);
 	}
+	if ((present->self_healing_ctrl.early_stage_sh_flag == false) &&
+		(g_dpu_config_data.version.info.version == DPU_ACCEL_DPUV800))
+        kthread_queue_work(&dpu_comp->handle_worker, &present->self_healing_ctrl.sh_work);
 }
 
 void composer_present_power_off(struct dpu_composer *dpu_comp, bool is_dpu_poweroff)
@@ -208,9 +214,8 @@ void composer_present_power_off(struct dpu_composer *dpu_comp, bool is_dpu_power
 
 	present = (struct comp_online_present *)dpu_comp->present_data;
 
-	dpu_comp->isr_ctrl.handle_func(&dpu_comp->isr_ctrl, DKMD_ISR_RELEASE);
+	dpu_comp->isr_ctrl.handle_func(&dpu_comp->isr_ctrl, UKMD_ISR_RELEASE);
 	dpu_vsync_disable_routine(&present->vsync_ctrl);
-	dkmd_timeline_disable_routine(&present->timeline);
 	comp_mntn_disable_routine(&present->comp_maintain);
 
 	composer_present_dfr_release(dpu_comp);
@@ -240,17 +245,17 @@ void composer_present_data_setup(struct dpu_composer *dpu_comp, bool inited)
 
 	present = (struct comp_online_present *)dpu_comp->present_data;
 	pipeline_next_ops_handle(pinfo->conn_device, pinfo, SETUP_ISR, (void *)&dpu_comp->isr_ctrl);
-	dkmd_isr_setup(&dpu_comp->isr_ctrl);
+	ukmd_isr_setup(&dpu_comp->isr_ctrl);
 	list_add_tail(&dpu_comp->isr_ctrl.list_node, &dpu_comp->comp_mgr->isr_list);
 	dpu_comp_add_attrs(&dpu_comp->attrs);
 
-	dpu_comp_dfr_ctrl_setup(dpu_comp, present);
 	composer_online_setup(dpu_comp, present);
 
 	dpu_comp_ppc_ctrl_setup(dpu_comp, present);
 	dpu_tui_register(dpu_comp);
+	dpu_tui_add_attrs(dpu_comp);
 	dpu_comp_esd_register(dpu_comp, present);
-	dpu_low_temp_register(dpu_comp, present);
+	dpu_tunnel_comp_register(dpu_comp, present);
 }
 
 void composer_present_data_release(struct dpu_composer *dpu_comp, bool is_poweroff)
@@ -266,7 +271,10 @@ void composer_present_data_release(struct dpu_composer *dpu_comp, bool is_powero
 	list_del(&dpu_comp->isr_ctrl.list_node);
 	dpu_tui_unregister(dpu_comp);
 	dpu_comp_esd_unregister(dpu_comp);
-	dpu_low_temp_unregister(dpu_comp, present);
+	dpu_tunnel_comp_unregister(dpu_comp, present);
+
+	if (dpu_comp->has_dfr_related_listener_registered)
+		dpu_low_temp_unregister(dpu_comp, present);
 }
 
 int32_t composer_present_dfr_send_dcs_by_riscv(struct dpu_composer *dpu_comp, uint32_t bl_level)
@@ -279,7 +287,8 @@ int32_t composer_present_dfr_send_dcs_by_riscv(struct dpu_composer *dpu_comp, ui
 	}
 	present = (struct comp_online_present *)dpu_comp->present_data;
 
-	if (present->dfr_ctrl.send_dcs_cmds_with_refresh(&present->dfr_ctrl, bl_level) == -1) {
+	if (present->dfr_ctrl.ops && present->dfr_ctrl.ops->send_dcs_cmds_with_refresh &&
+		present->dfr_ctrl.ops->send_dcs_cmds_with_refresh(&present->dfr_ctrl, bl_level) == -1) {
 		dpu_pr_err("send dcs cmds with refresh error!\n");
 		return -1;
 	}
@@ -289,6 +298,7 @@ int32_t composer_present_dfr_send_dcs_by_riscv(struct dpu_composer *dpu_comp, ui
 int32_t composer_present_set_safe_frm_rate(struct dpu_composer *dpu_comp, uint32_t safe_frm_rate)
 {
 	struct comp_online_present *present = NULL;
+	int32_t ret = 0;
 
 	if (is_offline_panel(&dpu_comp->conn_info->base) || !dpu_comp->present_data) {
 		dpu_pr_info("offline scene or present_data is nullptr, return!\n");
@@ -296,12 +306,33 @@ int32_t composer_present_set_safe_frm_rate(struct dpu_composer *dpu_comp, uint32
 	}
 
 	present = (struct comp_online_present *)dpu_comp->present_data;
-	if (!present->dfr_ctrl.set_safe_frm_rate) {
+
+	if (present->dfr_ctrl.ops == NULL || present->dfr_ctrl.ops->set_safe_frm_rate == NULL) {
 		dpu_pr_warn("Need not to set safe frm rate!");
 		return -1;
 	}
+
+	if (!dpu_comp->comp_mgr) {
+		dpu_pr_err("comp_mgr is not available!\n");
+		return -1;
+	}
+
 	dpu_pr_info("safe_frm_rate = %u!", safe_frm_rate);
-	return present->dfr_ctrl.set_safe_frm_rate(&present->dfr_ctrl, safe_frm_rate);
+
+	down(&dpu_comp->comp_mgr->power_sem);
+	if (!composer_check_power_status(dpu_comp)) {
+		dpu_pr_warn("composer %u, panel power off!", dpu_comp->comp.index);
+		up(&dpu_comp->comp_mgr->power_sem);
+		return 0;
+	}
+	dpu_comp_active_vsync(dpu_comp);
+
+	ret = present->dfr_ctrl.ops->set_safe_frm_rate(&present->dfr_ctrl, safe_frm_rate);
+
+	dpu_comp_deactive_vsync(dpu_comp);
+	up(&dpu_comp->comp_mgr->power_sem);
+
+	return ret;
 }
 
 int32_t composer_present_set_active_rect(struct dpu_composer *dpu_comp, uint32_t ppc_config_id)
@@ -334,12 +365,18 @@ int32_t composer_present_set_active_rect(struct dpu_composer *dpu_comp, uint32_t
 		return 0;
 	}
 
-	if (present->ppc_ctrl.set_active_rect(&present->ppc_ctrl, ppc_config_id) != 0) {
+	cancel_start_esd_timer(dpu_comp);
+
+	pinfo->ppc_switch_flag = present->ppc_ctrl.set_active_rect(&present->ppc_ctrl, ppc_config_id);
+	if (pinfo->ppc_switch_flag != 0) {
 		dpu_pr_warn("set active rect failed!");
 		process_ppc_event(dpu_comp, PPC_EVENT_DONE);
 		dpu_comp_deactive_vsync(dpu_comp);
 		return -1;
 	}
+
+	spr_update_position(&connector->post_info[connector->active_idx]->spr,
+		connector->dpp_base, &(pinfo->ppc_rect_info[ppc_config_id].rect));
 
 	pipeline_next_ops_handle(pinfo->conn_device, pinfo, MIPI_DSI_PPC_SET_REG, &ppc_config_id);
 
@@ -347,4 +384,18 @@ int32_t composer_present_set_active_rect(struct dpu_composer *dpu_comp, uint32_t
 
 	dpu_comp_deactive_vsync(dpu_comp);
 	return 0;
+}
+
+void composer_present_power_off_sub(struct dpu_composer *dpu_comp)
+{
+	struct dkmd_connector_info *pinfo = dpu_comp->conn_info;
+	struct comp_online_present *present = NULL;
+
+	if (is_offline_panel(&pinfo->base))
+		return;
+
+	present = (struct comp_online_present *)dpu_comp->present_data;
+
+	if (present->dfr_ctrl.ops && present->dfr_ctrl.ops->power_off_sub)
+		present->dfr_ctrl.ops->power_off_sub(&present->dfr_ctrl);
 }

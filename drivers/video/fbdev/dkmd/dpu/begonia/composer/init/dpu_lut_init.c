@@ -13,7 +13,7 @@
 
 #include <dpu/soc_dpu_define.h>
 #include <dpu/dpu_mitm.h>
-#include <dkmd_cmdlist.h>
+#include <ukmd_cmdlist.h>
 #include "dpu_comp_mgr.h"
 #include <dpu/dpu_scl_lut.h>
 #include "dpu_lut_init.h"
@@ -22,9 +22,10 @@
 #include "dkmd_object.h"
 #include "dpu_config_utils.h"
 #include "cmdlist_interface.h"
+#include "res_mgr.h"
 
 static struct dpu_ov_mitm* g_ov_mitm_coef_array[] = {
-	&g_mitm_srgb2p3, &g_mitm_bt7092p3,
+	&g_mitm_srgb2p3, &g_mitm_p32srgb,
 };
 
 static void dpu_scl_write_coefs(uint32_t *cmd_item_base, uint32_t *scf_lut_tap, uint32_t tap_size)
@@ -36,31 +37,37 @@ static void dpu_scl_write_coefs(uint32_t *cmd_item_base, uint32_t *scf_lut_tap, 
 		*(cmd_item_base + i) = scf_lut_tap[i];
 }
 
-static int32_t dpu_scf_lut_cmdlist_config(struct dpu_composer *dpu_comp,
+static int32_t dpu_scf_lut_cmdlist_config(struct composer_manager *comp_mgr,
 	struct scf_lut_tap_table *tap_tlb, uint32_t scf_lut_base)
 {
+	uint32_t cmdlist_dev_id = CMDLIST_DEV_ID_DPU;
+
 	/* 1. alloc cmdlist node */
-	uint32_t cmdlist_id = cmdlist_create_user_client(DPU_SCENE_INITAIL, DATA_TRANSPORT_TYPE,
+	uint32_t cmdlist_id = cmdlist_create_user_client(cmdlist_dev_id,
+		DPU_SCENE_INITAIL, DATA_TRANSPORT_TYPE,
 		scf_lut_base + tap_tlb->offset, tap_tlb->tap_size);
 
 	/* 2. config cmdlist node */
-	uint32_t *payload_addr = (uint32_t *)cmdlist_get_payload_addr(DPU_SCENE_INITAIL, cmdlist_id);
+	uint32_t *payload_addr = (uint32_t *)cmdlist_get_payload_addr(cmdlist_dev_id,
+		DPU_SCENE_INITAIL, cmdlist_id);
 	if (unlikely(!payload_addr)) {
-		cmdlist_flush_client(DPU_SCENE_INITAIL, cmdlist_id);
-		cmdlist_append_client(DPU_SCENE_INITAIL, dpu_comp->init_scene_cmdlist, cmdlist_id);
+		cmdlist_flush_client(cmdlist_dev_id, DPU_SCENE_INITAIL, cmdlist_id);
+		cmdlist_append_client(cmdlist_dev_id,
+			DPU_SCENE_INITAIL, comp_mgr->init_scene_cmdlist, cmdlist_id);
 		dpu_pr_err("payload_addr is null");
 		return -1;
 	}
 	dpu_scl_write_coefs(payload_addr, tap_tlb->scf_lut_tap, tap_tlb->tap_size);
 
 	/* 3. add comlist node to init list header tail */
-	cmdlist_flush_client(DPU_SCENE_INITAIL, cmdlist_id);
-	cmdlist_append_client(DPU_SCENE_INITAIL, dpu_comp->init_scene_cmdlist, cmdlist_id);
+	cmdlist_flush_client(cmdlist_dev_id, DPU_SCENE_INITAIL, cmdlist_id);
+	cmdlist_append_client(cmdlist_dev_id,
+		DPU_SCENE_INITAIL, comp_mgr->init_scene_cmdlist, cmdlist_id);
 
 	return 0;
 }
 
-static int32_t dpu_scf_lut_init(struct dpu_composer *dpu_comp)
+static int32_t dpu_scf_lut_init(struct composer_manager *comp_mgr)
 {
 	uint32_t i, j;
 	uint32_t length = 0;
@@ -72,7 +79,7 @@ static int32_t dpu_scf_lut_init(struct dpu_composer *dpu_comp)
 
 	for (i = 0; i < length; i++) {
 		for (j = 0; j < ARRAY_SIZE(g_scf_lut_tap_tlb); j++) {
-			if (dpu_scf_lut_cmdlist_config(dpu_comp, &g_scf_lut_tap_tlb[j], scf_lut_addr_tlb[i]))
+			if (dpu_scf_lut_cmdlist_config(comp_mgr, &g_scf_lut_tap_tlb[j], scf_lut_addr_tlb[i]))
 				return -1;
 		}
 	}
@@ -93,30 +100,36 @@ static void dpu_arsr_write_coefs(uint32_t *cmd_item_base, uint32_t *p, int32_t h
 	}
 }
 
-static int32_t dpu_arsr_lut_cmdlist_config(struct dpu_composer *dpu_comp,
+static int32_t dpu_arsr_lut_cmdlist_config(struct composer_manager *comp_mgr,
 	struct arsr_lut_tap_table *tap_tlb, uint32_t arsr_lut_base)
 {
+	uint32_t cmdlist_dev_id = CMDLIST_DEV_ID_DPU;
+
 	/* 1. alloc cmdlist node */
-	uint32_t cmdlist_id = cmdlist_create_user_client(DPU_SCENE_INITAIL, DATA_TRANSPORT_TYPE,
+	uint32_t cmdlist_id = cmdlist_create_user_client(cmdlist_dev_id,
+		DPU_SCENE_INITAIL, DATA_TRANSPORT_TYPE,
 		arsr_lut_base + tap_tlb->offset, tap_tlb->tap_size);
 
 	/* 2. config cmdlist node */
-	uint32_t *payload_addr = (uint32_t *)cmdlist_get_payload_addr(DPU_SCENE_INITAIL, cmdlist_id);
+	uint32_t *payload_addr = (uint32_t *)cmdlist_get_payload_addr(cmdlist_dev_id,
+		DPU_SCENE_INITAIL, cmdlist_id);
 	if (unlikely(!payload_addr)) {
-		cmdlist_flush_client(DPU_SCENE_INITAIL, cmdlist_id);
-		cmdlist_append_client(DPU_SCENE_INITAIL, dpu_comp->init_scene_cmdlist, cmdlist_id);
+		cmdlist_flush_client(cmdlist_dev_id, DPU_SCENE_INITAIL, cmdlist_id);
+		cmdlist_append_client(cmdlist_dev_id,
+			DPU_SCENE_INITAIL, comp_mgr->init_scene_cmdlist, cmdlist_id);
 		dpu_pr_err("payload_addr is null");
 		return -1;
 	}
 	dpu_arsr_write_coefs(payload_addr, tap_tlb->arsr_lut_tap, tap_tlb->direction);
 
 	/* 3. add comlist node to init list header tail */
-	cmdlist_flush_client(DPU_SCENE_INITAIL, cmdlist_id);
-	cmdlist_append_client(DPU_SCENE_INITAIL, dpu_comp->init_scene_cmdlist, cmdlist_id);
+	cmdlist_flush_client(cmdlist_dev_id, DPU_SCENE_INITAIL, cmdlist_id);
+	cmdlist_append_client(cmdlist_dev_id,
+		DPU_SCENE_INITAIL, comp_mgr->init_scene_cmdlist, cmdlist_id);
 	return 0;
 }
 
-static int32_t dpu_arsr_lut_init(struct dpu_composer *dpu_comp)
+static int32_t dpu_arsr_lut_init(struct composer_manager *comp_mgr)
 {
 	int32_t i, j;
 	int32_t length = 0;
@@ -128,7 +141,7 @@ static int32_t dpu_arsr_lut_init(struct dpu_composer *dpu_comp)
 
 	for (i = 0; i < length; i++) {
 		for (j = 0; j < ARRAY_SIZE(g_arsr_lut_tap_tlb); j++) {
-			if (dpu_arsr_lut_cmdlist_config(dpu_comp, &g_arsr_lut_tap_tlb[j], arsr_lut_addr_tlb[i]))
+			if (dpu_arsr_lut_cmdlist_config(comp_mgr, &g_arsr_lut_tap_tlb[j], arsr_lut_addr_tlb[i]))
 				return -1;
 		}
 	}
@@ -144,19 +157,21 @@ static void dpu_ov_mitm_write_coefs(char *cmd_item_base, struct dpu_ov_mitm *p)
 		dpu_pr_err("memcpy_s failed");
 }
 
-static int32_t dpu_ov_mitm_coef_init(struct dpu_composer *dpu_comp)
+static int32_t dpu_ov_mitm_coef_init(struct composer_manager *comp_mgr)
 {
 	uint32_t i;
+	uint32_t cmdlist_dev_id = CMDLIST_DEV_ID_DPU;
 
 	/* 1. alloc cmdlist node */
-	uint32_t cmdlist_id = cmdlist_create_user_client(DPU_SCENE_INITAIL, DATA_TRANSPORT_TYPE,
+	uint32_t cmdlist_id = cmdlist_create_user_client(cmdlist_dev_id,
+		DPU_SCENE_INITAIL, DATA_TRANSPORT_TYPE,
 		DPU_RCH_OV_MITM_CTRL_ADDR(DPU_RCH_OV_OFFSET, 0), MITM_COEF_OFFSET * ARRAY_SIZE(g_ov_mitm_coef_array));
 
 	/* 2. config cmdlist node */
-	char *payload_addr = (char *)cmdlist_get_payload_addr(DPU_SCENE_INITAIL, cmdlist_id);
+	char *payload_addr = (char *)cmdlist_get_payload_addr(cmdlist_dev_id, DPU_SCENE_INITAIL, cmdlist_id);
 	if (unlikely(!payload_addr)) {
-		cmdlist_flush_client(DPU_SCENE_INITAIL, cmdlist_id);
-		cmdlist_append_client(DPU_SCENE_INITAIL, dpu_comp->init_scene_cmdlist, cmdlist_id);
+		cmdlist_flush_client(cmdlist_dev_id, DPU_SCENE_INITAIL, cmdlist_id);
+		cmdlist_append_client(cmdlist_dev_id, DPU_SCENE_INITAIL, comp_mgr->init_scene_cmdlist, cmdlist_id);
 		dpu_pr_err("payload_addr is null");
 		return -1;
 	}
@@ -164,31 +179,31 @@ static int32_t dpu_ov_mitm_coef_init(struct dpu_composer *dpu_comp)
 		dpu_ov_mitm_write_coefs(payload_addr + MITM_COEF_OFFSET * i, g_ov_mitm_coef_array[i]);
 
 	/* 3. add comlist node to init list header tail */
-	cmdlist_flush_client(DPU_SCENE_INITAIL, cmdlist_id);
-	cmdlist_append_client(DPU_SCENE_INITAIL, dpu_comp->init_scene_cmdlist, cmdlist_id);
+	cmdlist_flush_client(cmdlist_dev_id, DPU_SCENE_INITAIL, cmdlist_id);
+	cmdlist_append_client(cmdlist_dev_id, DPU_SCENE_INITAIL, comp_mgr->init_scene_cmdlist, cmdlist_id);
 
 	return 0;
 }
 
-static void dpu_hdr_lut_init(struct dpu_composer *dpu_comp)
+static void dpu_hdr_lut_init(struct composer_manager *comp_mgr)
 {
 }
 
-int32_t dpu_lut_init(struct dpu_composer *dpu_comp)
+int32_t dpu_lut_init(struct composer_manager *comp_mgr)
 {
-	if (dpu_comp == NULL)
+	if (comp_mgr == NULL)
 		return -1;
 
-	if (dpu_scf_lut_init(dpu_comp))
+	if (dpu_scf_lut_init(comp_mgr))
 		return -1;
 
-	if (dpu_arsr_lut_init(dpu_comp))
+	if (dpu_arsr_lut_init(comp_mgr))
 		return -1;
 
-	if (dpu_ov_mitm_coef_init(dpu_comp))
+	if (dpu_ov_mitm_coef_init(comp_mgr))
 		return -1;
 
-	dpu_hdr_lut_init(dpu_comp);
+	dpu_hdr_lut_init(comp_mgr);
 
 	return 0;
 }

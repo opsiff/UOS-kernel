@@ -50,7 +50,7 @@ struct fix_var_screeninfo {
 };
 
 struct fix_var_screeninfo* get_fix_var_screeninfo(void);
-int32_t gfxdev_init_fscreen_info(struct composer *comp, struct fix_var_screeninfo *screen_info,
+void gfxdev_init_fbi_fix_info(struct composer *comp, struct fix_var_screeninfo *screen_info,
 	gfxdev_fix_screeninfo *fix);
 int32_t build_display_info(const struct dkmd_object_info *object_info, gfxdev_fix_screeninfo *fix,
 	gfxdev_var_screeninfo *var, struct composer *comp, struct dkmd_base_frame *frame, struct dkmd_network *network);

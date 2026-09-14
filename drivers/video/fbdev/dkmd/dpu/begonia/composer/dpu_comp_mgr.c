@@ -30,8 +30,15 @@
 #include "dpu_sh_aod.h"
 #include "res_mgr.h"
 #include "dpu_effect_alsc.h"
-#include "ddr_dvfs.h"
 #include "dksm_dmd.h"
+#include "dpu_conn_mgr.h"
+#include "dpu_comp_config_utils.h"
+#include "dpu_dvfs.h"
+#include "dpu_comp_tui.h"
+#include "dpu_mntn.h"
+#include "dpu_dacc_log_read.h"
+#include "dpu_comp_tunnel_present.h"
+#include "dpu_dev_present_vote.h"
 
 struct composer_manager *g_composer_manager = NULL;
 static void composer_manager_get_fps_seq(struct composer *comp, struct product_config *out_config)
@@ -56,9 +63,9 @@ static void composer_manager_get_fps_seq(struct composer *comp, struct product_c
 
 	dpu_pr_info("comp %d, +",comp->index);
 
-	out_config->is_support_intra_dvfs = (dfr_info->oled_info.oled_type == PANEL_OLED_LTPO) &&
-		(dfr_info->dfr_mode != DFR_MODE_TE_SKIP_BY_ACPU);
 	out_config->dfr_mode = dfr_info->dfr_mode;
+	out_config->connector_trans_mode =
+		is_mipi_video_panel(&dpu_comp->conn_info->base) ? DSI_VIDEO_MODE : DSI_CMD_MODE;
 
 	/* get fps support seq from each connecter dtsc */
 	fps_sup_num = dfr_info->oled_info.fps_sup_num < FPS_LEVEL_MAX ?
@@ -85,9 +92,56 @@ static bool composer_manager_get_async_online(struct composer *comp)
 	return false;
 }
 
+static void composer_manager_get_porch_info(struct dpu_composer *dpu_comp, struct product_config *out_config)
+{
+	struct dpu_porch_info *porch_info = &(out_config->porch_info);
+	struct dkmd_connector_info *pinfo = dpu_comp->conn_info;
+
+	uint32_t pixel_clk;
+	uint64_t lane_byte_clk;
+	struct dpu_porch_info_legacy *porch_info_legacy = NULL;
+	struct mipi_panel_info *mipi = NULL;
+	struct dpu_connector *connector = NULL;
+
+	(void)memset_s(porch_info, sizeof(struct dpu_porch_info), 0, sizeof(struct dpu_porch_info));
+	pipeline_next_ops_handle(pinfo->conn_device, pinfo, GET_PORCH_INFO, porch_info);
+
+	connector = get_primary_connector(dpu_comp->conn_info);
+	if (connector == NULL)
+		return;
+
+	porch_info_legacy = &(out_config->porch_info_legacy);
+	(void)memset_s(porch_info_legacy, sizeof(struct dpu_porch_info_legacy), 0, sizeof(struct dpu_porch_info_legacy));
+
+	mipi = &(connector->post_info[0]->mipi); // using default params
+
+	pixel_clk = get_mipi_pixel_clk(mipi);
+	if (pixel_clk == 0)
+		return;
+
+	lane_byte_clk = get_default_lane_byte_clk(mipi);
+	if (lane_byte_clk == 0)
+		return;
+
+	if (((mipi->hsa + mipi->hbp) == 0) ||
+		(mipi->hline_time <= (mipi->dpi_hsize + mipi->hsa + mipi->hbp)))
+		return;
+
+	porch_info_legacy->hsa = round1(mipi->hsa * pixel_clk, lane_byte_clk);
+	porch_info_legacy->hbp = round1(mipi->hbp * pixel_clk, lane_byte_clk);
+	porch_info_legacy->hfp = round1((mipi->hline_time - mipi->dpi_hsize - mipi->hsa - mipi->hbp) *
+		pixel_clk, lane_byte_clk);
+
+	porch_info_legacy->vfp = mipi->vfp;
+	porch_info_legacy->vbp = mipi->vbp;
+	porch_info_legacy->vsa = mipi->vsa;
+}
+
 static int32_t composer_manager_get_prodcut_config(struct composer *comp, struct product_config *out_config)
 {
+	struct dpu_connector *connector = NULL;
 	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
+	int i = 0;
 
 	if (!dpu_comp) {
 		dpu_pr_err("dpu_comp is nullptr");
@@ -96,6 +150,12 @@ static int32_t composer_manager_get_prodcut_config(struct composer *comp, struct
 
 	if (unlikely(!out_config)) {
 		dpu_pr_err("out config is null");
+		return -1;
+	}
+
+	connector = get_primary_connector(dpu_comp->conn_info);
+	if (unlikely(!connector)) {
+		dpu_pr_err("connector is null");
 		return -1;
 	}
 
@@ -114,6 +174,8 @@ static int32_t composer_manager_get_prodcut_config(struct composer *comp, struct
 	/* get product config information
 	 * get split mode frome connecotr info, it must get from panel dtsi
 	 */
+	out_config->xres = comp->base.xres;
+	out_config->yres = comp->base.yres;
 	out_config->display_count = 1;
 	out_config->split_count = 1;
 	out_config->split_mode = SCENE_SPLIT_MODE_NONE;
@@ -123,31 +185,132 @@ static int32_t composer_manager_get_prodcut_config(struct composer *comp, struct
 	out_config->dim_info_count = 0;
 	out_config->fps_info_count = 0;
 	out_config->fps_of_longv_for_dvfs = dpu_comp->conn_info->base.fps_of_longv_for_dvfs;
+	out_config->effect_ctrl_flag = dpu_comp->comp_mgr->effect_ctrl_flag;
 
-	out_config->color_mode_count = 3;
+	if (dpu_comp->conn_info->support_bt2020) {
+		out_config->color_mode_count = 4;
+		out_config->color_modes[3] = COLOR_MODE_BT2020;
+		out_config->support_color_mode = COLOR_MODE_BT2020;
+	} else {
+		out_config->color_mode_count = 3;
+		out_config->support_color_mode = COLOR_MODE_DISPLAY_P3;
+	}
 	out_config->color_modes[0] = COLOR_MODE_NATIVE;
 	out_config->color_modes[1] = COLOR_MODE_SRGB;
 	out_config->color_modes[2] = COLOR_MODE_DISPLAY_P3;
 
-	out_config->dsc_out_width = comp->base.dsc_out_width;
-	out_config->dsc_out_height = comp->base.dsc_out_height;
-	out_config->feature_switch.bits.enable_dsc = comp->base.dsc_en;
-	out_config->feature_switch.bits.enable_spr = comp->base.spr_en;
-	out_config->feature_switch.bits.enable_online_async = composer_manager_get_async_online(comp);
-	out_config->spr_ctrl = dpu_comp->conn_info->spr_ctrl;
-	out_config->spr_border_r_tb = dpu_comp->conn_info->spr_border_r_tb;
-	out_config->spr_border_g_tb = dpu_comp->conn_info->spr_border_g_tb;
-	out_config->spr_border_b_tb = dpu_comp->conn_info->spr_border_b_tb;
+	out_config->init_panel_display_status = dpu_comp->comp_mgr->init_panel_display_status;
+	out_config->dbuf_discount_factor = dpu_comp->conn_info->base.dbuf_discount_factor;
 
+	if (composer_manager_get_scene_switch(dpu_comp)) {
+		out_config->dsc_out_width = connector->post_info[0]->dsc.dsc_info.output_width;
+		out_config->dsc_out_height = connector->post_info[0]->dsc.dsc_info.output_height;
+		out_config->feature_switch.bits.enable_dsc = connector->post_info[0]->dsc.dsc_en & 0x1;
+		out_config->feature_switch.bits.enable_spr = connector->post_info[0]->dsc.spr_en;
+		out_config->spr_ctrl = connector->post_info[0]->spr.spr_ctrl.value;
+		out_config->spr_border_r_tb = connector->post_info[0]->spr.spr_r_bordertb.value;
+		out_config->spr_border_g_tb = connector->post_info[0]->spr.spr_g_bordertb.value;
+		out_config->spr_border_b_tb = connector->post_info[0]->spr.spr_b_bordertb.value;
+	} else {
+		out_config->dsc_out_width = comp->base.dsc_out_width;
+		out_config->dsc_out_height = comp->base.dsc_out_height;
+		out_config->feature_switch.bits.enable_dsc = comp->base.dsc_en;
+		out_config->feature_switch.bits.enable_spr = comp->base.spr_en;
+		out_config->spr_ctrl = dpu_comp->conn_info->spr_ctrl;
+		out_config->spr_border_r_tb = dpu_comp->conn_info->spr_border_r_tb;
+		out_config->spr_border_g_tb = dpu_comp->conn_info->spr_border_g_tb;
+		out_config->spr_border_b_tb = dpu_comp->conn_info->spr_border_b_tb;
+	}
+
+	out_config->feature_switch.bits.enable_online_async = composer_manager_get_async_online(comp);
 	out_config->feature_switch.bits.enable_hdr10 = 1;
 	out_config->fold_info.bits.fold_type = comp->base.fold_type;
+	out_config->feature_switch.bits.enable_scene_switch = composer_manager_get_scene_switch(dpu_comp);
 
 	composer_manager_get_fps_seq(comp, out_config);
 	if (dpu_comp->conn_info->get_panel_user_info) // dsi panel
 		dpu_comp->conn_info->get_panel_user_info(dpu_comp->conn_info, &out_config->user_pinfo);
-	if (is_ppc_support(&comp->base) && dpu_comp->conn_info->get_panel_ppc_config_id_rect_info)
-		dpu_comp->conn_info->get_panel_ppc_config_id_rect_info(dpu_comp->conn_info,
-																&(out_config->ppc_config_id_rect_info[0]));
+	if (dpu_comp->conn_info->get_ppu_config_info)
+		dpu_comp->conn_info->get_ppu_config_info(dpu_comp->conn_info, &out_config->ppu_cfg_info);
+	if (is_ppc_support(&comp->base)) {
+		for (i = 0; i < PPC_CONFIG_ID_CNT; i++) {
+			out_config->ppc_config_id_rect_info[i] = dpu_comp->conn_info->ppc_rect_info[i];
+		}
+	}
+
+	if (out_config->ppu_cfg_info.ppu_support && g_debug_partial_refresh_support == 0)
+		out_config->ppu_cfg_info.ppu_support = 0;
+
+	if (out_config->user_pinfo.dirty_region_updt_support && g_debug_partial_tx_support == 0)
+		out_config->user_pinfo.dirty_region_updt_support = 0;
+
+	composer_manager_get_porch_info(dpu_comp, out_config);
+
+	/* used for hardware cursor property send to dumd */
+	out_config->is_hardware_cursor_support = dpu_comp->conn_info->base.is_hardware_cursor_support;
+	return 0;
+}
+
+static int32_t composer_manager_get_ext_info(struct composer *comp, struct product_ext_config *out_config)
+{
+	uint32_t pixel_clk = 0;
+	uint64_t lane_byte_clk = 0;
+	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
+	struct dpu_connector *connector = NULL;
+	struct mipi_panel_info *mipi = NULL;
+
+	if (!dpu_comp) {
+		dpu_pr_err("dpu_comp is nullptr");
+		return -1;
+	}
+
+	if (unlikely(!out_config)) {
+		dpu_pr_err("out config is null");
+		return -1;
+	}
+
+	if (!composer_manager_get_scene_switch(dpu_comp)) {
+		dpu_pr_info("not support scene switch");
+		return 0;
+	}
+
+	connector = get_primary_connector(dpu_comp->conn_info);
+	if (connector->post_info[1] == NULL) {
+		dpu_pr_err("comp %u post_info is null, error", comp->index);
+		return -1;
+	}
+
+	mipi = &(connector->post_info[1]->mipi);
+	out_config->dfr_mode = connector->post_info[1]->dfr_info.dfr_mode;
+	out_config->dsc_en = 0;
+	out_config->dsc_out_width = comp->base.xres;
+	out_config->dsc_out_height = comp->base.yres;
+
+	pixel_clk = get_mipi_pixel_clk(mipi);
+	lane_byte_clk = get_default_lane_byte_clk(mipi);
+	if (pixel_clk == 0 || lane_byte_clk == 0) {
+		dpu_pr_err("pixel_clk %u, lane_byte_clk %u fail", pixel_clk, lane_byte_clk);
+		return -1;
+	}
+
+	if (((mipi->hsa + mipi->hbp) == 0) ||
+		(mipi->hline_time <= (mipi->dpi_hsize + mipi->hsa + mipi->hbp))) {
+		dpu_pr_err("check mipi param fail");
+		return -1;
+	}
+
+	out_config->porch_info_legacy.hsa = (uint32_t)(round1((uint64_t)mipi->hsa * pixel_clk, lane_byte_clk));
+	out_config->porch_info_legacy.hbp = (uint32_t)(round1((uint64_t)mipi->hbp * pixel_clk, lane_byte_clk));
+	out_config->porch_info_legacy.hfp = (uint32_t)(round1((uint64_t)(mipi->hline_time - mipi->dpi_hsize - mipi->hsa - mipi->hbp) *
+		pixel_clk, lane_byte_clk));
+	out_config->porch_info_legacy.vfp = mipi->vfp;
+	out_config->porch_info_legacy.vbp = mipi->vbp;
+	out_config->porch_info_legacy.vsa = mipi->vsa;
+
+	dpu_pr_info("get ext_info %u, %u, %u, porch info %u, %u, %u, %u, %u, %u",
+		out_config->dfr_mode, out_config->dsc_out_width, out_config->dsc_out_height,
+		out_config->porch_info_legacy.vfp, out_config->porch_info_legacy.vbp, out_config->porch_info_legacy.vsa,
+		out_config->porch_info_legacy.hsa, out_config->porch_info_legacy.hbp, out_config->porch_info_legacy.hfp);
 
 	return 0;
 }
@@ -181,7 +344,7 @@ static ssize_t composer_frame_index_show(struct device *dev, struct device_attri
 
 static DEVICE_ATTR(comp_frame_index, 0440, composer_frame_index_show, NULL);
 
-static int32_t composer_manager_get_sysfs_attrs(struct composer *comp, struct dkmd_attr **out_attr)
+static int32_t composer_manager_get_sysfs_attrs(struct composer *comp, struct ukmd_attr **out_attr)
 {
 	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
 
@@ -195,7 +358,7 @@ static int32_t composer_manager_get_sysfs_attrs(struct composer *comp, struct dk
 		dpu_pr_err("*out_attr is nullptr");
 		return -1;
 	}
-	dkmd_sysfs_attrs_append(&(dpu_comp->attrs), &dev_attr_comp_frame_index.attr);
+	ukmd_sysfs_attrs_append(&(dpu_comp->attrs), &dev_attr_comp_frame_index.attr);
 
 	return 0;
 }
@@ -232,18 +395,6 @@ static int32_t composer_manager_release_fence(struct composer *comp, int32_t fd)
 	return dpu_comp->release_fence(dpu_comp, fd);
 }
 
-static int32_t composer_manager_get_hdr_mean(struct composer *comp, uint32_t *hdr_mean)
-{
-	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
-
-	if (!dpu_comp) {
-		dpu_pr_err("dpu_comp is nullptr");
-		return -1;
-	}
-
-	return composer_get_hdr_mean(&dpu_comp->hdr_info, hdr_mean);
-}
-
 static void dpu_comp_mgr_thread_setup(struct dpu_composer *dpu_comp)
 {
 	char tmp_name[256] = {0};
@@ -256,10 +407,14 @@ static void dpu_comp_mgr_thread_setup(struct dpu_composer *dpu_comp)
 		dpu_pr_err("comp is nullptr");
 		return;
 	}
+	if (is_offline_panel(&comp->base)) {
+		dpu_pr_info("offline panel do not need thread setup");
+		return;
+	}
 
 	/* public each scene kernel processing threads, would be initialized only once */
 	kthread_init_worker(&dpu_comp->handle_worker);
-	ret = snprintf_s(tmp_name, sizeof(tmp_name), sizeof(tmp_name)-1, "dpu_%s", comp->base.name);
+	ret = snprintf_s(tmp_name, sizeof(tmp_name), (sizeof(tmp_name) - 1), "dpu_%s", comp->base.name);
 	if (ret < 0)
 		dpu_pr_warn("failed to format tmp name!");
 
@@ -331,6 +486,56 @@ static int32_t composer_manager_get_hiace_hist(struct composer *comp, void __use
 	return 0;
 }
 
+static int32_t composer_manager_wake_up_rgb_hist(struct composer *comp)
+{
+	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
+
+	if (!dpu_comp) {
+		dpu_pr_err("dpu_comp is nullptr");
+		return -1;
+	}
+
+	if (!dpu_comp->rgb_hist_ctrl) {
+		dpu_pr_err("rgb_hist_ctrl is nullptr");
+		return -1;
+	}
+
+	if (!dpu_comp->rgb_hist_ctrl->wake_up_hist) {
+		dpu_pr_err("wake_up_hist is nullptr");
+		return -1;
+	}
+
+	dpu_comp->rgb_hist_ctrl->wake_up_hist(dpu_comp->rgb_hist_ctrl);
+	return 0;
+}
+
+static int32_t composer_manager_get_rgb_hist(struct composer *comp, void __user* argp)
+{
+	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
+
+	if (!dpu_comp) {
+		dpu_pr_err("dpu_comp is nullptr");
+		return -1;
+	}
+
+	if (!comp->power_on) {
+		dpu_pr_debug("panel is power off!");
+		return 1; /* panel off, do not get hist, return 1. */
+	}
+
+	if (!dpu_comp->rgb_hist_ctrl) {
+		dpu_pr_err("rgb_hist_ctrl is nullptr");
+		return -1;
+	}
+
+	if (!dpu_comp->rgb_hist_ctrl->get_hist) {
+		dpu_pr_err("get_hist is nullptr");
+		return -1;
+	}
+
+	return dpu_comp->rgb_hist_ctrl->get_hist(dpu_comp->rgb_hist_ctrl, argp);
+}
+
 static int32_t composer_manager_set_safe_frm_rate(struct composer *comp, uint32_t safe_frm_rate)
 {
 	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
@@ -340,30 +545,6 @@ static int32_t composer_manager_set_safe_frm_rate(struct composer *comp, uint32_
 		return -1;
 	}
 	return composer_present_set_safe_frm_rate(dpu_comp, safe_frm_rate);
-}
-
-static int32_t composer_manager_hdcp_increase_counter(struct composer *comp)
-{
-	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
-
-	if (!dpu_comp) {
-		dpu_pr_err("dpu_comp is nullptr");
-		return -1;
-	}
-	return pipeline_next_ops_handle(dpu_comp->conn_info->conn_device,
-		dpu_comp->conn_info, HDCP_INCREASE_COUNTER, NULL);
-}
-
-static int32_t composer_manager_hdcp_decrease_counter(struct composer *comp)
-{
-	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
-
-	if (!dpu_comp) {
-		dpu_pr_err("dpu_comp is nullptr");
-		return -1;
-	}
-	return pipeline_next_ops_handle(dpu_comp->conn_info->conn_device,
-		dpu_comp->conn_info, HDCP_DECREASE_COUNTER, NULL);
 }
 
 static int32_t composer_manager_set_active_rect(struct composer *comp, uint32_t ppc_config_id)
@@ -379,8 +560,117 @@ static int32_t composer_manager_set_active_rect(struct composer *comp, uint32_t 
 	return composer_present_set_active_rect(dpu_comp, ppc_config_id);
 }
 
+static int32_t composer_manager_tunnel_present(struct composer *comp, struct tunnel_layer_data *data)
+{
+	return dpu_tunnel_present(comp, data);
+}
+
+static int32_t composer_manager_enable_hardware_cursor_stats(struct composer *comp, int32_t scene_id, bool enable)
+{
+	return dpu_tunnel_enable_hardware_cursor_stats(comp, scene_id, enable);
+}
+
+static int32_t composer_manager_get_hardware_cursor_stats(
+		struct composer *comp, int32_t scene_id, uint32_t *frame_count, uint32_t *vsync_count)
+{
+	return dpu_tunnel_get_hardware_cursor_stats(comp, scene_id, frame_count, vsync_count);
+}
+
+struct composer_manager *get_dpu_composer_manager(void)
+{
+	dpu_check_and_return(!g_composer_manager, NULL, warn, "composer manager is not ready!");
+	return g_composer_manager->dpu_comps[DEVICE_COMP_PRIMARY_ID]->comp_mgr;
+}
+
+static void dpu_comp_display_init(struct dpu_composer *dpu_comp)
+{
+	dpu_comp->comp_scene_id = (int32_t)dpu_comp->conn_info->base.pipe_sw_itfch_idx;
+
+	if (is_builtin_panel(&(dpu_comp->conn_info->base)) && dpu_comp->conn_info->base.fold_type == PANEL_FLIP) {
+		if (composer_manager_get_scene_switch(dpu_comp)) {
+			dpu_comp->comp_scene_id = DPU_SCENE_ONLINE_0;
+			dpu_comp->comp_mgr->init_panel_display_status = ONE_PANEL_DISPLAY;
+		} else {
+			dpu_comp->comp_mgr->init_panel_display_status = MULTI_PANEL_DISPLAY;
+		}
+		dpu_pr_info("init_panel_display_status %u comp_scene_id %d pipe_sw_itfch_idx %u",
+			dpu_comp->comp_mgr->init_panel_display_status, dpu_comp->comp_scene_id, dpu_comp->conn_info->base.pipe_sw_itfch_idx);
+	}
+}
+
+static int32_t composer_manager_send_pq_data(struct composer *comp, uint8_t *data, uint32_t len)
+{
+	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
+
+	if (!dpu_comp) {
+		dpu_pr_err("dpu_comp is nullptr");
+		return -1;
+	}
+
+	if (dpu_comp->conn_info->base.is_send_pqdata == 0 || !dpu_comp->conn_info->send_display_pq_data)
+		return 0;
+
+	return dpu_comp->conn_info->send_display_pq_data(dpu_comp->conn_info, data, len);
+}
+
+int32_t composer_connect(struct composer *comp)
+{
+	int ret = 0;
+	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
+	struct dkmd_connector_info *pinfo = NULL;
+
+	dpu_pr_info("composer_connect");
+	if (!dpu_comp) {
+		dpu_pr_err("dpu_comp is nullptr");
+		return -1;
+	}
+
+	pinfo = dpu_comp->conn_info;
+	ret = pipeline_next_connect(pinfo->conn_device, pinfo);
+	if (ret != 0) {
+		dpu_pr_warn("dpu_comp connect failed");
+	}
+	return ret;
+}
+
+int32_t composer_disconnect(struct composer *comp)
+{
+	int ret = 0;
+	struct dpu_composer *dpu_comp = to_dpu_composer(comp);
+	struct dkmd_connector_info *pinfo = NULL;
+
+	dpu_pr_info("composer_disconnect");
+	if (!dpu_comp) {
+		dpu_pr_err("dpu_comp is nullptr");
+		return -1;
+	}
+
+	pinfo = dpu_comp->conn_info;
+	ret = pipeline_next_disconnect(pinfo->conn_device, pinfo);
+	if (ret != 0) {
+		dpu_pr_err("dpu_comp disconnect failed");
+	}
+	struct comp_online_present *present = (struct comp_online_present *)dpu_comp->present_data;
+	dpu_check_and_return(!present, -EINVAL, err, "[composer_disconnect] present is nullptr!");
+
+	int scene_id = present->frames[0].in_frame.scene_id;
+	if (scene_id < 0 || scene_id > 3) {
+		dpu_pr_err("[DP] scene id %d is invalid!", scene_id);
+		return -EINVAL;
+	}
+	struct composer_scene *scene = dpu_comp->comp_mgr->scene[scene_id];
+	if (!dpu_comp_status_is_disable(&dpu_comp->comp_mgr->power_status)) {
+		ret = pipeline_next_disconnect_post_handle(pinfo->conn_device, pinfo, scene->dpu_base);
+		if (ret != 0) {
+			dpu_pr_err("dpu_comp clear scene id failed");
+		}
+	}
+	return ret;
+}
+
 static void dpu_comp_mgr_common_init(struct dpu_composer *dpu_comp)
 {
+	uint32_t i = 0;
 	struct composer *comp = &dpu_comp->comp;
 	if (!comp) {
 		dpu_pr_err("comp is nullptr");
@@ -388,36 +678,49 @@ static void dpu_comp_mgr_common_init(struct dpu_composer *dpu_comp)
 	}
 
 	dpu_comp->comp_mgr = g_composer_manager;
-	dpu_comp->init_scene_cmdlist = 0;
-	dkmd_sysfs_init(&dpu_comp->attrs);
+	ukmd_sysfs_init(&dpu_comp->attrs);
 	sema_init(&comp->blank_sem, 1);
 	sema_init(&dpu_comp->secure_ctrl.tui_sem, 1);
-	spin_lock_init(&dpu_comp->hdr_info.hdr_mean_lock);
-	dpu_comp->hdr_info.hdr_mean = 0;
-	dpu_comp->hdr_info.block_hdr_mean = 0;
+	sema_init(&dpu_comp->secure_ctrl.tui_status_sem, 1);
 	dpu_comp->dpu_boot_complete = false;
 
 	/* copy obj_info from connector */
 	comp->base = dpu_comp->conn_info->base;
 
 	device_mgr_register_comp(comp);
+	if (unlikely(comp->index >= DEVICE_COMP_MAX_COUNT)) {
+		dpu_pr_err("comp->index=%u is out of range", comp->index);
+		return;
+	}
+
 	dpu_comp->comp_mgr->dpu_comps[comp->index] = dpu_comp;
 
 	/* sensorhub aod init */
 	dpu_sh_aod_init(dpu_comp);
 
+	/* init panel display type */
+	dpu_comp_display_init(dpu_comp);
+
 	/* update dpu_comp peri device pointer to connector manager */
 	comp->base.peri_device = dpu_comp->conn_info->conn_device;
+	dpu_comp->vsync_count = 0ULL;
 
-	/* update link relationships
-	 * connector->prev is dpu_composer
-	 * dpu_composer->next is connector
-	 */
-	dpu_comp->conn_info->base.comp_obj_info = &comp->base;
+	for (i = 0; i < MAX_TUNNEL_LAYER_COUNT; i++)
+		spin_lock_init(&(dpu_comp->data_ctrl_arr[i].lock));
 
 	/* initialze the comp idle params */
 	dpu_comp->comp_idle_enable = true;
 	dpu_comp->comp_idle_flag = 0;
+
+	/* initialze the debug dvfs info */
+	dpu_comp->curr_active_level = 0;
+
+	/* initialize register listeners flag */
+	dpu_comp->has_dfr_related_listener_registered = false;
+
+	dpu_comp->is_peri_starting = false;
+
+	composer_set_reset_status(comp, false);
 
 	/* initialize the composer interface which would be called by device component */
 	if (is_offline_panel(&comp->base)) {
@@ -434,22 +737,33 @@ static void dpu_comp_mgr_common_init(struct dpu_composer *dpu_comp)
 	comp->create_fence = composer_manager_create_fence;
 	comp->release_fence = composer_manager_release_fence;
 	comp->get_product_config = composer_manager_get_prodcut_config;
+	comp->get_ext_info = composer_manager_get_ext_info;
 	comp->get_sysfs_attrs = composer_manager_get_sysfs_attrs;
-	comp->get_hdr_mean = composer_manager_get_hdr_mean;
+	comp->get_hdr_mean = dpu_effect_hdr_get_mean;
+	comp->get_hdr_statistic = dpu_effect_hdr_get_statistic;
 	comp->register_alsc = dpu_effect_register_alsc_composer;
 	comp->unregister_alsc = dpu_effect_unregister_alsc_composer;
 	comp->get_alsc_info = dpu_effect_get_alsc_info;
+	comp->get_tui_level1_layer_info = dpu_get_tui_level1_layer_info;
 	comp->get_fusa_info = NULL;
 	comp->effect_hiace_get_hist = composer_manager_get_hiace_hist;
 	comp->effect_hiace_set_lut = composer_manager_set_hiace_lut;
 	comp->effect_wake_up_hiace_hist = composer_manager_wake_up_hiace_hist;
 	comp->wait_for_blank = composer_wait_for_blank;
 	comp->restore_fast_unblank_status = composer_restore_fast_unblank_status;
+	comp->blank_peri_handle = composer_blank_peri_handle;
 	comp->set_safe_frm_rate = composer_manager_set_safe_frm_rate;
 	comp->release = composer_manager_release;
-	comp->hdcp_increase_counter = composer_manager_hdcp_increase_counter;
-	comp->hdcp_decrease_counter = composer_manager_hdcp_decrease_counter;
 	comp->set_active_rect = composer_manager_set_active_rect;
+	comp->get_online_crc = dpu_composer_get_online_crc;
+	comp->tunnel_present = composer_manager_tunnel_present;
+	comp->enable_hardware_cursor_stats = composer_manager_enable_hardware_cursor_stats;
+	comp->get_hardware_cursor_stats = composer_manager_get_hardware_cursor_stats;
+	comp->effect_rgb_hist_get_hist = composer_manager_get_rgb_hist;
+	comp->effect_wake_up_rgb_hist = composer_manager_wake_up_rgb_hist;
+	comp->send_pq_data = composer_manager_send_pq_data;
+	comp->connect = composer_connect;
+	comp->disconnect = composer_disconnect;
 }
 
 struct dpu_bl_ctrl *get_bl_ctrl_from_device(struct device *dev)
@@ -470,21 +784,20 @@ struct dpu_bl_ctrl *get_bl_ctrl_from_device(struct device *dev)
 }
 
 /* animation must play panel 1 after panel 0 */
-static bool can_free_logo_buffer(struct dpu_composer *dpu_comp)
+static bool can_free_reserved_buffer(struct dpu_composer *dpu_comp)
 {
-	if (dpu_comp->comp.base.fold_type == PANEL_FLIP) {
+	if (dpu_comp->comp_mgr->init_panel_display_status == MULTI_PANEL_DISPLAY) {
 		if (dpu_comp->comp.index == DEVICE_COMP_BUILTIN_ID) {
-			dpu_pr_info("can free logo buffer: %d now\n", dpu_comp->comp.index);
+			dpu_pr_info("can free reserved buffer: %d now\n", dpu_comp->comp.index);
 			return true;
 		}
 	} else {
 		if (dpu_comp->comp.index == DEVICE_COMP_PRIMARY_ID ||
 			dpu_comp->comp.index == DEVICE_COMP_BUILTIN_ID) {
-			dpu_pr_info("can free logo buffer: %d now\n", dpu_comp->comp.index);
+			dpu_pr_info("can free reserved buffer: %d now\n", dpu_comp->comp.index);
 			return true;
 		}
 	}
-
 	return false;
 }
 
@@ -496,7 +809,7 @@ bool composer_dpu_free_logo_buffer(struct dpu_composer *dpu_comp)
 	uint32_t logo_buffer_tmp = 0;
 	struct device_node *np = NULL;
 
-	if (!can_free_logo_buffer(dpu_comp)) {
+	if (!can_free_reserved_buffer(dpu_comp)) {
 		dpu_pr_warn("NOTICE: can not free logo buffer: %d\n", dpu_comp->comp.index);
 		return false;
 	}
@@ -530,6 +843,108 @@ bool composer_dpu_free_logo_buffer(struct dpu_composer *dpu_comp)
 #endif
 
 	return true;
+}
+ 
+bool composer_dpu_free_cmdlist_buffer(struct dpu_composer *dpu_comp)
+{
+	int ret, i;
+	uint32_t cmdlist_buffer_base = 0;
+	uint32_t cmdlist_buffer_size = 0;
+	uint32_t cmdlist_buffer_tmp = 0;
+	struct device_node *np = NULL;
+ 
+	if (!can_free_reserved_buffer(dpu_comp) || !can_pre_init_config()) {
+		dpu_pr_warn("NOTICE: can not free cmdlist buffer: %d\n", dpu_comp->comp.index);
+		return false;
+	}
+ 
+	np = of_find_node_by_path(DTS_PATH_CMDLIST_BUFFER);
+	if (!np)
+		dpu_pr_err("NOT FOUND dts path: %s!\n", DTS_PATH_CMDLIST_BUFFER);
+ 
+	ret = of_property_read_u32_index(np, "reg", 1, &cmdlist_buffer_base);
+	if (ret != 0) {
+		dpu_pr_err("failed to get cmdlist_buffer_base resource! ret=%d\n", ret);
+		cmdlist_buffer_base = 0;
+	}
+	ret = of_property_read_u32_index(np, "reg", 3, &cmdlist_buffer_size);
+	if (ret != 0) {
+		dpu_pr_err("failed to get cmdlist_buffer_size resource! ret=%d\n", ret);
+		cmdlist_buffer_size = 0;
+	}
+	dpu_pr_info("free cmdlist_buffer_base=0x%x, cmdlist_buffer_size=0x%x\n", cmdlist_buffer_base, cmdlist_buffer_size);
+ 
+	cmdlist_buffer_tmp = cmdlist_buffer_base;
+#ifdef CONFIG_LIBLINUX
+	liblinux_pal_mem_enable_rsv_mem(phys_to_pfn(cmdlist_buffer_base),
+					phys_to_pfn(cmdlist_buffer_base + cmdlist_buffer_size));
+#else
+	for (i = 0; i < (int)(cmdlist_buffer_size / PAGE_SIZE); i++) {
+		free_reserved_page(phys_to_page(cmdlist_buffer_tmp));
+		cmdlist_buffer_tmp += PAGE_SIZE;
+	}
+	memblock_free(cmdlist_buffer_base, cmdlist_buffer_size);
+#endif
+ 
+	return true;
+}
+ 
+bool composer_dpu_free_smmu_ste_buffer(struct dpu_composer *dpu_comp)
+{
+	int ret, i;
+	uint32_t smmu_ste_buffer_base = 0;
+	uint32_t smmu_ste_buffer_size = 0;
+	uint32_t smmu_ste_buffer_tmp = 0;
+	struct device_node *np = NULL;
+ 
+	if (!can_free_reserved_buffer(dpu_comp) || !can_pre_init_config() || !dpu_is_single_tbu()) {
+		dpu_pr_warn("NOTICE: can not free smmu ste buffer: %d\n", dpu_comp->comp.index);
+		return false;
+	}
+ 
+	np = of_find_node_by_path(DTS_PATH_SMMU_STE_BUFFER);
+	if (!np)
+		dpu_pr_err("NOT FOUND dts path: %s!\n", DTS_PATH_SMMU_STE_BUFFER);
+ 
+	ret = of_property_read_u32_index(np, "reg", 1, &smmu_ste_buffer_base);
+	if (ret != 0) {
+		dpu_pr_err("failed to get smmu_ste_buffer_base resource! ret=%d\n", ret);
+		smmu_ste_buffer_base = 0;
+	}
+	ret = of_property_read_u32_index(np, "reg", 3, &smmu_ste_buffer_size);
+	if (ret != 0) {
+		dpu_pr_err("failed to get smmu_ste_buffer_size resource! ret=%d\n", ret);
+		smmu_ste_buffer_size = 0;
+	}
+	dpu_pr_info("free smmu_ste_buffer_base=0x%x, smmu_ste_buffer_size=0x%x\n", smmu_ste_buffer_base, smmu_ste_buffer_size);
+ 
+	smmu_ste_buffer_tmp = smmu_ste_buffer_base;
+#ifdef CONFIG_LIBLINUX
+	liblinux_pal_mem_enable_rsv_mem(phys_to_pfn(smmu_ste_buffer_base),
+					phys_to_pfn(smmu_ste_buffer_base + smmu_ste_buffer_size));
+#else
+	for (i = 0; i < (int)(smmu_ste_buffer_size / PAGE_SIZE); i++) {
+		free_reserved_page(phys_to_page(smmu_ste_buffer_tmp));
+		smmu_ste_buffer_tmp += PAGE_SIZE;
+	}
+	memblock_free(smmu_ste_buffer_base, smmu_ste_buffer_size);
+#endif
+ 
+	return true;
+}
+static void connector_config(struct dpu_composer *dpu_comp)
+{
+	struct dpu_connector *connector = get_primary_connector(dpu_comp->conn_info);
+	dpu_check_and_no_retval(!connector, err, "connector is null!");
+
+	if (dpu_comp->comp.fastboot_display_enabled != 0 && (dpu_comp->comp.index == DEVICE_COMP_PRIMARY_ID ||
+		(dpu_comp->comp.index == DEVICE_COMP_BUILTIN_ID &&
+		dpu_comp->comp_mgr->init_panel_display_status == MULTI_PANEL_DISPLAY))) {
+		atomic_set(&connector->mipi_dsi_on_flag, true);
+		atomic_set(&connector->mipi_dsi_read_enable, true);
+	}
+
+	dpu_pr_info("mipi_dsi_on_flag %d", atomic_read(&connector->mipi_dsi_on_flag));
 }
 
 int32_t register_composer(struct dkmd_connector_info *pinfo)
@@ -566,10 +981,6 @@ int32_t register_composer(struct dkmd_connector_info *pinfo)
 	}
 	composer_present_data_setup(dpu_comp, true);
 
-	// init ddr dvfs attr
-	if (dpu_comp->comp.index == DEVICE_COMP_PRIMARY_ID)
-		dpu_ddr_dvfs_init(&dpu_comp->attrs);
-
 	ret = device_mgr_create_gfxdev(&dpu_comp->comp);
 	if (ret != 0) {
 		dpu_comp_mgr_thread_relase(dpu_comp);
@@ -579,8 +990,9 @@ int32_t register_composer(struct dkmd_connector_info *pinfo)
 		return -EINVAL;
 	}
 
+	pinfo->base.comp_obj_info = &dpu_comp->comp.base;
 	dksm_dmd_register(dpu_comp->comp.index, pinfo->base.lcd_name);
-
+	connector_config(dpu_comp);
 	return 0;
 }
 
@@ -599,10 +1011,6 @@ void unregister_composer(struct dkmd_connector_info *pinfo)
 
 	device_mgr_destroy_gfxdev(comp);
 
-	// deinit ddr dvfs attr
-	if (comp->index == DEVICE_COMP_PRIMARY_ID)
-		dpu_ddr_dvfs_deinit();
-
 	dpu_comp = to_dpu_composer(comp);
 	/* sensorhub aod deinit */
 	dpu_sh_aod_deinit(dpu_comp);
@@ -616,6 +1024,7 @@ void unregister_composer(struct dkmd_connector_info *pinfo)
 
 	devm_kfree(&peri_device->dev, dpu_comp->present_data);
 	devm_kfree(&peri_device->dev, dpu_comp);
+	pinfo->base.comp_obj_info = NULL;
 }
 
 void composer_device_shutdown(struct dkmd_connector_info *pinfo)
@@ -654,20 +1063,20 @@ void composer_device_suspend(struct dkmd_connector_info *pinfo)
 	device_mgr_suspend_gfxdev(comp);
 }
 
-void composer_active_vsync(struct dkmd_connector_info *pinfo, bool need_active_vsync)
+int32_t composer_active_vsync(struct dkmd_connector_info *pinfo, bool need_active_vsync)
 {
 	struct composer *comp = NULL;
 	struct dpu_composer *dpu_comp = NULL;
 
 	if (!pinfo || !pinfo->base.comp_obj_info) {
 		dpu_pr_err("pinfo or comp_obj_info is nullptr!");
-		return;
+		return -1;
 	}
 
 	comp = container_of(pinfo->base.comp_obj_info, struct composer, base);
 	if (!comp) {
 		dpu_pr_err("comp is nullptr!");
-		return;
+		return -1;
 	}
 
 	dpu_comp = to_dpu_composer(comp);
@@ -675,6 +1084,60 @@ void composer_active_vsync(struct dkmd_connector_info *pinfo, bool need_active_v
 		dpu_comp_active_vsync(dpu_comp);
 	else
 		dpu_comp_deactive_vsync(dpu_comp);
+
+	return 0;
+}
+
+static enum hrtimer_restart dkmd_dvfs_dump_hrtimer_fnc(struct hrtimer *timer)
+{
+	struct dpu_composer *dpu_comp = NULL;
+	struct comp_online_present *present = NULL;
+	uint32_t current_total_freq;
+
+	dpu_comp = container_of(timer, struct dpu_composer, dkmd_dvfs_dump_hrtimer);
+	if(unlikely(!dpu_comp)) {
+		dpu_pr_err("dpu_comp is null");
+		return HRTIMER_NORESTART;
+	}
+	present = (struct comp_online_present *)dpu_comp->present_data;
+	if(unlikely(!present)) {
+		dpu_pr_err("present is null");
+		return HRTIMER_NORESTART;
+	}
+	current_total_freq = 
+		present->frames[present->displayed_idx].in_frame.dvfs_info.vote_freq_info.current_total_freq;
+	
+	dpu_pr_info("current_total_freq = %d", current_total_freq);
+
+	if (unlikely(!g_debug_dvfs_dump_timer)) {
+		return HRTIMER_NORESTART;
+	}
+
+	hrtimer_forward(timer,timer->base->get_time(),ktime_set(g_debug_dvfs_dump_timer,0));
+	return HRTIMER_RESTART;
+}
+
+void composer_dvfs_dump_timer_init(struct dpu_composer *dpu_comp)
+{
+	if (unlikely(!g_debug_dvfs_dump_timer)) {
+		return;
+	}
+	dpu_pr_debug("dvfs_dump_timer init and start!");
+	hrtimer_init(&dpu_comp->dkmd_dvfs_dump_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	dpu_comp->dkmd_dvfs_dump_hrtimer.function = dkmd_dvfs_dump_hrtimer_fnc;
+
+	hrtimer_start(&dpu_comp->dkmd_dvfs_dump_hrtimer, ktime_set(g_debug_dvfs_dump_timer,0), HRTIMER_MODE_REL);
+}
+
+void composer_cancel_dvfs_dump_timer(struct dpu_composer *dpu_comp)
+{
+	if (dpu_comp->dkmd_dvfs_dump_hrtimer.state == HRTIMER_STATE_INACTIVE) {
+		return;
+	}
+	dpu_check_and_no_retval(!dpu_comp, err, "dpu_comp is NULL\n");
+	dpu_pr_debug("dvfs dump timer cancel!");
+	hrtimer_cancel(&dpu_comp->dkmd_dvfs_dump_hrtimer);
+	dpu_pr_debug("dvfs dump timer cancel done!");
 }
 
 int32_t regitster_product_ops(struct product_display_ops* ops)
@@ -699,13 +1162,13 @@ bool composer_check_power_status(struct dpu_composer *dpu_comp)
 	comp_mgr = dpu_comp->comp_mgr;
 	dpu_check_and_return(!comp_mgr, false, err, "comp_mgr is null pointer");
 
-	if (comp_mgr->power_status.status == 0) {
-		dpu_pr_warn("check_power_status, %d already power off!", dpu_comp->comp.index);
+	if (dpu_comp_status_is_disable(&comp_mgr->power_status)) {
+		dpu_pr_warn("check_power_status, %u already power off!", dpu_comp->comp.index);
 		return false;
 	}
 
 	if (comp_mgr->power_status.refcount.value[dpu_comp->comp.index] == 0) {
-		dpu_pr_warn("check_power_status, refcount %d already power off!", dpu_comp->comp.index);
+		dpu_pr_warn("check_power_status, refcount %u already power off!", dpu_comp->comp.index);
 		return false;
 	}
 
@@ -777,16 +1240,16 @@ static int32_t composer_manager_parse_dt(struct composer_manager *comp_mgr)
 	comp_mgr->mdp_irq = of_irq_get(comp_mgr->parent_node, 1);
 	dpu_pr_info("comp_mgr mdp_irq=%d", comp_mgr->mdp_irq);
 
-#ifdef CONFIG_DKMD_DEBUG_ENABLE
-	comp_mgr->dvfs_irq = of_irq_get(comp_mgr->parent_node, 2);
-	dpu_pr_info("comp_mgr dvfs_irq=%d", comp_mgr->dvfs_irq);
-#endif
+	ret = of_property_read_u32(comp_mgr->parent_node, "effect_ctrl_flag", &(comp_mgr->effect_ctrl_flag));
+	if (ret) {
+		dpu_pr_warn("get effect_ctrl_flag failed!");
+	}
 
 	return 0;
 }
 
 static void composer_manager_isr_init(struct composer_manager *comp_mgr,
-	struct dkmd_isr *isr_ctrl,
+	struct ukmd_isr *isr_ctrl,
 	int32_t irq_no, char *irq_name,
 	uint32_t unmask, irqreturn_t (*isr_fnc)(int32_t irq, void *ptr))
 {
@@ -795,45 +1258,51 @@ static void composer_manager_isr_init(struct composer_manager *comp_mgr,
 	isr_ctrl->isr_fnc = isr_fnc;
 	isr_ctrl->parent = comp_mgr;
 	isr_ctrl->unmask = unmask;
-	dkmd_isr_setup(isr_ctrl);
-	dkmd_isr_request(isr_ctrl);
+	ukmd_isr_setup(isr_ctrl);
+	isr_ctrl->handle_func(isr_ctrl, UKMD_ISR_REQUEST);
 }
 
 static void composer_manager_setup(struct composer_manager *comp_mgr)
 {
 	uint32_t unmask;
+	uint32_t unmask_mdp;
 
 	mutex_init(&(comp_mgr->idle_lock));
 	spin_lock_init(&(comp_mgr->dimming_spin_lock));
-	comp_mgr->active_status.status = 0;
-	comp_mgr->dimming_status.status = 0;
+	dpu_comp_status_default_setup(&comp_mgr->active_status);
+	dpu_comp_status_default_setup(&comp_mgr->dimming_status);
 	comp_mgr->idle_func_flag = 0;
 	comp_mgr->idle_enable = true;
-	comp_mgr->power_status.status = 0;
+	comp_mgr->init_scene_cmdlist = 0;
+	dpu_comp_status_default_setup(&comp_mgr->power_status);
 	sema_init(&comp_mgr->power_sem, 1);
 	mutex_init(&comp_mgr->tbu_sr_lock);
 	INIT_LIST_HEAD(&comp_mgr->isr_list);
+	mutex_init(&(comp_mgr->free_logo_buffer_lock));
 
-	unmask = ~(DPU_DPP0_HIACE_NS_INT | DPU_DACC_NS_INT |
-		DPU_SMART_DMA0_NS_INT | DPU_SMART_DMA1_NS_INT | DPU_SMART_DMA2_NS_INT);
+	dkmd_sdp_isr_get_unmask(&unmask);
 	composer_manager_isr_init(comp_mgr, &comp_mgr->sdp_isr_ctrl,
 		comp_mgr->sdp_irq, "dpu_irq_sdp", unmask, dpu_sdp_isr);
 	list_add_tail(&comp_mgr->sdp_isr_ctrl.list_node, &comp_mgr->isr_list);
 
 	/* mdp only used for dacc trans to acpu */
+	unmask_mdp = get_mdp_irq_unmask();
 	composer_manager_isr_init(comp_mgr, &comp_mgr->mdp_isr_ctrl,
-		comp_mgr->mdp_irq, "dpu_irq_mdp",
-		~(DPU_DACC_NS_INT | DPU_WCH0_NS_INT), dpu_mdp_isr);
+		comp_mgr->mdp_irq, "dpu_irq_mdp", unmask_mdp, dpu_mdp_isr);
 
 #ifdef CONFIG_DKMD_DEBUG_ENABLE
 	if (comp_mgr->dvfs_irq > 0)
 		composer_manager_isr_init(comp_mgr, &comp_mgr->dvfs_isr_ctrl,
 			comp_mgr->dvfs_irq, "dpu_irq_dvfs", 0, dpu_dvfs_isr);
 #endif
+
+	dpu_tunnel_hwspinlock_init();
+	init_present_vote();
 }
 
 static int32_t composer_manager_probe(struct platform_device *pdev)
 {
+	int ret;
 	uint32_t scene_id;
 	struct device_node *node = NULL;
 	struct composer_manager *comp_mgr = NULL;
@@ -847,6 +1316,8 @@ static int32_t composer_manager_probe(struct platform_device *pdev)
 	comp_mgr->parent_node = pdev->dev.of_node;
 	comp_mgr->hardware_reseted = 0;
 	composer_manager_parse_dt(comp_mgr);
+
+	dkmd_create_mdfx_client(comp_mgr);
 
 	/* parse child scene node for composer manager */
 	for_each_child_of_node(comp_mgr->parent_node, node) {
@@ -875,6 +1346,27 @@ static int32_t composer_manager_probe(struct platform_device *pdev)
 	composer_manager_setup(comp_mgr);
 	g_composer_manager = comp_mgr;
 
+	ret = dpu_tui_irq_register(pdev);
+	if (ret != 0)
+		dpu_pr_warn("dpu_tui_irq_register failed!");
+
+#ifdef CONFIG_DACC_LOG_KMD
+	/* create dacc log read thread */
+	dpu_dacc_log_thread_setup(comp_mgr);
+#endif
+	dpu_dacc_log_read_init(comp_mgr->dpu_base);
+
+	return 0;
+}
+
+static int32_t composer_manager_remove(struct platform_device *pdev)
+{
+	dpu_dacc_log_read_deinit();
+#ifdef CONFIG_DACC_LOG_KMD
+	dpu_dacc_log_thread_release(g_composer_manager);
+#endif
+
+	dkmd_destroy_mdfx_client();
 	return 0;
 }
 
@@ -888,7 +1380,7 @@ static const struct of_device_id g_composer_manager_match_table[] = {
 
 static struct platform_driver g_composer_manager_driver = {
 	.probe = composer_manager_probe,
-	.remove = NULL,
+	.remove = composer_manager_remove,
 	.driver = {
 		.name = "composer_manager",
 		.owner = THIS_MODULE,

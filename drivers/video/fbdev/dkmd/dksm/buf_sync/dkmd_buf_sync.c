@@ -18,7 +18,7 @@
 
 #include "dkmd_buf_sync.h"
 
-static bool buf_sync_is_signaled(struct dkmd_timeline_listener *listener, uint64_t tl_val)
+static bool buf_sync_is_signaled(struct ukmd_timeline_listener *listener, uint64_t tl_val)
 {
 	bool ret = tl_val > listener->pt_value;
 
@@ -29,13 +29,12 @@ static bool buf_sync_is_signaled(struct dkmd_timeline_listener *listener, uint64
 	return ret;
 }
 
-static int32_t buf_sync_handle_signal(struct dkmd_timeline_listener *listener)
+static int32_t buf_sync_handle_signal(struct ukmd_timeline_listener *listener)
 {
-	struct dkmd_dma_buf *layer_buf = (struct dkmd_dma_buf *)listener->listener_data;
+	struct ukmd_dma_buf *layer_buf = (struct ukmd_dma_buf *)listener->listener_data;
 
 	if (layer_buf->share_fd < 0) {
-		dpu_pr_warn("listener = 0x%pK, release share_fd = %d, buf_handle = 0x%pK",
-					listener, layer_buf->share_fd, layer_buf->buf_handle);
+		dpu_pr_warn("release share_fd = %d", layer_buf->share_fd);
 		return -1;
 	}
 	if (g_debug_fence_timeline)
@@ -49,14 +48,14 @@ static int32_t buf_sync_handle_signal(struct dkmd_timeline_listener *listener)
 	return 0;
 }
 
-static const char *buf_sync_handle_get_name(struct dkmd_timeline_listener *listener)
+static const char *buf_sync_handle_get_name(struct ukmd_timeline_listener *listener)
 {
-	struct dkmd_dma_buf *layer_buf = (struct dkmd_dma_buf *)listener->listener_data;
+	struct ukmd_dma_buf *layer_buf = (struct ukmd_dma_buf *)listener->listener_data;
 
 	return layer_buf->name;
 }
 
-static void buf_sync_handle_release(struct dkmd_timeline_listener *listener)
+static void buf_sync_handle_release(struct ukmd_timeline_listener *listener)
 {
 	if (listener->listener_data) {
 		kfree(listener->listener_data);
@@ -64,18 +63,18 @@ static void buf_sync_handle_release(struct dkmd_timeline_listener *listener)
 	}
 }
 
-static struct dkmd_timeline_listener_ops g_layer_buf_listener_ops = {
+static struct ukmd_timeline_listener_ops g_layer_buf_listener_ops = {
 	.get_listener_name = buf_sync_handle_get_name,
 	.is_signaled = buf_sync_is_signaled,
 	.handle_signal = buf_sync_handle_signal,
 	.release = buf_sync_handle_release,
 };
 
-int32_t dkmd_buf_sync_lock_dma_buf(struct dkmd_timeline *timeline, int32_t share_fd, uint64_t fence_pt)
+int32_t dkmd_buf_sync_lock_dma_buf(struct ukmd_timeline *timeline, int32_t share_fd, uint64_t fence_pt)
 {
 	struct dma_buf *buf_handle = NULL;
-	struct dkmd_timeline_listener *listener = NULL;
-	struct dkmd_dma_buf *layer_dma_buf = NULL;
+	struct ukmd_timeline_listener *listener = NULL;
+	struct ukmd_dma_buf *layer_dma_buf = NULL;
 
 	dpu_assert(timeline == NULL);
 	if (share_fd < 0)
@@ -87,7 +86,7 @@ int32_t dkmd_buf_sync_lock_dma_buf(struct dkmd_timeline *timeline, int32_t share
 		return -1;
 	}
 
-	layer_dma_buf = (struct dkmd_dma_buf *)kmalloc(sizeof(*layer_dma_buf), GFP_KERNEL);
+	layer_dma_buf = (struct ukmd_dma_buf *)kmalloc(sizeof(*layer_dma_buf), GFP_KERNEL);
 	if (!layer_dma_buf) {
 		dpu_pr_err("layer_dma_buf alloc failed!");
 		dma_buf_put(buf_handle);
@@ -95,9 +94,9 @@ int32_t dkmd_buf_sync_lock_dma_buf(struct dkmd_timeline *timeline, int32_t share
 	}
 	layer_dma_buf->share_fd = share_fd;
 	layer_dma_buf->buf_handle = buf_handle;
-	(void)snprintf(layer_dma_buf->name, DKMD_SYNC_NAME_SIZE, "buf_shared_fd_%d", share_fd);
+	(void)snprintf(layer_dma_buf->name, UKMD_SYNC_NAME_SIZE, "buf_shared_fd_%d", share_fd);
 
-	listener = dkmd_timeline_alloc_listener(&g_layer_buf_listener_ops, layer_dma_buf, fence_pt + 1);
+	listener = ukmd_timeline_alloc_listener(&g_layer_buf_listener_ops, layer_dma_buf, fence_pt + 1);
 	if (!listener) {
 		dpu_pr_err("alloc layer buf listener fail, share_fd=%d", share_fd);
 		dma_buf_put(buf_handle);
@@ -105,7 +104,7 @@ int32_t dkmd_buf_sync_lock_dma_buf(struct dkmd_timeline *timeline, int32_t share
 		layer_dma_buf = NULL;
 		return -1;
 	}
-	dkmd_timeline_add_listener(timeline, listener);
+	ukmd_timeline_add_listener(timeline, listener);
 
 	if (g_debug_fence_timeline)
 		dpu_pr_info("create listener_node=0x%pK, %s, buf_handle=0x%pK, fence_pt = %llu",

@@ -24,6 +24,8 @@
 #define DPU_ESD_CHECK_MAX_COUNT 3
 #define ESD_RECOVERY_MAX_COUNT 5
 #define ESD_WAIT_MIPI_AVAILABLE_TIMEOUT 64
+#define ESD_WAIT_VSYNC_TIME_COUNT 50 /* ms */
+#define ESD_CHECK_AFTER_VSYNC_TIME_PERIOD 1500 /* us */
 
 struct dpu_composer;
 struct comp_online_present;
@@ -52,6 +54,7 @@ struct dpu_esd_ctrl {
 	atomic_t esd_happened;
 	enum ESD_RECOVER_STATE esd_recover_state;
 	atomic_t esd_check_is_doing;
+	atomic_t is_vsync_comming;
 	struct semaphore esd_recover_sem;
 };
 
@@ -61,4 +64,9 @@ void dpu_comp_esd_unregister(struct dpu_composer *dpu_comp);
 void restart_esd_timer(struct dpu_composer *dpu_comp);
 void start_esd_timer(struct dpu_composer *dpu_comp);
 void cancel_esd_timer(struct dpu_composer *dpu_comp);
+void dpu_comp_esd_recovery_manually(struct dpu_composer *dpu_comp);
+void cancel_start_esd_timer(struct dpu_composer *dpu_comp);
+void esd_handle_vsync(struct dpu_composer *dpu_comp);
+int dpu_comp_ctrl_esd(struct dpu_composer *dpu_comp, struct comp_online_present *present);
+void dpu_esd_timing_ctrl(struct dpu_composer *dpu_comp, struct comp_online_present *present);
 #endif

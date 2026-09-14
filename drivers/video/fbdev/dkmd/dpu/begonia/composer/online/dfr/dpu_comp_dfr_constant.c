@@ -16,7 +16,8 @@
 
 void dfr_constant_setup_data(struct dpu_comp_dfr_ctrl *dfr_ctrl)
 {
-	(void)(dfr_ctrl);
+	dpu_check_and_no_retval(!dfr_ctrl, err, "dfr_ctrl is null");
+	dfr_ctrl->vsync_offset_threshold = 1500;
 }
 
 int32_t dfr_constant_switch_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl, uint32_t frame_rate)
@@ -45,4 +46,16 @@ int32_t dfr_constant_send_dcs_cmds(struct dpu_comp_dfr_ctrl *dfr_ctrl, struct di
 int32_t dfr_constant_send_dcs_cmds_with_refresh(struct dpu_comp_dfr_ctrl *dfr_ctrl, uint32_t bl_level)
 {
 	return 0;
+}
+
+static struct dfr_ctrl_ops g_dfr_ctrl_ops = {
+	.setup_data = dfr_constant_setup_data,
+	.switch_frm_rate = dfr_constant_switch_frm_rate,
+	.commit = dfr_constant_commit,
+	.send_dcs_cmds_with_frm = dfr_constant_send_dcs_cmds,
+	.send_dcs_cmds_with_refresh = dfr_constant_send_dcs_cmds_with_refresh,
+};
+
+void dfr_constant_register_ops(struct dpu_comp_dfr_ctrl *dfr_ctrl) {
+	dfr_ctrl->ops = &g_dfr_ctrl_ops;
 }

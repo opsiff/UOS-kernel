@@ -20,6 +20,7 @@
 #include "cmdlist_interface.h"
 #include "smmu/dpu_comp_smmu.h"
 #include "dkmd_log.h"
+#include "dkmd_rect.h"
 
 struct opr_cmd_data *init_itfsw_cmd_data(union dkmd_opr_id id)
 {
@@ -47,24 +48,26 @@ struct opr_cmd_data *init_itfsw_cmd_data(union dkmd_opr_id id)
 
 static void opr_set_itfsw_cfg_data(const struct opr_cmd_data_base *data)
 {
+	uint32_t cmdlist_dev_id;
 	if (unlikely((data->scene_id < 0) || (data->scene_id >= OPR_ITFSW_NUM))) {
-		dpu_pr_err("data->scene_id=%u is out of range", data->scene_id);
+		dpu_pr_err("data->scene_id=%d is out of range", data->scene_id);
 		return;
 	}
 
-	dkmd_set_reg((uint32_t)data->scene_id, data->reg_cmdlist_id,
+	cmdlist_dev_id = CMDLIST_DEV_ID_DPU;
+	ukmd_set_reg(cmdlist_dev_id, (uint32_t)data->scene_id, data->reg_cmdlist_id,
 		DPU_ITF_CH_DPP_CLIP_EN_ADDR(g_itfsw_offset[data->scene_id]), 0);
 
-	dkmd_set_reg((uint32_t)data->scene_id, data->reg_cmdlist_id,
+	ukmd_set_reg(cmdlist_dev_id, (uint32_t)data->scene_id, data->reg_cmdlist_id,
 		DPU_ITF_CH_DPP_CLRBAR_CTRL_ADDR(g_itfsw_offset[data->scene_id]), 0);
 
-	dkmd_set_reg((uint32_t)data->scene_id, data->reg_cmdlist_id,
+	ukmd_set_reg(cmdlist_dev_id, (uint32_t)data->scene_id, data->reg_cmdlist_id,
 		DPU_ITF_CH_REG_CTRL_ADDR(g_itfsw_offset[data->scene_id]), data->scene_id);
 
-	dkmd_set_reg((uint32_t)data->scene_id, data->reg_cmdlist_id,
+	ukmd_set_reg(cmdlist_dev_id, (uint32_t)data->scene_id, data->reg_cmdlist_id,
 		DPU_ITF_CH_ITFSW_DATA_SEL_ADDR(g_itfsw_offset[data->scene_id]), 0);
 
-	dkmd_set_reg((uint32_t)data->scene_id, data->reg_cmdlist_id,
+	ukmd_set_reg(cmdlist_dev_id, (uint32_t)data->scene_id, data->reg_cmdlist_id,
 		DPU_ITF_CH_REG_CTRL_FLUSH_EN_ADDR(g_itfsw_offset[data->scene_id]), 1);
 }
 

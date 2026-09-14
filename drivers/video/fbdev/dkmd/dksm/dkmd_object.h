@@ -15,12 +15,12 @@
 #define _DKMD_OBJECT_H_
 
 #include <linux/types.h>
-#include <linux/io.h>
 #include <linux/delay.h>
 #include <linux/platform_device.h>
 #include <dkmd_dpu.h>
 #include "dkmd_log.h"
 #include "dkmd_lcd_interface.h"
+#include "ukmd_utils.h"
 
 #ifndef is_bit_enable
 #define is_bit_enable(val, i) (!!((val) & (1 << (i))))
@@ -28,19 +28,15 @@
 
 #define HZ_1M   1000000
 #define SIZE_1K 1024
-#define DMA_STRIDE_ALIGN (128 / BITS_PER_BYTE)
 #define FAST_UNLOCK_RET (-3)
 #define DEFAULT_OPR_MASK 0xFFFFFFFFFFFFFFFF
 
 #define SPLIT_SCREEN_MAX 4
 
 #define SW_DVFS_FRM_RATE_LIMIT 120
-
-enum DPU_INDEX {
-	BIG_DPU = 0,
-	LITE_DPU,
-	DPU_MAX
-};
+#define EDID_DISPLAY_INFO_NUM 64
+#define MAX_TIMING_NUM 64
+#define PRIORITY_EDID_DISPLAY_INFO_NUM 8
 
 /* panel type list */
 enum panel_type {
@@ -57,6 +53,8 @@ enum panel_type {
 	PANEL_OFFLINECOMPOSER  = BIT(10), /* offline composer */
 	PANEL_WRITEBACK        = BIT(11), /* Wifi display */
 	PANEL_EXTERNAL         = BIT(12), /* external panel on fold panel */
+	PANEL_PRIMARY          = BIT(13), /* primary panel */
+	PANEL_MIPI2HDMI        = BIT(14), /* MIPI2HDMI panel */
 };
 
 /* composer device type list */
@@ -64,10 +62,12 @@ enum panel_type {
 #define DEV_NAME_OFFLINE "gfx_offline"
 #define DEV_NAME_DP "gfx_dp"
 #define DEV_NAME_HDMI "gfx_hdmi"
+#define DEV_NAME_GFX_MIPI "gfx_mipi"
 
 enum {
 	PANEL_ID_PRIMARY,
 	PANEL_ID_BUILTIN,
+	PANEL_ID_GFX_MIPI,
 	PANEL_ID_MAX_NUM,
 };
 
@@ -86,6 +86,8 @@ enum VSYNC_IDLE_TYPE {
 	VSYNC_IDLE_CLK_OFF = BIT(2),
 	VSYNC_IDLE_VCC_OFF = BIT(3),
 	VSYNC_IDLE_RESET_VOTE = BIT(4),
+	VSYNC_IDLE_SHUT_DOWN = BIT(5),
+	VSYNC_IDLE_PSR2_CMD_MODE = BIT(6)
 };
 
 enum DP_CONNECT_STATUS {
@@ -99,9 +101,72 @@ enum HDMITX_CONNECT_STATUS {
 	HDMITX_CONNECTED,
 };
 
+enum SCREEN_ORIENTATION {
+	LANDSCAPE = 0,
+	PORTRAIT,
+	NONE_ORIENTATION
+};
+
 struct display_info {
 	uint32_t xres;
 	uint32_t yres;
+    uint32_t link_id;
+};
+
+struct edid_support_timing {
+    uint8_t hsync_polarity;
+    uint8_t vsync_polarity;
+    uint16_t hactive;
+    uint16_t hblanking;
+    uint16_t hsync_offset;
+    uint16_t hsync_pulse_width;
+    uint16_t hborder;
+    uint16_t hsize;
+    uint16_t vactive;
+    uint16_t vblanking;
+    uint16_t vsync_offset;
+    uint16_t vsync_pulse_width;
+    uint16_t vborder;
+    uint16_t vsize;
+    uint16_t input_type;
+    uint16_t interlaced;
+    uint16_t sync_scheme;
+    uint16_t scheme_detail;
+    uint16_t fps;
+    uint64_t pixel_clock;
+	uint16_t pixel_repetition_input;
+};
+
+struct edid_timing_info {
+	struct list_head list_node;
+	bool preferred; // true: EDID preferred timing mode; false: no EDID preferred timing mode.
+    uint8_t hsync_polarity;
+    uint8_t vsync_polarity;
+    uint16_t hactive_pixels;
+    uint16_t hblanking;
+    uint16_t hsync_offset;
+    uint16_t hsync_pulse_width;
+    uint16_t hborder;
+    uint16_t hsize;
+    uint16_t vactive_pixels;
+    uint16_t vblanking;
+    uint16_t vsync_offset;
+    uint16_t vsync_pulse_width;
+    uint16_t vborder;
+    uint16_t vsize;
+    uint16_t input_type;
+    uint16_t interlaced;
+    uint16_t sync_scheme;
+    uint16_t scheme_detail;
+    uint16_t fps;
+	uint16_t pixel_repetition_input;
+    uint64_t pixel_clock;
+};
+
+struct edid_priority_timing {
+    uint16_t pri_hpixels;
+    uint16_t pri_vpixels;
+    uint16_t pri_fps;
 };
 
 /* Basic data structure, Shared access for all modules */
@@ -119,6 +184,8 @@ struct dkmd_object_info {
 	uint32_t width; /* mm */
 	uint32_t height; /* mm */
 	uint32_t fps;
+	uint32_t dfr_fps[FPS_LEVEL_MAX];
+	uint32_t fps_info_count;
 	uint32_t fps_of_longv_for_dvfs;
 	uint32_t sw_dvfs_frm_rate;
 
@@ -153,9 +220,17 @@ struct dkmd_object_info {
 	uint32_t lcd_te_idx; /* 0: te0, 1: te1 */
 
 	/* confirmed by the hardware, same with scene_id */
-	int32_t pipe_sw_itfch_idx;
+	uint32_t pipe_sw_itfch_idx;
 
 	uint32_t enable_async_online;
+	uint8_t *edid;
+	uint16_t edid_len;
+
+	uint32_t ppu_support;
+	uint8_t dirty_region_updt_support;
+	uint8_t psr2_support;
+	uint32_t psr2_entry_state;
+	uint32_t is_msr_support;
 
 	/* Always refresh is set to the pointer to the next device such as:
 	 * fb->peri_device = composer_manager(online)
@@ -179,29 +254,42 @@ struct dkmd_object_info {
 	 * generic mutex for dptx and hdmitx disconnected and online present
 	 */
 	struct mutex *pluggable_connect_mutex;
+	/*
+	 * get supported display information from edid;
+	 */
+	struct edid_support_timing edid_timing[EDID_DISPLAY_INFO_NUM];
+	uint32_t edid_timing_num;
+
+	/* edid timing information for set display timing */
+	uint8_t screen_orientation;
+	uint16_t default_target_fps;
+	uint32_t user_timing_id;
+	uint32_t user_last_timing_id;
+	uint32_t timing_num;
+	uint32_t screen_aspect_ratio;
+	struct edid_timing_info timing_list[MAX_TIMING_NUM];
+	struct edid_timing_info edid_preferred_timing;
+
+	struct edid_priority_timing pri_timing[PRIORITY_EDID_DISPLAY_INFO_NUM];
+	uint32_t pri_edid_timing_num;
+
 	uint32_t connect_status;
 
 	/* dp pluggable type such as 983 not support plug */
 	uint64_t is_pluggable;
+
+	uint8_t is_plugin;
+	bool is_primary_panel;
+	bool is_hardware_cursor_support;
+	uint32_t dbuf_discount_factor;
+	uint32_t is_send_pqdata;
+	/* This flag indicates whether HAL needs to call the kernel layer to perform connect when executing connect, 
+	such as DP for chain building. */
+	uint64_t is_dynamic_connect;
+
+	/* whether recognize master or slave for split mode */
+	bool is_split_node_recognition_enable;
 };
-
-#define outp32(addr, val)   writel(val, addr)
-#define inp32(addr)         readl(addr)
-
-static inline void set_reg(char __iomem *addr, uint32_t val, uint8_t bw, uint8_t bs)
-{
-	uint32_t mask, temp;
-
-	mask = GENMASK(bs + bw - 1, bs);
-	temp = readl(addr);
-	temp &= ~mask;
-
-	/**
-	 * @brief if you want to check config value, please uncomment following code
-	 * dpu_pr_debug("addr:%#x value:%#x ", addr, temp | ((val << bs) & mask));
-	 */
-	writel(temp | ((val << bs) & mask), addr);
-}
 
 static inline bool is_mipi_video_panel(const struct dkmd_object_info *pinfo)
 {
@@ -211,6 +299,11 @@ static inline bool is_mipi_video_panel(const struct dkmd_object_info *pinfo)
 static inline bool is_mipi_cmd_panel(const struct dkmd_object_info *pinfo)
 {
 	return pinfo->type & (PANEL_MIPI_CMD | PANEL_DUAL_MIPI_CMD);
+}
+
+static inline bool is_mipi_panel(const struct dkmd_object_info *pinfo)
+{
+	return (is_mipi_cmd_panel(pinfo) || is_mipi_video_panel(pinfo));
 }
 
 static inline bool is_dual_mipi_panel(const struct dkmd_object_info *pinfo)
@@ -238,14 +331,25 @@ static inline bool is_hdmi_panel(const struct dkmd_object_info *pinfo)
 	return pinfo->type & PANEL_HDMI;
 }
 
+static inline bool is_mipi2hdmi_panel(const struct dkmd_object_info *pinfo)
+{
+	return pinfo->type & PANEL_MIPI2HDMI;
+}
+
 static inline bool is_builtin_panel(const struct dkmd_object_info *pinfo)
 {
 	return pinfo->type & PANEL_EXTERNAL;
 }
 
+static inline bool is_dp_primary_panel(const struct dkmd_object_info *pinfo)
+{
+	return is_dp_panel(pinfo) && (pinfo->type & PANEL_PRIMARY) != 0;
+}
+
 static inline bool is_primary_panel(const struct dkmd_object_info *pinfo)
 {
-	return (is_mipi_cmd_panel(pinfo) || is_mipi_video_panel(pinfo)) && (!is_builtin_panel(pinfo));
+	return ((is_mipi_cmd_panel(pinfo) || is_mipi_video_panel(pinfo)) && (!is_builtin_panel(pinfo))) ||
+		is_dp_primary_panel(pinfo);
 }
 
 static inline bool is_ppc_support(const struct dkmd_object_info *pinfo)
@@ -253,9 +357,34 @@ static inline bool is_ppc_support(const struct dkmd_object_info *pinfo)
 	return pinfo->panel_partial_ctrl_support == 1;
 }
 
+static inline bool is_ppu_support(const struct dkmd_object_info *pinfo)
+{
+	return pinfo->ppu_support != 0;
+}
+
+static inline bool is_dpu_pu_support(const struct dkmd_object_info *pinfo)
+{
+	return pinfo->dirty_region_updt_support == 1;
+}
+
+static inline bool is_psr2_support(const struct dkmd_object_info *pinfo)
+{
+	return pinfo->psr2_support == 1;
+}
+
+static inline bool is_psr2_entry(const struct dkmd_object_info *pinfo)
+{
+	return pinfo->psr2_entry_state == 1;
+}
+
 static inline bool is_force_update(const struct dkmd_object_info *pinfo)
 {
 	return ((g_debug_force_update == 1) || is_fake_panel(pinfo));
+}
+
+static inline bool is_dynamic_panel(const struct dkmd_object_info *pinfo)
+{
+	return pinfo->is_dynamic_connect == 1;
 }
 
 #endif /* DKMD_OBJECTS_H */

@@ -15,9 +15,8 @@
 #include <linux/interrupt.h>
 #include <linux/atomic.h>
 #include <dpu/dpu_itfsw.h>
-
-#include "dkmd_acquire_fence.h"
-#include "dkmd_release_fence.h"
+#include "ukmd_acquire_fence.h"
+#include "ukmd_release_fence.h"
 #if defined(CONFIG_WLT_DISPLAY)
 #include "dpu_wlt.h"
 #endif
@@ -31,17 +30,34 @@
 #include "dpu_comp_abnormal_handle.h"
 #include "dpu_comp_frame_isr.h"
 #include "dvfs.h"
+#include "ddr_dvfs.h"
 #include "panel/panel_drv.h"
 #include "dpu_comp_secure.h"
 #include "dpu_comp_bl.h"
 #include "dpu_comp_init.h"
+#include "dpu_comp_config_utils.h"
+#include "effect/dpu_effect_init.h"
 #include "effect/hiace/dpu_effect_hiace.h"
+#include "effect/hdr/dpu_effect_hdr.h"
+#include "effect/rgb_hist/dpu_effect_rgb_hist.h"
 #include "dpu_comp_mipi_dsi_bit_clk_upt.h"
 #include "mipi_dsi_bit_clk_upt_helper.h"
 #include "gfxdev_mgr.h"
 #include "dpu_comp_online_utils.h"
-#include "dkmd_fence_utils.h"
+#include "ukmd_fence_utils.h"
 #include "dpu_ppc_status_control.h"
+#include "partial_update_bigdata.h"
+#include "dksm_debug.h"
+#include "dkmd_notify.h"
+#include "log_usertype.h"
+#include "dpu_mntn.h"
+#include "dpu_dacc_log_read.h"
+
+#ifdef CONFIG_MDFX_KMD_ENG_MODE
+static uint32_t g_debug_mdfx_trigger_dump = 0;
+module_param_named(mdfx_trigger_dump, g_debug_mdfx_trigger_dump, uint, 0640);
+MODULE_PARM_DESC(mdfx_trigger_dump, "trigger mdfx dump manually");
+#endif
 
 static void dpu_comp_clear_fastboot_config(struct dpu_composer *dpu_comp)
 {
@@ -51,26 +67,27 @@ static void dpu_comp_clear_fastboot_config(struct dpu_composer *dpu_comp)
 	char __iomem *dpp1_base = dpu_comp->comp_mgr->dpu_base + DPU_DPP1_OFFSET;
 	char __iomem *itfch1_base = dpu_comp->comp_mgr->dpu_base + DPU_ITF_CH1_OFFSET;
 
-	if (dpu_comp->conn_info->base.pipe_sw_itfch_idx == PIPE_SW_PRE_ITFCH0) {
-		/* clear reg_ctrl_debug */
+	if (dpu_comp->comp_scene_id == DPU_SCENE_ONLINE_0) {
 		set_reg(DPU_DPP_REG_CTRL_DEBUG_ADDR(dpp_base), 0, 1, 10);
 		set_reg(DPU_DSC_REG_CTRL_DEBUG_ADDR(dsc_base), 0, 1, 10);
 		set_reg(DPU_ITF_CH_REG_CTRL_DEBUG_ADDR(itfch_base), 0, 1, 10);
-	} else if (dpu_comp->conn_info->base.pipe_sw_itfch_idx == PIPE_SW_PRE_ITFCH1) {
-		/* clear reg_ctrl_debug */
+	} else if (dpu_comp->comp_scene_id == DPU_SCENE_ONLINE_1) {
 		set_reg(DPU_DPP_REG_CTRL_DEBUG_ADDR(dpp1_base), 0, 1, 10);
 		set_reg(DPU_ITF_CH_REG_CTRL_DEBUG_ADDR(itfch1_base), 0, 1, 10);
 	}
 
-	dpu_pr_info("%d booting complete, change fastboot config", dpu_comp->comp.index);
+	dpu_pr_info("comp %d sceneid %d booting complete, change fastboot config", dpu_comp->comp.index, dpu_comp->comp_scene_id);
 }
 
 static bool need_direct_vote(struct dpu_composer *dpu_comp)
 {
 	int32_t i;
 	uint32_t power_on_comp_cnt = 0;
-	bool is_multi_panel_display;
-	bool is_lem_buildin;
+	bool is_multi_panel_active;
+	bool is_gfx;
+
+	if (dpu_comp->conn_info->base.fold_type != PANEL_FLIP)
+		return false;
 
 	for (i = DEVICE_COMP_PRIMARY_ID; i <= DEVICE_COMP_BUILTIN_ID; i++) {
 		if (dpu_comp->comp_mgr->power_status.refcount.value[i] != 0)
@@ -78,59 +95,91 @@ static bool need_direct_vote(struct dpu_composer *dpu_comp)
 	}
 
 	// power_status is not locked, power_status may be changed in later process and cause unknown problem.
-	is_multi_panel_display = (power_on_comp_cnt > 1);
-	dpu_pr_debug("multi panel display=%d", is_multi_panel_display);
+	is_multi_panel_active = (power_on_comp_cnt > 1);
+	dpu_pr_debug("multi panel display=%d", is_multi_panel_active);
 
-	is_lem_buildin = (dpu_comp->conn_info->base.pipe_sw_itfch_idx == PIPE_SW_PRE_ITFCH1) &&
+	// gfx panel on flip not support vote, but scene switch panel support
+	is_gfx = (dpu_comp->comp_scene_id  == DPU_SCENE_ONLINE_1) &&
 		(dpu_comp->comp.index == DEVICE_COMP_BUILTIN_ID);
 
-	return is_multi_panel_display || is_lem_buildin || is_mipi_video_panel(&dpu_comp->conn_info->base);
+	return is_multi_panel_active || is_gfx;
 }
 
-static void disable_intra_dvfs_scene(struct dpu_composer *dpu_comp, struct intra_frame_dvfs_info *dvfs_info)
+static bool is_dfr_longh_by_mcu_mode(struct dpu_composer *dpu_comp)
 {
-	if ((dpu_comp->secure_ctrl.secure_event == TUI_SEC_ENABLE) ||
-		is_mipi_video_panel(&dpu_comp->conn_info->base) ||
-		is_multi_device_active(dpu_comp->comp_mgr))
+	struct dfr_info *dfr_info = dkmd_get_dfr_info(dpu_comp->conn_info);
+	if(!dfr_info){
+		dpu_pr_info("dfr_info is nullptr");
+		return false;
+	}
+	return dfr_info->dfr_mode == DFR_MODE_LONGH_BY_MCU;
+}
+
+static void disable_intra_dvfs_scene(struct dpu_composer *dpu_comp,
+	struct intra_frame_dvfs_info *dvfs_info, struct tunnel_info *tunnel_info)
+{
+	if (dpu_tunnel_is_disable_intra_dvfs(tunnel_info) == 1) {
 		dvfs_info->is_supported_intra_dvfs = false;
+		return;
+	}
+	if ((dpu_comp->secure_ctrl.secure_event == TUI_SEC_ENABLE) ||
+		need_direct_vote(dpu_comp) ||
+		is_mipi_video_panel(&dpu_comp->conn_info->base) ||
+		is_dp_panel(&dpu_comp->conn_info->base) ||
+		is_multi_device_active(dpu_comp->comp_mgr) ||
+		is_fake_panel(&dpu_comp->conn_info->base) ||
+		is_dfr_longh_by_mcu_mode(dpu_comp))
+		dvfs_info->is_supported_intra_dvfs = false;
+}
+
+static bool dpu_comp_get_supp_doze1_flag(struct dpu_comp_dfr_ctrl *dfr_ctrl, struct intra_frame_dvfs_info *dvfs_info)
+{   
+	/* supp dvfs; <= 60hz; ltpo */
+    if (dvfs_info->is_supported_intra_dvfs && dvfs_info->frame_rate <= 60 && 
+	        dfr_ctrl->mode == DFR_MODE_TE_SKIP_BY_MCU && g_debug_doze1_intra_flag_enable > 0) {
+		dpu_pr_debug("dpu_comp_set_supp_doze1_flag");
+		return true;
+	}
+	return false;
 }
 
 static void composer_online_preprocess(struct comp_online_present *present, struct disp_frame *frame)
 {
-	int32_t i;
-	uint64_t wait_fence_tv;
-	struct disp_layer *layer = NULL;
 	struct dpu_composer *dpu_comp = NULL;
 	struct dkmd_connector_info *pinfo = NULL;
+	bool is_support_doze1 = false;
 	struct dpu_comp_frame *using_frame = &present->frames[present->incoming_idx];
 
 	dpu_comp = present->dpu_comp;
 	pinfo = dpu_comp->conn_info;
-	dpu_trace_ts_begin(&wait_fence_tv);
 
 	frame->dvfs_info.frame_rate = present->frame_rate;
 	frame->dvfs_info.sw_dvfs_frm_rate = pinfo->base.sw_dvfs_frm_rate;
 
-	/* For scenes we can not enable intra dvfs. use param is_supported_intra_dvfs to ban those scenes */
-	disable_intra_dvfs_scene(dpu_comp, &frame->dvfs_info);
-	dpu_dvfs_intra_frame_vote(present->dpu_comp->comp.index, &frame->dvfs_info,
-		need_direct_vote(present->dpu_comp));
+	/* some situation we can not enable intra dvfs. use param is_supported_intra_dvfs to ban those scenes */
+	disable_intra_dvfs_scene(dpu_comp, &frame->dvfs_info, &frame->tunnel_info);
+	is_support_doze1 = dpu_comp_get_supp_doze1_flag(&present->dfr_ctrl, &frame->dvfs_info);
+	if (can_pre_init_config() && is_mipi_video_panel(&dpu_comp->conn_info->base) && (frame->frame_index <= 1)) {
+		dpu_ddr_vote_max();
+		dpu_dvfs_direct_vote(dpu_comp->comp.index, DPU_PERF_LEVEL_MAX, true);
+	} else if (dpu_comp->conn_info->base.is_hardware_cursor_support) {
+		dpu_dvfs_intra_frame_vote(present->dpu_comp->comp.index, &frame->dvfs_info, is_support_doze1);
+		using_frame->in_frame = *frame;
+	} else {
+		dpu_dvfs_intra_frame_vote(present->dpu_comp->comp.index, &frame->dvfs_info, is_support_doze1);
+	}
 
-	/* lock dma buf and wait layer acquired fence */
-	using_frame->in_frame = *frame;
-	for (i = 0; i < (int32_t)frame->layer_count; ++i) {
-		layer = &frame->layer[i];
-		dkmd_buf_sync_lock_dma_buf(&present->timeline, layer->share_fd, frame->present_fence_pt);
-		dkmd_acquire_fence_wait_fd(layer->acquired_fence, ACQUIRE_FENCE_TIMEOUT_MSEC);
-		/* fd need be close by HAL */
-		layer->acquired_fence = -1;
+	/* second frame of the video needs to adjust dvfs back to the previous configuration */
+	if (can_pre_init_config() && is_mipi_video_panel(&dpu_comp->conn_info->base) && (frame->frame_index == 2)) {
+		dpu_pr_info("vote last ddr value");
+		dpu_ddr_vote_current();
 	}
 
 	/**
 	 * @brief increase timeline step value, normally inc step is 1
 	 * vsync isr will increase the step with pt_value
 	 */
-	dkmd_timeline_inc_step(&present->timeline);
+	ukmd_timeline_inc_step(&present->timeline);
 
 #if defined(CONFIG_WLT_DISPLAY)
 	/* set slice0 addr for wlt */
@@ -138,7 +187,7 @@ static void composer_online_preprocess(struct comp_online_present *present, stru
 #endif
 
 	/* check cmdlist_id and lock */
-	dpu_cmdlist_sync_lock(&present->timeline, frame);
+	dpu_cmdlist_sync_lock(present, frame);
 
 	/**
 	 * @brief After three frames, free logo buffer,
@@ -148,12 +197,21 @@ static void composer_online_preprocess(struct comp_online_present *present, stru
 		dpu_comp->dpu_boot_complete = true;
 		dpu_comp_clear_fastboot_config(dpu_comp);
 
-		if (!g_dpu_complete_start && composer_dpu_free_logo_buffer(dpu_comp)) {
-			g_dpu_complete_start = true; /* executed only once */
-			dpu_pr_info("booting complete, change dpu compelte flag");
+		if (!g_dpu_complete_start) {
+			mutex_lock(&present->dpu_comp->comp_mgr->free_logo_buffer_lock);
+			if (!g_dpu_complete_start) {
+				g_dpu_complete_start = true; /* executed only once */
+				mutex_unlock(&present->dpu_comp->comp_mgr->free_logo_buffer_lock);
+				composer_dpu_free_logo_buffer(dpu_comp);
+				composer_dpu_free_cmdlist_buffer(dpu_comp);
+				composer_dpu_free_smmu_ste_buffer(dpu_comp);
+				dpu_pr_info("booting complete, free logo and cmdlist buffer");
+			} else {
+				mutex_unlock(&present->dpu_comp->comp_mgr->free_logo_buffer_lock);
+				dpu_pr_info("booting complete, logo and cmdlist buffer have been freed");
+			}
 		}
 	}
-	dpu_trace_ts_end(&wait_fence_tv, "online compose wait gpu fence");
 }
 
 static bool composer_present_need_hold(struct dpu_composer *dpu_comp)
@@ -167,15 +225,108 @@ static bool composer_present_need_hold(struct dpu_composer *dpu_comp)
 	return false;
 }
 
+static void dpu_comp_crc_config_enable(char __iomem *dpu_base)
+{
+	char __iomem *glb_base = dpu_base + DPU_GLB0_OFFSET;
+
+	dpu_pr_warn("crc_config_enable +");
+	set_reg(DPU_GLB_CRC_CTRL_ADDR(glb_base), (g_debug_online_crc_enable & 0x7), 3, 0);
+	dpu_pr_warn("crc_config_enable -");
+}
+
+static int32_t dpu_comp_scene_update(struct dpu_composer *dpu_comp, struct disp_frame *frame)
+{
+	struct composer_manager *comp_mgr = dpu_comp->comp_mgr;
+	struct comp_online_present *present = (struct comp_online_present *)dpu_comp->present_data;
+
+	if (!composer_manager_get_scene_switch(dpu_comp))
+		return 0;
+
+	if (frame->scene_id == DPU_SCENE_ONLINE_0 &&
+		comp_mgr->power_status.refcount.value[DEVICE_COMP_PRIMARY_ID] == 1) {
+		dpu_pr_err("gfx use scene %d,but primary is on, conflict", frame->scene_id);
+		present->vactive_start_flag = 1;
+		return -1;
+	}
+
+	if (frame->scene_id == DPU_SCENE_ONLINE_1 &&
+		comp_mgr->power_status.refcount.value[DEVICE_COMP_PRIMARY_ID] == 0) {
+		dpu_pr_warn("gfx need use scene 0, conflict");
+	}
+
+	if (dpu_comp->comp_scene_id != frame->scene_id) {
+		dpu_pr_warn("power %d and present scene %d conflict", dpu_comp->comp_scene_id, frame->scene_id);
+		composer_dpu_pipesw_disconnect(dpu_comp);
+		present->vactive_start_flag = 1;
+		return -1;
+	}
+
+	return 0;
+}
+
+static void dpu_cmdlist_connect(struct dpu_composer *dpu_comp, struct disp_frame *frame)
+{
+	uint32_t i = 0;
+
+	if (!can_pre_init_config())
+		return;
+
+	// cdmlist connect tbu0, only fisrt frame need connect
+	if (frame->frame_index <= 1) {
+		if (is_mipi_video_panel(&dpu_comp->conn_info->base) && !dpu_is_single_tbu()) {
+			// cmdlist select tbu0 config stream bypass, so offline need connect tbu0
+			set_reg(DPU_DBCU_CMDLIST_AXI_SEL_ADDR(dpu_comp->comp_mgr->dpu_base + DPU_DBCU_OFFSET), 0x0, 2, 0);
+			set_reg(DPU_DBCU_MMU_ID_ATTR_NS_56_ADDR(dpu_comp->comp_mgr->dpu_base + DPU_DBCU0_OFFSET), 0x3F, 32, 0);
+			set_reg(DPU_DBCU_AIF_CMD_RELOAD_ADDR(dpu_comp->comp_mgr->dpu_base + DPU_DBCU_OFFSET), 0x1, 1, 0);
+			set_reg(DPU_DBCU_MIF_CTRL_WCH0_ADDR(dpu_comp->comp_mgr->dpu_base + DPU_DBCU_OFFSET), 0x1, 1, 0);
+			set_reg(DPU_CMD_TWO_SAME_FRAME_BYPASS_ADDR(dpu_comp->comp_mgr->dpu_base + DPU_CMDLIST_OFFSET), 0x1, 1, 0);
+		}
+		// cmdlist ch enable
+		for (i = 0; i < (uint32_t)DPU_SCENE_MAX; ++i) {
+			outp32(DPU_CMD_CMDLIST_CH_INTE_ADDR(dpu_comp->comp_mgr->dpu_base + DPU_CMDLIST_OFFSET, i), 0xE4);
+			set_reg(DPU_CMD_CMDLIST_CH_CTRL_ADDR(dpu_comp->comp_mgr->dpu_base + DPU_CMDLIST_OFFSET, i), 1, 1, 0);
+		}
+	}
+}
+
+static void composer_wait_acquired_fence(struct comp_online_present *present, struct disp_frame *frame)
+{
+	int32_t i;
+	int32_t ret = 0;
+	uint64_t wait_fence_tv;
+	struct disp_layer *layer = NULL;
+	struct dpu_comp_frame *using_frame = &present->frames[present->incoming_idx];
+
+	dpu_trace_ts_begin(&wait_fence_tv);
+
+	/* lock dma buf and wait layer acquired fence */
+	using_frame->in_frame = *frame;
+	for (i = 0; i < (int32_t)frame->layer_count; ++i) {
+		layer = &frame->layer[i];
+		dkmd_buf_sync_lock_dma_buf(&present->timeline, layer->share_fd, frame->present_fence_pt);
+		ret |= ukmd_acquire_fence_wait_fd(layer->acquired_fence, ACQUIRE_FENCE_TIMEOUT_MSEC);
+		/* fd need be close by HAL */
+		layer->acquired_fence = -1;
+	}
+	dpu_trace_ts_timeout_end(&wait_fence_tv, ACQUIRE_FENCE_WAIT_WARN(present->frame_rate), "online compose wait gpu fence");
+
+	if (ret != 0) {
+		ukmd_timeline_dump(&present->timeline);
+		dpu_mntn_report_event(DEF_EVENT_FENCE_TIMEOUT, present);
+	}
+}
+
 static int32_t composer_online_overlay(struct dpu_composer *dpu_comp, struct disp_frame *frame)
 {
 	struct composer_scene *scene = NULL;
+	int32_t ret = 0;
 	uint32_t scene_id = (uint32_t)frame->scene_id;
 	struct comp_online_present *present = (struct comp_online_present *)dpu_comp->present_data;
 	struct disp_frame *displaying_frame = &present->frames[present->displaying_idx].in_frame;
 	struct disp_frame *displayed_frame = &present->frames[present->displayed_idx].in_frame;
 	struct dpu_connector* connector = get_primary_connector(dpu_comp->conn_info);
 
+	mdfx_trace_begin("composer", online_overlay);
 	if (unlikely(scene_id > DPU_SCENE_ONLINE_3)) {
 		dpu_pr_err("invalid scene_id=%u", scene_id);
 		return -1;
@@ -203,41 +354,73 @@ static int32_t composer_online_overlay(struct dpu_composer *dpu_comp, struct dis
 		dpu_pr_warn("skip composer online overlay");
 		return 0;
 	}
+
+	present->vsync_ctrl.report_idle_event_flag = 1;
 	dpu_comp_active_vsync(dpu_comp);
+	dpu_tunnel_proc_exit_idle(frame->tunnel_info.dev_commit_layer_cnt);
+	if (present->frame_rate != frame->active_frame_rate || unlikely(frame->frame_index <= 1)) {
+		dpu_pr_info("notify frame rate to kernel");
+		dkmd_notifier_call_chain(DKMD_EVENT_FRAME_RATE, (void *)&(frame->active_frame_rate));
+	}
 	composer_online_update_frame_rate(present, frame->active_frame_rate);
 
-	dpu_pr_debug("scene id %u, frame_index=%u: frame_rate=%u vactive_start_flag=%u enter", scene_id, frame->frame_index,
-		present->frame_rate, present->vactive_start_flag);
+	present->buffers++;
+	dpu_pr_notice("scene_id=%u frame_index=%u frame_rate=%u vactive_start_flag=%u buffers=%d enter", scene_id, frame->frame_index,
+		present->frame_rate, present->vactive_start_flag, present->buffers);
 
 #ifdef CONFIG_DKMD_DEBUG_ENABLE
-	present->buffers++;
 	trace_buffer_num(present->buffers);
 #endif
 
+	composer_wait_acquired_fence(present, frame);
+
 	/* wait vactive isr */
-	if (dpu_comp_vactive_wait_event(present) != 0) {
+	ret = dpu_comp_vactive_wait_event(present);
+	if (ret != 0) {
 		dpu_pr_err("scene_id=%u wait vactive timeout! please check config and resync timeline!", scene_id);
 		(void)pipeline_next_ops_handle(dpu_comp->conn_info->conn_device,
 			dpu_comp->conn_info, DUMP_EXCEPTION_INFO, NULL);
 		dpu_comp_deactive_vsync(dpu_comp);
-		return -1;
+		return ret;
 	}
+	// Begin prohibiting cross-frame config
+	if (dpu_comp->multi_present_ctrl.ops && dpu_comp->multi_present_ctrl.ops->set_present_config_period)
+		dpu_comp->multi_present_ctrl.ops->set_present_config_period(&present->dfr_ctrl, true);
+
+#ifdef CONFIG_DKMD_DPU_TUNNEL_DEVICE_PRESENT
+	dpu_tunnel_device_online_overlay(dpu_comp, frame);
+#endif
+
+	// cdmlist connect tbu0, only fisrt frame need connect
+	dpu_cmdlist_connect(dpu_comp, frame);
 
 	process_ppc_event(dpu_comp, PPC_EVENT_PRESENT);
 
-	if (atomic_read(&connector->mipi.dsi_bit_clk_upt_flag) == 1) {
+	if (atomic_read(&connector->post_info[connector->active_idx]->mipi.dsi_bit_clk_upt_flag) == 1) {
 		if (wait_for_mipi_resource_available(connector) != 0)
 			dpu_pr_info("try to change mipi clk in next frame");
 	}
 
+	composer_online_preprocess(present, frame);
+
+	dpu_comp_set_data_continue_cnt(dpu_comp, dpu_dvfs_get_last_dss_clk());
+
 	// set display region before display
 	pipeline_next_ops_handle(dpu_comp->conn_info->conn_device,
-		dpu_comp->conn_info, MIPI_DSI_PARTIAL_UPDATE, &frame->disp_rect);
-
-	composer_online_preprocess(present, frame);
+		dpu_comp->conn_info, SET_PARTIAL_UPDATE, &frame->disp_rect);
 
 	/* commit to hardware, but sometimes hardware is handling exceptions */
 	scene->frame_index = frame->frame_index;
+	dpu_comp->comp.sw_present_frame_index = frame->frame_index;
+
+	if (dpu_comp_scene_update(dpu_comp, frame) != 0) {
+		dpu_pr_err("dpu_comp_scene_update fail");
+		dpu_comp_deactive_vsync(dpu_comp);
+		if (dpu_comp->multi_present_ctrl.ops && dpu_comp->multi_present_ctrl.ops->set_present_config_period)
+			dpu_comp->multi_present_ctrl.ops->set_present_config_period(&present->dfr_ctrl, false);
+		return -1;
+	}
+
 	dpu_comp_scene_switch(dpu_comp->conn_info, scene);  // maybe dp need this config
 
 	if ((dpu_comp->alsc) && (dpu_comp->alsc->comp_alsc_set_reg))
@@ -246,12 +429,34 @@ static int32_t composer_online_overlay(struct dpu_composer *dpu_comp, struct dis
 	if (dpu_comp->hiace_ctrl)
 		dpu_comp->hiace_ctrl->lut_apply(dpu_comp);
 
+#ifdef CONFIG_DKMD_DEBUG_ENABLE
+	if ((g_debug_online_crc_enable != 0) && (g_debug_idle_enable == 0))
+		dpu_comp_crc_config_enable(scene->dpu_base);
+#endif
 	scene->present(scene, frame->cmdlist_id);
+
+	if (dpu_comp->comp.send_pq_data)
+		dpu_comp->comp.send_pq_data(&dpu_comp->comp, frame->pq_data, PQ_DATA_SIZE);
+
+	if (dpu_comp->conn_info->dirty_region_updt_support != 0 && g_debug_multi_dirty_rects_support &&
+	 get_logusertype_flag() == BETA_USER) {
+		partial_update_bigdata_thread_init(dpu_comp);
+		setup_multi_dirty_bigdata_update(dpu_comp, frame);
+	}
+
+	partial_update_bigdata_update(dpu_comp, frame);
 	/* cpu config drm layer */
 	dpu_online_drm_layer_config(displayed_frame, displaying_frame, frame);
 	dpu_comp->isr_ctrl.unmask &= ~DSI_INT_UNDER_FLOW;
 
+	/* trans frm_index to dacc */
+	dpu_dacc_log_trans_frm_idx(dpu_comp->comp_mgr->dpu_base, frame->frame_index, scene_id);
+
 	dpu_comp_dfr_ctrl_process(dpu_comp, present, frame);
+
+	// End prohibiting cross-frame config
+	if (dpu_comp->multi_present_ctrl.ops && dpu_comp->multi_present_ctrl.ops->set_present_config_period)
+		dpu_comp->multi_present_ctrl.ops->set_present_config_period(&present->dfr_ctrl, false);
 	dpu_comp_deactive_vsync(dpu_comp);
 
 	if (!is_dp_panel(&dpu_comp->conn_info->base) && !is_hdmi_panel(&dpu_comp->conn_info->base))
@@ -260,6 +465,12 @@ static int32_t composer_online_overlay(struct dpu_composer *dpu_comp, struct dis
 	dpu_online_utiles_post_process(present);
 
 	dpu_pr_debug("vactive_start_flag=%d exit", present->vactive_start_flag);
+	mdfx_trace_end("composer", online_overlay);
+
+#ifdef CONFIG_MDFX_KMD_ENG_MODE
+	if (g_debug_mdfx_trigger_dump > 0)
+		mdfx_report_default_event(g_dkmd_mdfx_id, MDFX_EVENT_NORMAL_TRIGGER, frame->frame_index, NULL);
+#endif
 	return 0;
 }
 
@@ -267,15 +478,15 @@ static int32_t composer_online_create_fence(struct dpu_composer *dpu_comp, struc
 {
 	struct comp_online_present *present = (struct comp_online_present *)dpu_comp->present_data;
 
-	fence->fence_fd = dkmd_release_fence_create(&present->timeline, &fence->fence_pt);
+	fence->fence_fd = ukmd_release_fence_create(&present->timeline, &fence->fence_pt);
 	return 0;
 }
 
 static int32_t composer_online_release_fence(struct dpu_composer *dpu_comp, int32_t fd)
 {
 	struct comp_online_present *present = (struct comp_online_present *)dpu_comp->present_data;
-	struct dkmd_timeline *timeline = NULL;
-	struct dkmd_isr *isr_ctrl = NULL;
+	struct ukmd_timeline *timeline = NULL;
+	struct ukmd_isr *isr_ctrl = NULL;
 	int32_t ret;
 
 	if (unlikely(present == NULL)) {
@@ -292,64 +503,29 @@ static int32_t composer_online_release_fence(struct dpu_composer *dpu_comp, int3
 		dpu_pr_info("signal present fence %d", fd);
 
 	timeline = &present->timeline;
-	dkmd_timeline_dec_next_value(timeline);
-	ret = dkmd_fence_signal_fence(fd);
+	ukmd_timeline_dec_next_value(timeline);
+	ret = ukmd_fence_signal_fence(fd);
 
-	isr_ctrl = (struct dkmd_isr *)timeline->isr;
+	isr_ctrl = (struct ukmd_isr *)timeline->isr;
 	if (unlikely(!isr_ctrl)) {
 		dpu_pr_err("isr_ctrl is null");
 		return -1;
 	}
-	dkmd_timeline_set_reset_flag(timeline, true);
-	dkmd_isr_notify_listener(isr_ctrl, timeline->listening_isr_bit);
-	dkmd_timeline_set_reset_flag(timeline, false);
+	ukmd_timeline_set_reset_flag(timeline, true);
+	ukmd_timeline_resync(timeline);
+	ukmd_timeline_set_reset_flag(timeline, false);
 	return ret;
 }
 
 static void composer_online_vsync_init(struct dpu_composer *dpu_comp, struct comp_online_present *present)
 {
-	uint32_t te_bit;
-	uint32_t vsync_bit;
-	struct dkmd_isr *isr_ctrl = NULL;
-	struct dkmd_connector_info *pinfo = dpu_comp->conn_info;
-	struct dpu_comp_dfr_ctrl* dfr_ctrl = &present->dfr_ctrl;
-
 	dpu_vsync_init(&present->vsync_ctrl, &dpu_comp->attrs);
 	present->vsync_ctrl.dpu_comp = dpu_comp;
-
-	switch (dfr_ctrl->mode) {
-	case DFR_MODE_CONSTANT:
-	case DFR_MODE_LONG_V:
-	case DFR_MODE_LONG_H:
-	case DFR_MODE_LONG_VH:
-		dpu_pr_info("lcd_te_idx:%d,", pinfo->base.lcd_te_idx);
-		te_bit = pinfo->base.lcd_te_idx == 0 ? DSI_INT_LCD_TE0 : DSI_INT_LCD_TE1;
-		vsync_bit = (is_mipi_cmd_panel(&pinfo->base) && (!is_force_update(&pinfo->base))) ? te_bit : DSI_INT_VSYNC;
-		isr_ctrl = &dpu_comp->isr_ctrl;
-		break;
-	case DFR_MODE_TE_SKIP_BY_MCU:
-	case DFR_MODE_LONGH_TE_SKIP_BY_MCU:
-		vsync_bit = NOTIFY_BOTH_VSYNC_TIMELINE;
-		isr_ctrl = &dpu_comp->comp_mgr->mdp_isr_ctrl;
-		break;
-	case DFR_MODE_TE_SKIP_BY_ACPU:
-		vsync_bit = DSI_INT_VSYNC_COUNT_BY_TE;
-		isr_ctrl = &dpu_comp->isr_ctrl;
-		break;
-	default:
-		dpu_pr_err("invalid dfr mode %d", dfr_ctrl->mode);
-		return;
-	}
-
-	present->vsync_ctrl.isr = isr_ctrl;
-	present->vsync_ctrl.listening_isr_bit = vsync_bit;
-	dkmd_isr_register_listener(isr_ctrl, present->vsync_ctrl.notifier,
-		present->vsync_ctrl.listening_isr_bit, &present->vsync_ctrl);
 }
 
 static void composer_online_vsync_deinit(struct dpu_composer *dpu_comp, struct comp_online_present *present)
 {
-	struct dkmd_isr *isr_ctrl = NULL;
+	struct ukmd_isr *isr_ctrl = NULL;
 	struct dpu_comp_dfr_ctrl* dfr_ctrl = &present->dfr_ctrl;
 
 	dpu_pr_info("+");
@@ -363,6 +539,8 @@ static void composer_online_vsync_deinit(struct dpu_composer *dpu_comp, struct c
 		break;
 	case DFR_MODE_TE_SKIP_BY_MCU:
 	case DFR_MODE_LONGH_TE_SKIP_BY_MCU:
+	case DFR_MODE_LONGV_BY_MCU:
+	case DFR_MODE_LONGH_BY_MCU:
 		isr_ctrl = &dpu_comp->comp_mgr->mdp_isr_ctrl;
 		dpu_pr_info("skip by mcu, mdp isr");
 		break;
@@ -375,7 +553,7 @@ static void composer_online_vsync_deinit(struct dpu_composer *dpu_comp, struct c
 		return;
 	}
 
-	dkmd_isr_unregister_listener(isr_ctrl, present->vsync_ctrl.notifier, present->vsync_ctrl.listening_isr_bit);
+	ukmd_isr_unregister_listener(isr_ctrl, present->vsync_ctrl.notifier, present->vsync_ctrl.listening_isr_bit);
 	present->vsync_ctrl.listening_isr_bit = 0;
 
 	dpu_pr_info("-");
@@ -383,49 +561,16 @@ static void composer_online_vsync_deinit(struct dpu_composer *dpu_comp, struct c
 
 static void composer_online_timeline_init(struct dpu_composer *dpu_comp, struct comp_online_present *present)
 {
-	uint32_t te_bit;
-	uint32_t timeline_bit;
 	char tmp_name[256] = {0};
-	struct dkmd_isr *isr_ctrl = NULL;
-	struct dkmd_connector_info *pinfo = dpu_comp->conn_info;
-	struct dpu_comp_dfr_ctrl* dfr_ctrl = &present->dfr_ctrl;
 
 	(void)snprintf(tmp_name, sizeof(tmp_name), "online_composer_%s", dpu_comp->comp.base.name);
-	dkmd_timeline_init(&present->timeline, tmp_name, dpu_comp);
+	ukmd_timeline_init(&present->timeline, tmp_name, dpu_comp);
 	present->timeline.present_handle_worker = &dpu_comp->handle_worker;
-
-	switch (dfr_ctrl->mode) {
-	case DFR_MODE_CONSTANT:
-	case DFR_MODE_LONG_V:
-	case DFR_MODE_LONG_H:
-	case DFR_MODE_LONG_VH:
-		te_bit = pinfo->base.lcd_te_idx == 0 ? DSI_INT_LCD_TE0 : DSI_INT_LCD_TE1;
-		timeline_bit = (is_mipi_cmd_panel(&pinfo->base) && (!is_force_update(&pinfo->base))) ? te_bit : DSI_INT_VSYNC;
-		isr_ctrl = &dpu_comp->isr_ctrl;
-		break;
-	case DFR_MODE_TE_SKIP_BY_MCU:
-	case DFR_MODE_LONGH_TE_SKIP_BY_MCU:
-		timeline_bit = NOTIFY_BOTH_VSYNC_TIMELINE;
-		isr_ctrl = &dpu_comp->comp_mgr->mdp_isr_ctrl;
-		break;
-	case DFR_MODE_TE_SKIP_BY_ACPU:
-		timeline_bit = DSI_INT_VSYNC_COUNT_BY_TE;
-		isr_ctrl = &dpu_comp->isr_ctrl;
-		break;
-	default:
-		dpu_pr_err("invalid dfr mode %d", dfr_ctrl->mode);
-		return;
-	}
-
-	present->timeline.isr = isr_ctrl;
-	present->timeline.listening_isr_bit = timeline_bit;
-	dkmd_isr_register_listener(isr_ctrl, present->timeline.notifier,
-		present->timeline.listening_isr_bit, &present->timeline);
 }
 
 static void composer_online_timeline_deinit(struct dpu_composer *dpu_comp, struct comp_online_present *present)
 {
-	struct dkmd_isr *isr_ctrl = NULL;
+	struct ukmd_isr *isr_ctrl = NULL;
 	struct dpu_comp_dfr_ctrl* dfr_ctrl = &present->dfr_ctrl;
 
 	dpu_pr_info("+");
@@ -435,12 +580,14 @@ static void composer_online_timeline_deinit(struct dpu_composer *dpu_comp, struc
 	case DFR_MODE_LONG_V:
 	case DFR_MODE_LONG_H:
 	case DFR_MODE_LONG_VH:
+	case DFR_MODE_LONGV_BY_MCU:
+	case DFR_MODE_LONGH_BY_MCU:
 		isr_ctrl = &dpu_comp->isr_ctrl;
 		break;
 	case DFR_MODE_TE_SKIP_BY_MCU:
 	case DFR_MODE_LONGH_TE_SKIP_BY_MCU:
-		isr_ctrl = &dpu_comp->comp_mgr->mdp_isr_ctrl;
-		dpu_pr_info("skip by mcu, mdp isr");
+		isr_ctrl = &dpu_comp->isr_ctrl;
+		dpu_pr_info("skip by mcu");
 		break;
 	case DFR_MODE_TE_SKIP_BY_ACPU:
 		isr_ctrl = &dpu_comp->isr_ctrl;
@@ -451,8 +598,10 @@ static void composer_online_timeline_deinit(struct dpu_composer *dpu_comp, struc
 		return;
 	}
 
+	dpu_pr_info("unregister timeline listener, mode=%d", dfr_ctrl->mode);
+
 	if (present->timeline.listening_isr_bit != 0) {
-		dkmd_isr_unregister_listener(isr_ctrl, present->timeline.notifier, present->timeline.listening_isr_bit);
+		ukmd_isr_unregister_listener(isr_ctrl, present->timeline.notifier, present->timeline.listening_isr_bit);
 		present->timeline.listening_isr_bit = 0;
 	}
 
@@ -496,11 +645,11 @@ static void composer_online_alsc_deinit(struct dpu_composer *dpu_comp)
 
 void composer_online_setup(struct dpu_composer *dpu_comp, struct comp_online_present *present)
 {
-	struct dkmd_isr *isr_ctrl = &dpu_comp->isr_ctrl;
+	struct ukmd_isr *isr_ctrl = &dpu_comp->isr_ctrl;
 	struct dkmd_connector_info *pinfo = dpu_comp->conn_info;
-	struct dpu_comp_dfr_ctrl* dfr_ctrl = &present->dfr_ctrl;
 
 	composer_online_vsync_init(dpu_comp, present);
+	partial_update_bigdata_setup(dpu_comp);
 	composer_online_timeline_init(dpu_comp, present);
 	dpu_comp_vactive_init(isr_ctrl, dpu_comp, DSI_INT_VACT0_START);
 	dpu_comp_vactive_end_init(isr_ctrl, dpu_comp, DSI_INT_VACT0_END);
@@ -508,63 +657,75 @@ void composer_online_setup(struct dpu_composer *dpu_comp, struct comp_online_pre
 	dpu_comp_frame_start_isr_init(isr_ctrl, dpu_comp, DSI_INT_FRM_START);
 	dpu_comp_frame_end_isr_init(isr_ctrl, dpu_comp, DSI_INT_FRM_END);
 
-	/* register refresh isr to screen(LTPO) for fps count */
-	if (dfr_ctrl->mode == DFR_MODE_TE_SKIP_BY_MCU || dfr_ctrl->mode == DFR_MODE_LONGH_TE_SKIP_BY_MCU) {
-		present->comp_maintain.dpu_comp = dpu_comp;
-		comp_mntn_refresh_stat_init(&dpu_comp->comp_mgr->mdp_isr_ctrl, &present->comp_maintain, NOTIFY_REFRESH);
-	} else if (dfr_ctrl->mode == DFR_MODE_TE_SKIP_BY_ACPU) {
-		present->comp_maintain.dpu_comp = dpu_comp;
-		comp_mntn_refresh_stat_init(isr_ctrl, &present->comp_maintain, NOTIFY_REFRESH);
-	}
-
 	if (!is_dp_panel(&pinfo->base) && !is_hdmi_panel(&pinfo->base)) {
-		if (pinfo->base.pipe_sw_itfch_idx == PIPE_SW_PRE_ITFCH0) {
+		if (pinfo->base.pipe_sw_itfch_idx == PIPE_SW_PRE_ITFCH0 ||
+			composer_manager_get_scene_switch(dpu_comp)) {
 			dpu_comp_alsc_handle_init(isr_ctrl, dpu_comp, DSI_INT_VACT0_START); // alsc only for primary
 			dpu_comp_alsc_handle_init(isr_ctrl, dpu_comp, DSI_INT_VACT0_END);
-			dpu_comp_hdr_handle_init(isr_ctrl, dpu_comp, DSI_INT_VACT0_END);
+			dpu_comp_hdr_handle_init(isr_ctrl, dpu_comp);
 			dpu_comp_hiace_handle_init(&dpu_comp->comp_mgr->sdp_isr_ctrl, dpu_comp, DPU_DPP0_HIACE_NS_INT);
+			dpu_comp_rgb_hist_handle_init(isr_ctrl, dpu_comp, DSI_INT_VACT0_START);
 			composer_online_alsc_init(dpu_comp);
+			dpu_effect_thread_setup(dpu_comp);
+			dpu_effect_hdr_init(dpu_comp, DPU_HDR_OFFSET);
 			dpu_effect_hiace_init(dpu_comp, DPU_DPP0_OFFSET);
+			dpu_effect_rgb_hist_init(dpu_comp, DPU_DPP0_OFFSET);
 		}
 		// register sysfs bl file
 		dpu_backlight_init(&dpu_comp->bl_ctrl, &dpu_comp->attrs, dpu_comp);
 		dpu_comp_mipi_dsi_bit_clk_upt_init(dpu_comp);
+		dpu_self_healing_init(&present->self_healing_ctrl);
 	}
 
+	present->frame_rate = dpu_comp->conn_info->base.fps;
 	present->dpu_comp = dpu_comp;
 	dpu_comp->overlay = composer_online_overlay;
 	dpu_comp->create_fence = composer_online_create_fence;
 	dpu_comp->release_fence = composer_online_release_fence;
+	dpu_comp->vsync_deinit = composer_online_vsync_deinit;
+	dpu_comp->timeline_deinit = composer_online_timeline_deinit;
 	present->buffers = 0;
 }
 
 void composer_online_release(struct dpu_composer *dpu_comp, struct comp_online_present *present)
 {
-	struct dkmd_isr *isr_ctrl = &dpu_comp->isr_ctrl;
+	struct ukmd_isr *isr_ctrl = &dpu_comp->isr_ctrl;
 	struct dpu_comp_dfr_ctrl* dfr_ctrl = &present->dfr_ctrl;
 
-	composer_online_timeline_deinit(dpu_comp, present);
-	composer_online_vsync_deinit(dpu_comp, present);
+	if (dpu_comp->has_dfr_related_listener_registered) {
+		composer_online_timeline_deinit(dpu_comp, present);
+		composer_online_vsync_deinit(dpu_comp, present);
+
+		dpu_tunnel_unregister_vsync_listener(dpu_comp);
+		/* unregister refresh isr to screen(LTPO) for fps count */
+		if (dfr_ctrl->mode == DFR_MODE_TE_SKIP_BY_MCU || dfr_ctrl->mode == DFR_MODE_LONGH_TE_SKIP_BY_MCU)
+			comp_mntn_refresh_stat_deinit(&dpu_comp->comp_mgr->mdp_isr_ctrl, NOTIFY_REFRESH);
+		else if (dfr_ctrl->mode == DFR_MODE_TE_SKIP_BY_ACPU)
+			comp_mntn_refresh_stat_deinit(isr_ctrl, NOTIFY_REFRESH);
+	}
+
 	dpu_comp_vactive_deinit(isr_ctrl, DSI_INT_VACT0_START);
 	dpu_comp_vactive_end_deinit(isr_ctrl, DSI_INT_VACT0_END);
 	dpu_comp_abnormal_handle_deinit(isr_ctrl, DSI_INT_UNDER_FLOW);
 	dpu_comp_frame_start_isr_deinit(isr_ctrl, DSI_INT_FRM_START);
 	dpu_comp_frame_end_isr_deinit(isr_ctrl, DSI_INT_FRM_END);
 
-	/* unregister refresh isr to screen(LTPO) for fps count */
-	if (dfr_ctrl->mode == DFR_MODE_TE_SKIP_BY_MCU || dfr_ctrl->mode == DFR_MODE_LONGH_TE_SKIP_BY_MCU)
-		comp_mntn_refresh_stat_deinit(&dpu_comp->comp_mgr->mdp_isr_ctrl, NOTIFY_REFRESH);
-	else if (dfr_ctrl->mode == DFR_MODE_TE_SKIP_BY_ACPU)
-		comp_mntn_refresh_stat_deinit(isr_ctrl, NOTIFY_REFRESH);
-
 	if (!is_dp_panel(&dpu_comp->conn_info->base) && !is_hdmi_panel(&dpu_comp->conn_info->base)) {
-		if (dpu_comp->conn_info->base.pipe_sw_itfch_idx == PIPE_SW_PRE_ITFCH0) {
+		if (dpu_comp->conn_info->base.pipe_sw_itfch_idx == PIPE_SW_PRE_ITFCH0 ||
+			composer_manager_get_scene_switch(dpu_comp)) {
 			dpu_comp_alsc_handle_deinit(isr_ctrl, DSI_INT_VACT0_START);
 			dpu_comp_alsc_handle_deinit(isr_ctrl, DSI_INT_VACT0_END);
-			dpu_comp_hdr_handle_deinit(isr_ctrl, DSI_INT_VACT0_END);
+			dpu_comp_hdr_handle_deinit(isr_ctrl, dpu_comp);
 			dpu_comp_hiace_handle_deinit(&dpu_comp->comp_mgr->sdp_isr_ctrl, DPU_DPP0_HIACE_NS_INT);
+			dpu_comp_rgb_hist_handle_deinit(isr_ctrl, DSI_INT_VACT0_START);
 			composer_online_alsc_deinit(dpu_comp);
+			dpu_effect_thread_relase(dpu_comp);
+			dpu_effect_hdr_deinit(dpu_comp);
 			dpu_effect_hiace_deinit(dpu_comp);
+			dpu_effect_rgb_hist_deinit(dpu_comp);
 		}
+	}
+	if (dpu_comp->conn_info->dirty_region_updt_support != 0){
+		partial_update_bigdata_thread_deinit(dpu_comp);
 	}
 }

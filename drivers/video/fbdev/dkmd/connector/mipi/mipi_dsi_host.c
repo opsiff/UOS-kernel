@@ -19,10 +19,11 @@
 #include "peri/dkmd_peri.h"
 #include "dkmd_mipi_panel_info.h"
 #include "mipi_dsi_dev.h"
+#include "ukmd_cmdlist.h"
+#include "cmdlist_interface.h"
 
 #define RIGHT_SHIFT_BYTE_NUM 3
 #define BIT_NUM_PER_BYTE 8
-#define DLEN_MAX 1024
 #define PANEL_CHECK_ARRAY_SIZE 1
 
 /* global definition for the cmd queue which will be send after next vactive start */
@@ -62,13 +63,7 @@ void mipi_dsi_sread_request(struct dsi_cmd_desc *cm, char __iomem *dsi_base)
 #endif
 }
 
-/*
- * mipi dsi short write with 0, 1 2 parameters
- * Write to GEN_HDR 24 bit register the value:
- * 1. 00h, MCS_command[15:8] ,VC[7:6],13h
- * 2. Data1[23:16], MCS_command[15:8] ,VC[7:6],23h
- */
-static int32_t mipi_dsi_swrite(struct dsi_cmd_desc *cm, char __iomem *dsi_base)
+static uint32_t mipi_dsi_assemble_swrite_header(struct dsi_cmd_desc *cm)
 {
 	uint32_t hdr = 0;
 	uint32_t len;
@@ -81,12 +76,16 @@ static int32_t mipi_dsi_swrite(struct dsi_cmd_desc *cm, char __iomem *dsi_base)
 	/* mipi dsi short write with 0, 1 2 parameters, total 3 param */
 	if (cm->dlen > 2) {
 		dpu_pr_err("cm->dlen is invalid");
-		return -EINVAL;
+		return 0;
 	}
+
 	len = cm->dlen;
 
 	hdr |= dsi_hdr_dtype(cm->dtype);
 	hdr |= dsi_hdr_vc(cm->vc);
+	/* The two  fields are reserved in old platfrom */
+	hdr |= dsi_hdr_groupflag(cm->groupflag);
+	hdr |= dsi_hdr_singlemode(cm->singlemode);
 	if (len == 1) {
 		hdr |= dsi_hdr_data1((uint32_t)(cm->payload[0]));
 		hdr |= dsi_hdr_data2(0);
@@ -100,10 +99,54 @@ static int32_t mipi_dsi_swrite(struct dsi_cmd_desc *cm, char __iomem *dsi_base)
 
 	/* used for low power cmds trans under video mode */
 	hdr |= cm->dtype & GEN_VID_LP_CMD;
-	set_reg(DPU_DSI_APB_WR_LP_HDR_ADDR(dsi_base), hdr, 25, 0);
+	return hdr;
+}
 
-	dpu_pr_info("hdr = %#x!\n", hdr);
-	return (int32_t)len;  /* 4 bytes */
+/*
+ * mipi dsi short write with 0, 1 2 parameters
+ * Write to GEN_HDR 24 bit register the value:
+ * 1. 00h, MCS_command[15:8] ,VC[7:6],13h
+ * 2. Data1[23:16], MCS_command[15:8] ,VC[7:6],23h
+ */
+static int32_t mipi_dsi_swrite(struct dsi_cmd_desc *cm, char __iomem *dsi_base)
+{
+	uint32_t hdr = mipi_dsi_assemble_swrite_header(cm);
+	if (hdr == 0) {
+		return -EINVAL;
+	}
+
+	set_reg(DPU_DSI_APB_WR_LP_HDR_ADDR(dsi_base), hdr, 28, 0);
+	return (int32_t)cm->dlen;  /* 4 bytes */
+}
+
+static int32_t mipi_dsi_swrite_to_cmdlist(uint32_t cmdlist_dev_id, uint32_t cmdlist_scene_id,
+	uint32_t cmdlist_payload_id, uint32_t dsi_offset, struct dsi_cmd_desc *cm)
+{
+	uint32_t hdr = mipi_dsi_assemble_swrite_header(cm);
+	if (hdr == 0)
+		return -EINVAL;
+
+	ukmd_set_reg(cmdlist_dev_id, cmdlist_scene_id, cmdlist_payload_id,
+		DPU_DSI_GEN_HP_HDR_ADDR(dsi_offset), hdr);
+
+	dpu_pr_debug("hdr = %#x!\n", hdr);
+	return (int32_t)cm->dlen;
+}
+
+static uint32_t mipi_dsi_assemble_lwrite_header(struct dsi_cmd_desc *cm)
+{
+	uint32_t hdr = 0;
+	/* fill up header */
+	hdr |= dsi_hdr_dtype(cm->dtype);
+	hdr |= dsi_hdr_vc(cm->vc);
+	hdr |= dsi_hdr_wc(cm->dlen);
+	/* The two  fields are reserved in old platfrom */
+	hdr |= dsi_hdr_groupflag(cm->groupflag);
+	hdr |= dsi_hdr_singlemode(cm->singlemode);
+
+	/* used for low power cmds trans under video mode */
+	hdr |= cm->dtype & GEN_VID_LP_CMD;
+	return hdr;
 }
 
 /*
@@ -139,24 +182,52 @@ static int32_t mipi_dsi_lwrite(struct dsi_cmd_desc *cm, char __iomem *dsi_base)
 		} else {
 			for (j = i; j < cm->dlen; j++)
 				pld |= (((uint32_t)cm->payload[j] & 0x0ff) << ((j - i) * 8));
-
-			dpu_pr_info("pld = %#x!\n", pld);
 		}
-
 		set_reg(DPU_DSI_APB_WR_LP_PLD_DATA_ADDR(dsi_base), pld, 32, 0);
 		pld = 0;
 	}
+	hdr = mipi_dsi_assemble_lwrite_header(cm);
+	set_reg(DPU_DSI_APB_WR_LP_HDR_ADDR(dsi_base), hdr, 28, 0);
+	return (int32_t)cm->dlen;
+}
 
-	/* fill up header */
-	hdr |= dsi_hdr_dtype(cm->dtype);
-	hdr |= dsi_hdr_vc(cm->vc);
-	hdr |= dsi_hdr_wc(cm->dlen);
+static int32_t mipi_dsi_lwrite_to_cmdlist(uint32_t cmdlist_dev_id, uint32_t cmdlist_scene_id,
+	uint32_t cmdlist_payload_id, uint32_t dsi_offset, struct dsi_cmd_desc *cm)
+{
+	uint32_t hdr = 0;
+	uint32_t i = 0;
+	uint32_t j = 0;
+	uint32_t pld = 0;
 
-	/* used for low power cmds trans under video mode */
-	hdr |= cm->dtype & GEN_VID_LP_CMD;
-	set_reg(DPU_DSI_APB_WR_LP_HDR_ADDR(dsi_base), hdr, 25, 0);
+	if ((cm->dlen != 0) && (cm->payload == 0)) {
+		dpu_pr_err("NO payload error!\n");
+		return 0;
+	}
 
-	dpu_pr_info("hdr = %#x!\n", hdr);
+	if (cm->dlen > DLEN_MAX) {
+		dpu_pr_err("invalid dlen:%u\n", cm->dlen);
+		return 0;
+	}
+
+	for (i = 0;  i < cm->dlen; i += 4) {
+		if ((i + 4) <= cm->dlen) {
+			pld = *((uint32_t *)(cm->payload + i));
+		} else {
+			for (j = i; j < cm->dlen; j++)
+				pld |= (((uint32_t)cm->payload[j] & 0x0ff) << ((j - i) * 8));
+		}
+
+		dpu_pr_debug("pld = %#x!\n", pld);
+		ukmd_set_reg(cmdlist_dev_id, cmdlist_scene_id, cmdlist_payload_id,
+			DPU_DSI_GEN_HP_PLD_DATA_ADDR(dsi_offset), pld);
+		pld = 0;
+	}
+
+	hdr = mipi_dsi_assemble_lwrite_header(cm);
+	ukmd_set_reg(cmdlist_dev_id, cmdlist_scene_id, cmdlist_payload_id,
+		DPU_DSI_GEN_HP_HDR_ADDR(dsi_offset), hdr);
+
+	dpu_pr_debug("hdr = %#x!\n", hdr);
 
 	return (int32_t)cm->dlen;
 }
@@ -174,20 +245,31 @@ void mipi_dsi_max_return_packet_size(struct dsi_cmd_desc *cm, char __iomem *dsi_
 	hdr |= dsi_hdr_dtype(cm->dtype);
 	hdr |= dsi_hdr_vc(cm->vc);
 	hdr |= dsi_hdr_wc(cm->dlen);
-
 	set_reg(DPU_DSI_APB_WR_LP_HDR_ADDR(dsi_base), hdr, 24, 0);
 }
 
-static uint32_t mipi_dsi_read(uint32_t *out, const char __iomem *dsi_base)
+uint32_t mipi_dsi_read(uint32_t *out, const char __iomem *dsi_base, uint32_t wait_us, uint32_t present_time_us)
 {
 	uint32_t pkg_status;
-	uint32_t try_times = 700;  /* 35ms(50*700) */
+	uint32_t try_times = 0;
+
+	if(wait_us == 0) {
+		wait_us = MIPI_DSI_READ_CHECK_WAIT;
+		dpu_pr_warn("wait 0 set wait us: %d us\n", wait_us);
+	}
+
+	try_times = present_time_us / wait_us;
+	if (try_times == 0) {
+		dpu_pr_err("try_times is 0, present_time_us %u wait_us %u", present_time_us, wait_us);
+		return 0;
+	}
 
 	do {
 		pkg_status = inp32(DPU_DSI_CMD_PLD_BUF_STATUS_ADDR(dsi_base));
 		if ((pkg_status & 0x10) == 0)
 			break;
-		udelay(50);  /* 50us */
+
+		udelay(wait_us);
 	} while (--try_times);
 
 	*out = inp32(DPU_DSI_APB_WR_LP_PLD_DATA_ADDR(dsi_base));
@@ -218,57 +300,13 @@ static int mipi_get_offset_bit_num(int num, bool little_endian_support)
 	return num * BIT_NUM_PER_BYTE;
 }
 
-static int mipi_dsi_cmds_rx_with_check_fifo(struct dsi_cmd_desc *cmds, int cnt, char __iomem *dsi_base)
-{
-	struct dsi_cmd_desc *cm = NULL;
-	int i;
-	int err_num = 0;
-	uint32_t out[PANEL_CHECK_ARRAY_SIZE] = {0};
-
-	cm = cmds;
-
-	for (i = 0; i < cnt; i++) {
-		if (mipi_dsi_fifo_is_full(dsi_base) == 0) {
-			if (mipi_dsi_lread_reg(&(out[i]), ARRAY_SIZE(out), cm, cm->dlen, dsi_base))
-				err_num++;
-		} else {
-			err_num += (cnt - i);
-			dpu_pr_err("dsi fifo full, read [%d] cmds, left [%d] cmds!!", i, cnt - i);
-			break;
-		}
-		delay_for_next_cmd_by_sleep(cm->wait, cm->waittype);
-		cm++;
-	}
-
-	return err_num;
-}
-
-bool mipi_panel_check_reg(struct dpu_connector *connector)
-{
-	int ret;
-	char __iomem *mipi_dsi_base = connector->connector_base;
-	/* mipi reg default value */
-	char dpu_reg_0a[] = {0x0a};
-
-	struct dsi_cmd_desc lcd_check_reg[PANEL_CHECK_ARRAY_SIZE] = {
-		{DTYPE_DCS_READ, 0, 10, WAIT_TYPE_US,
-			sizeof(dpu_reg_0a), dpu_reg_0a},
-	};
-
-	ret = mipi_dsi_cmds_rx_with_check_fifo(lcd_check_reg, PANEL_CHECK_ARRAY_SIZE, mipi_dsi_base);
-	if (ret) {
-		dpu_pr_warn("Read error number: %d\n", ret);
-		return false;
-	}
-	return true;
-}
-
 int mipi_dsi_get_read_value(struct dsi_cmd_desc *dsi_cmd,
 	uint8_t *dest, uint32_t *src, uint32_t len, bool little_endian_support)
 {
 	int dlen;
 	int cnt = 0;
 	int start_index = 0;
+	int32_t read_out_count = 0;
 	int div = sizeof(uint32_t) / sizeof(uint8_t);
 
 	if (!dsi_cmd || !dest || !src) {
@@ -304,7 +342,8 @@ int mipi_dsi_get_read_value(struct dsi_cmd_desc *dsi_cmd,
 		}
 		cnt++;
 	}
-	return 0;
+	read_out_count = cnt;
+	return read_out_count;
 }
 
 bool mipi_dsi_cmd_is_read(struct dsi_cmd_desc *cm)
@@ -426,9 +465,9 @@ int32_t mipi_dsi_lread_reg(uint32_t *out, int out_len, struct dsi_cmd_desc *cm, 
 	mipi_dsi_max_return_packet_size(&packet_size_cmd_set, dsi_base);
 	mipi_dsi_sread_request(cm, dsi_base);
 	for (i = 0; (i < (len + 3) / 4) && (i < (uint32_t)out_len); i++) {  /* read 4 bytes once */
-		if (mipi_dsi_read(out, dsi_base) == 0) {
+		if (mipi_dsi_read(out, dsi_base, cm->wait, MIPI_DDIC_READ_BACK_TIMEOUT) == 0) {
 			ret = -1;
-			dpu_pr_err("Read register %#x timeout\n", cm->payload[0]);
+			dpu_pr_err("Read register %#x timeout", cm->payload[0]);
 			break;
 		}
 		out++;
@@ -437,7 +476,38 @@ int32_t mipi_dsi_lread_reg(uint32_t *out, int out_len, struct dsi_cmd_desc *cm, 
 	return ret;
 }
 
-void delay_for_next_cmd_by_sleep(uint32_t wait, uint32_t waittype)
+int32_t mipi_dsi_lread_group_reg(uint32_t *out, int out_len, struct dsi_cmd_desc *cm, uint32_t len, char *dsi_base)
+{
+	int32_t ret = 0;
+	uint32_t i = 0;
+	uint32_t remain_try_times = 0;
+	struct dsi_cmd_desc packet_size_cmd_set;
+
+	if (!out || !cm || !dsi_base) {
+		dpu_pr_err("invalid param");
+		return MIPI_E_PARAMS_INVALID;
+	}
+
+	packet_size_cmd_set.dtype = DTYPE_MAX_PKTSIZE;
+	packet_size_cmd_set.vc = 0;
+	packet_size_cmd_set.dlen = len;
+	mipi_dsi_max_return_packet_size(&packet_size_cmd_set, dsi_base);
+	mipi_dsi_sread_request(cm, dsi_base);
+	for (i = 0; (i < (len + 3) / 4) && (i < (uint32_t)out_len); i++) {  /* read 4 bytes once */
+		remain_try_times = mipi_dsi_read(out, dsi_base, MIPI_DSI_READ_CHECK_WAIT, MIPI_DDIC_READ_BACK_TIMEOUT);
+		if (remain_try_times == 0) {
+			ret = MIPI_E_READ_FAILED;
+			dpu_pr_err("Read ddic register %#x timeout", cm->payload[0]);
+			break;
+		}
+
+		out++;
+	}
+
+	return ret;
+}
+
+void delay_for_next_cmd(uint32_t wait, uint32_t waittype)
 {
 	if (wait == 0)
 		return;
@@ -450,24 +520,13 @@ void delay_for_next_cmd_by_sleep(uint32_t wait, uint32_t waittype)
 		else
 			msleep(wait);
 	} else {
-		msleep(wait * 1000);  /* ms */
+		dpu_pr_err("waittype unknown %d wait = %d", waittype, wait);
 	}
 }
 
-/*
- * prepare cmd buffer to be txed
- */
-int32_t mipi_dsi_cmd_add(struct dsi_cmd_desc *cm, char __iomem *dsi_base)
+static int32_t mipi_dsi_cmd_write_send(struct dsi_cmd_desc *cm, char __iomem *dsi_base)
 {
 	int32_t len = 0;
-	unsigned long flags = 0;
-
-	if (!cm || !dsi_base) {
-		dpu_pr_err("invalid param\n");
-		return -1;
-	}
-
-	spin_lock_irqsave(&g_mipi_trans_lock, flags);
 
 	switch (dsi_hdr_dtype(cm->dtype)) {
 	case DTYPE_GEN_WRITE:
@@ -490,7 +549,77 @@ int32_t mipi_dsi_cmd_add(struct dsi_cmd_desc *cm, char __iomem *dsi_base)
 		break;
 	}
 
+	return len;
+}
+
+/*
+ * prepare cmd buffer to be txed
+ */
+int32_t mipi_dsi_cmd_add(struct dsi_cmd_desc *cm, char __iomem *dsi_base)
+{
+	int32_t len = 0;
+	unsigned long flags = 0;
+
+	if (!cm || !dsi_base) {
+		dpu_pr_err("invalid param\n");
+		return -1;
+	}
+
+	spin_lock_irqsave(&g_mipi_trans_lock, flags);
+
+	len = mipi_dsi_cmd_write_send(cm, dsi_base);
+
 	spin_unlock_irqrestore(&g_mipi_trans_lock, flags);
+
+	return len;
+}
+
+int32_t mipi_dsi_cmd_add_nolock(struct dsi_cmd_desc *cm, char __iomem *dsi_base)
+{
+	int32_t len = 0;
+
+	if (!cm || !dsi_base) {
+		dpu_pr_err("invalid param\n");
+		return MIPI_E_PARAMS_INVALID;
+	}
+
+	len = mipi_dsi_cmd_write_send(cm, dsi_base);
+	if (len <= 0) {
+		dpu_pr_err("write failed %d", len);
+		return MIPI_E_WRITE_FAILED;
+	}
+
+	return 0;
+}
+
+int32_t mipi_dsi_cmd_add_to_cmdlist(uint32_t dev_id, uint32_t scene_id,uint32_t cmdlist_id,
+	uint32_t dsi_offset, struct dsi_cmd_desc *cm)
+{
+	int32_t len = 0;
+
+	if (!cm) {
+		dpu_pr_err("invalid param\n");
+		return -1;
+	}
+
+	switch (dsi_hdr_dtype(cm->dtype)) {
+	case DTYPE_GEN_WRITE:
+	case DTYPE_GEN_WRITE1:
+	case DTYPE_GEN_WRITE2:
+	case DTYPE_DCS_WRITE:
+	case DTYPE_DCS_WRITE1:
+	case DTYPE_DCS_WRITE2:
+		len = mipi_dsi_swrite_to_cmdlist(dev_id, scene_id, cmdlist_id, dsi_offset, cm);
+		break;
+	case DTYPE_GEN_LWRITE:
+	case DTYPE_DCS_LWRITE:
+	case DTYPE_DSC_LWRITE:
+		len = mipi_dsi_lwrite_to_cmdlist(dev_id, scene_id, cmdlist_id, dsi_offset, cm);
+		break;
+	default:
+		dpu_pr_err("dtype=%x NOT supported!\n", cm->dtype);
+		break;
+	}
 
 	return len;
 }
@@ -508,9 +637,72 @@ int32_t mipi_dsi_cmds_tx(struct dsi_cmd_desc *cmds, int32_t cnt, char __iomem *d
 	cm = cmds;
 	for (i = 0; i < cnt; i++) {
 		mipi_dsi_cmd_add(cm, dsi_base);
-		delay_for_next_cmd_by_sleep(cm->wait, cm->waittype);
+		delay_for_next_cmd(cm->wait, cm->waittype);
 		cm++;
 	}
 
 	return cnt;
 }
+
+void mipi_dsi_tx_lp_mode_cfg(char __iomem *dsi_base)
+{
+	dpu_pr_debug("enter");
+	/*
+	 * gen short cmd read switch low-power,
+	 * include 0-parameter,1-parameter,2-parameter
+	 */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x7, 3, 8);
+	/* gen long cmd write switch low-power */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x1, 1, 14);
+	/*
+	 * dcs short cmd write switch high-speed,
+	 * include 0-parameter,1-parameter
+	 */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x3, 2, 16);
+}
+
+void mipi_dsi_rx_lp_mode_cfg(char __iomem *dsi_base)
+{
+	dpu_pr_debug("enter");
+	/*
+	 * gen short cmd read switch low-power,
+	 * include 0-parameter,1-parameter,2-parameter
+	 */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x7, 3, 11);
+	/* dcs short cmd read switch low-power */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x1, 1, 18);
+	/* read packet size cmd switch low-power */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x1, 1, 24);
+}
+
+void mipi_dsi_tx_hs_mode_cfg(char __iomem *dsi_base)
+{
+	dpu_pr_debug("enter");
+	/*
+	 * gen short cmd read switch low-power,
+	 * include 0-parameter,1-parameter,2-parameter
+	 */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 3, 8);
+	/* gen long cmd write switch high-speed */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 1, 14);
+	/*
+	 * dcs short cmd write switch high-speed,
+	 * include 0-parameter,1-parameter
+	 */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 2, 16);
+}
+
+void mipi_dsi_rx_hs_mode_cfg(char __iomem *dsi_base)
+{
+	dpu_pr_debug("enter");
+	/*
+	 * gen short cmd read switch high-speed,
+	 * include 0-parameter,1-parameter,2-parameter
+	 */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 3, 11);
+	/* dcs short cmd read switch high-speed */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 1, 18);
+	/* read packet size cmd switch high-speed */
+	set_reg(DPU_DSI_CMD_MODE_CTRL_ADDR(dsi_base), 0x0, 1, 24);
+}
+

@@ -30,17 +30,18 @@ struct panel_drv_private;
 #define DTS_COMP_PANEL_NT37701_BRQ "dkmd,panel_nt37701_brq"
 #define DTS_COMP_PANEL_NT37701A "dkmd,panel_nt37701a"
 #define DTS_COMP_PANEL_RM69091 "dkmd,panel_rm69091"
+#define DTS_COMP_PANEL_RM6d030 "dkmd,panel_rm6d030"
 #define DTS_COMP_PANEL_HX5293 "dkmd,panel_hx5293"
 #define DTS_COMP_PANEL_NT36870 "dkmd,panel_nt36870"
-#define DTS_COMP_PANEL_VISIONOX310 "dkmd,panel_visionox310"
-#define DTS_COMP_PANEL_BOE7P847 "dkmd,panel_boe_7p847"
-#define DTS_COMP_PANEL_VISIONOX_6P39 "dkmd,panel_visionox_6p39"
-#define DTS_COMP_PANEL_BOE_6P39 "dkmd,panel_boe_6p39"
+#define DTS_COMP_PANEL_VXN_6P69 "dkmd,panel_vxn_6p69"
+#define DTS_COMP_PANEL_BOE_6P69 "dkmd,panel_boe_6p69"
 #define DTS_COMP_PANEL_HX83121 "dkmd,panel_hx83121"
 #define DTS_COMP_PANEL_LCDKIT "huawei,lcd_panel_type"
 #define DTS_COMP_PANEL_MEDIABOX_DSI0 "dkmd,panel_mediabox_dsi0"
 #define DTS_COMP_PANEL_MEDIABOX_EDP0 "dkmd,panel_mediabox_edp0"
 #define DTS_COMP_PANEL_MEDIABOX_EDP1 "dkmd,panel_mediabox_edp1"
+#define DTS_COMP_PANEL_RM692H5 "dkmd,panel_rm692h5"
+#define DTS_COMP_DYNAMIC_FAKE "dkmd,panel_dynamic_fake"
 
 /* Record the screen ID information, natural growth */
 enum {
@@ -53,16 +54,17 @@ enum {
 	PANEL_NT37701_BRQ_ID,
 	PANEL_NT37701A_ID,
 	PANEL_RM69091_ID,
+	PANEL_RM6d030_ID,
 	PANEL_HX5293_ID,
 	PANEL_NT36870_ID,
-	PANEL_VISIONOX_6P39_ID,
-	PANEL_BOE_6P39_ID,
-	PANEL_VISIONOX310_ID,
-	PANEL_BOE_7P847_ID,
+	PANEL_VXN_6P69_ID,
+	PANEL_BOE_6P69_ID,
 	PANEL_MEDIABOX_DSI0_ID,
 	PANEL_MEDIABOX_EDP0_ID,
 	PANEL_MEDIABOX_EDP1_ID,
 	PANEL_HX83121_ID,
+	PANEL_RM692H5_ID,
+	DYNAMIC_FAKE_PANEL_ID,
 	PANEL_MAX_ID,
 };
 
@@ -75,6 +77,8 @@ struct panel_ops_func_map {
 struct panel_handle_adapter {
 	int32_t (*on_func)(struct dkmd_connector_info *pinfo);
 	int32_t (*off_func)(struct dkmd_connector_info *pinfo);
+	int32_t (*handle_event_func)(struct dkmd_connector_info *pinfo, uint32_t event, const void *value, bool is_isr_event);
+
 	struct panel_ops_func_map *panel_ops_func_table;
 };
 
@@ -95,5 +99,6 @@ void register_panel_handle(struct panel_handle_adapter panel_ops, uint32_t panel
 int32_t prepare_panel_dev_data(struct panel_drv_private *priv);
 int setup_panel_dev_data(struct panel_drv_private *priv);
 void get_panel_product_config(struct dkmd_connector_info *pinfo, struct dpu_panel_info *entry_pinfo);
+int  get_lcdkit_connector(struct dkmd_connector_info *pinfo);
 
 #endif

@@ -18,6 +18,11 @@
 #include <dpu_format.h>
 #include <dpu/soc_dpu_format.h>
 
+struct dpu_to_dfc_pixel_format {
+	int32_t dpu_format;
+	int32_t dfc_pixel_format;
+};
+
 struct dpu_to_soc_pixel_format {
 	int32_t dpu_format;
 	int32_t sdma_format;
@@ -206,4 +211,14 @@ int32_t dpu_fmt_to_wdma(int32_t format);
 int32_t dpu_fmt_to_static_dfc(int32_t format);
 int32_t dpu_fmt_to_dynamic_dfc(int32_t format);
 int32_t sdma_fmt_to_dpu_fmt(int32_t format);
+bool is_yuv_semiplanar(int32_t format);
+bool is_16bpp_rgb(int format);
+bool is_10bit_yuv_planar(int format);
+bool is_10bit_yuv422_package(int format);
+bool is_10bit_yuv_semiplanar(int format);
+bool is_yuv420_planar(int format);
+bool is_yuv422_planar(int format);
+bool is_yuv420_semiplanar(int format);
+bool is_yuv422_semiplanar(int format);
+int dpu_fmt_2_dfc_pixel_fmt(int format);
 #endif

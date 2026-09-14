@@ -20,11 +20,13 @@ int dkmd_register_client(struct notifier_block *nb)
 {
 	return blocking_notifier_chain_register(&dkmd_notifier_list, nb);
 }
+EXPORT_SYMBOL(dkmd_register_client);
 
 int dkmd_unregister_client(struct notifier_block *nb)
 {
 	return blocking_notifier_chain_unregister(&dkmd_notifier_list, nb);
 }
+EXPORT_SYMBOL(dkmd_unregister_client);
 
 int dkmd_notifier_call_chain(unsigned long val, void *v)
 {

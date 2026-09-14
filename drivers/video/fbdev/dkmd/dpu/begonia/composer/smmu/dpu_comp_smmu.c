@@ -22,7 +22,8 @@
 #include <soc_smmuv3_tbu_interface.h>
 #include <dpu/soc_dpu_define.h>
 #include <linux/iommu/mm_iommu.h>
-#include "dkmd_chrdev.h"
+#include <linux/iommu/mm_svm.h>
+#include "ukmd_chrdev.h"
 #include "res_mgr.h"
 #include "dpu_comp_mgr.h"
 #include "smmu/dpu_comp_smmu.h"
@@ -53,12 +54,25 @@ static bool dpu_smmu_disconnect_event_cmp(uint32_t value, uint32_t expect_value)
 	return true;
 }
 
+static void dpu_smmu_media1_tcu_dump(char __iomem *smmu_base)
+{
+	uint32_t smmu_tbu_cr = inp32(SOC_SMMUv3_TBU_SMMU_TBU_CR_ADDR(smmu_base));
+	uint32_t smmu_tbu_crack = inp32(SOC_SMMUv3_TBU_SMMU_TBU_CRACK_ADDR(smmu_base));
+
+	dpu_pr_warn("smmu ack timeout, smmu_tbu_cr=0x%x smmu_tbu_crack=0x%x!",
+			smmu_tbu_cr, smmu_tbu_crack);
+
+	arm_smmu_media1_tcu_dump();
+}
+
 static void dpu_smmu_event_request(char __iomem *smmu_base,
 	smmu_event_cmp cmp_func, enum smmu_event event, uint32_t check_value)
 {
 	uint32_t smmu_tbu_crack;
 	uint32_t delay_count = 0;
 
+	/* dump tcu status */
+	arm_smmu_media1_tcu_conn_status_dump();
 	/* request event config */
 	set_reg(SOC_SMMUv3_TBU_SMMU_TBU_CR_ADDR(smmu_base), check_value, 8, 8);
 	set_reg(SOC_SMMUv3_TBU_SMMU_TBU_CR_ADDR(smmu_base), event, 1, 0);
@@ -74,12 +88,41 @@ static void dpu_smmu_event_request(char __iomem *smmu_base,
 	} while (delay_count < SMMU_TIMEOUT);
 
 	if (delay_count == SMMU_TIMEOUT) {
-		dpu_pr_warn("smmu ack timeout, smmu=0x%x event=%d smmu_tbu_crack=0x%x check_value=0x%x!",
-			smmu_base, event, smmu_tbu_crack, check_value);
+		dpu_pr_warn("smmu ack timeout, smmu=0x%x event=%d check_value=0x%x!",
+			smmu_base, event, check_value);
+		dpu_smmu_media1_tcu_dump(smmu_base);
 	}
 }
 
-void dpu_comp_smmuv3_on(struct composer_manager *comp_mgr, struct dpu_composer *dpu_comp)
+void dpu_comp_single_tbu_smmuv3_on(struct composer_manager *comp_mgr, struct dpu_composer *dpu_comp)
+{
+	if (unlikely(!comp_mgr || !dpu_comp)) {
+		dpu_pr_err("comp_mgr or dpu_comp is null\n");
+		return;
+	}
+
+	if (dpu_is_smmu_bypass()) {
+		dpu_pr_debug("dpu_is_smmu_bypass");
+		return;
+	}
+
+	mutex_lock(&comp_mgr->tbu_sr_lock);
+	if (g_tbu0_cnt_refcount == 0) {
+	#if defined(CONFIG_DRMDRIVER)
+		configure_dss_service_security(DSS_SMMU_INIT, 0,
+			(uint32_t)dpu_comp->conn_info->base.pipe_sw_itfch_idx, BIG_DPU);
+	#endif
+	}
+
+	g_tbu0_cnt_refcount++;
+	g_tbu_sr_refcount++;
+	dpu_pr_debug("tbu_sr_refcount=%d, tbu0_cnt_refcount=%d, g_tbu1_cnt_refcount=%d",
+		g_tbu_sr_refcount, g_tbu0_cnt_refcount, g_tbu1_cnt_refcount);
+
+	mutex_unlock(&comp_mgr->tbu_sr_lock);
+}
+
+void dpu_comp_simple_smmuv3_on(struct composer_manager *comp_mgr, struct dpu_composer *dpu_comp)
 {
 	char __iomem *tbu_base = NULL;
 
@@ -94,11 +137,12 @@ void dpu_comp_smmuv3_on(struct composer_manager *comp_mgr, struct dpu_composer *
 	}
 
 	mutex_lock(&comp_mgr->tbu_sr_lock);
-	if (g_tbu_sr_refcount == 0) {
+	if ((g_tbu_sr_refcount == 0) && !is_mipi_video_panel(&dpu_comp->conn_info->base)) {
 		/* cmdlist select tbu0 config stream bypass, so offline need connect tbu0 */
 		set_reg(DPU_DBCU_CMDLIST_AXI_SEL_ADDR(comp_mgr->dpu_base + DPU_DBCU_OFFSET), 0x0, 2, 0);
 		set_reg(DPU_DBCU_MMU_ID_ATTR_NS_56_ADDR(comp_mgr->dpu_base + DPU_DBCU0_OFFSET), 0x3F, 32, 0);
 		set_reg(DPU_DBCU_AIF_CMD_RELOAD_ADDR(comp_mgr->dpu_base + DPU_DBCU_OFFSET), 0x1, 1, 0);
+		set_reg(DPU_DBCU_MIF_CTRL_WCH0_ADDR(comp_mgr->dpu_base + DPU_DBCU_OFFSET), 0x1, 1, 0);
 	}
 
 	if (g_tbu0_cnt_refcount == 0) {
@@ -126,10 +170,67 @@ void dpu_comp_smmuv3_on(struct composer_manager *comp_mgr, struct dpu_composer *
 		g_tbu0_cnt_refcount++;
 	}
 	if (is_offline_panel(&dpu_comp->conn_info->base))
-		dpu_comp_wch_axi_sel_set_reg(comp_mgr->dpu_base + DPU_DBCU_OFFSET);
+		dpu_comp_wch_axi_sel_set_reg(comp_mgr->dpu_base);
 
 	g_tbu_sr_refcount++;
-	dpu_pr_info("tbu_sr_refcount=%d, tbu0_cnt_refcount=%d, g_tbu1_cnt_refcount=%d",
+	dpu_pr_debug("tbu_sr_refcount=%d, tbu0_cnt_refcount=%d, g_tbu1_cnt_refcount=%d",
+		g_tbu_sr_refcount, g_tbu0_cnt_refcount, g_tbu1_cnt_refcount);
+
+	mutex_unlock(&comp_mgr->tbu_sr_lock);
+}
+
+void dpu_comp_smmuv3_on(struct composer_manager *comp_mgr, struct dpu_composer *dpu_comp)
+{
+	char __iomem *tbu_base = NULL;
+
+	if (unlikely(!comp_mgr || !dpu_comp)) {
+		dpu_pr_err("comp_mgr or dpu_comp is null\n");
+		return;
+	}
+
+	if (dpu_is_smmu_bypass()) {
+		dpu_pr_debug("dpu_is_smmu_bypass");
+		return;
+	}
+
+	mutex_lock(&comp_mgr->tbu_sr_lock);
+	if (g_tbu_sr_refcount == 0) {
+		/* cmdlist select tbu0 config stream bypass, so offline need connect tbu0 */
+		set_reg(DPU_DBCU_CMDLIST_AXI_SEL_ADDR(comp_mgr->dpu_base + DPU_DBCU_OFFSET), 0x0, 2, 0);
+		set_reg(DPU_DBCU_MMU_ID_ATTR_NS_56_ADDR(comp_mgr->dpu_base + DPU_DBCU0_OFFSET), 0x3F, 32, 0);
+		set_reg(DPU_DBCU_AIF_CMD_RELOAD_ADDR(comp_mgr->dpu_base + DPU_DBCU_OFFSET), 0x1, 1, 0);
+		set_reg(DPU_DBCU_MIF_CTRL_WCH0_ADDR(comp_mgr->dpu_base + DPU_DBCU_OFFSET), 0x1, 1, 0);
+	}
+
+	if (g_tbu0_cnt_refcount == 0) {
+	#if defined(CONFIG_DRMDRIVER)
+		configure_dss_service_security(DSS_SMMU_INIT, 0,
+			(uint32_t)dpu_comp->conn_info->base.pipe_sw_itfch_idx, BIG_DPU);
+	#endif
+		tbu_base = comp_mgr->dpu_base + DPU_SMMU_OFFSET;
+		dpu_smmu_tbu_ecc_enable_and_wait_ready(tbu_base);
+		dpu_smmu_event_request(tbu_base, dpu_smmu_connect_event_cmp, TBU_CONNECT, DPU_TBU0_DTI_NUMS);
+	}
+
+	tbu_base = dpu_comp_get_tbu1_base(comp_mgr->dpu_base);
+	if (is_offline_panel(&dpu_comp->conn_info->base) && tbu_base) {
+		if (g_tbu1_cnt_refcount == 0) {
+		#if defined(CONFIG_DRMDRIVER)
+			configure_dss_service_security(DSS_SMMU_INIT, 0,
+				(uint32_t)dpu_comp->conn_info->base.pipe_sw_itfch_idx, BIG_DPU);
+		#endif
+			dpu_smmu_tbu_ecc_enable_and_wait_ready(tbu_base);
+			dpu_smmu_event_request(tbu_base, dpu_smmu_connect_event_cmp, TBU_CONNECT, DPU_TBU1_DTI_NUMS);
+		}
+		g_tbu1_cnt_refcount++;
+	} else {
+		g_tbu0_cnt_refcount++;
+	}
+	if (is_offline_panel(&dpu_comp->conn_info->base))
+		dpu_comp_wch_axi_sel_set_reg(comp_mgr->dpu_base);
+
+	g_tbu_sr_refcount++;
+	dpu_pr_debug("tbu_sr_refcount=%d, tbu0_cnt_refcount=%d, g_tbu1_cnt_refcount=%d",
 		g_tbu_sr_refcount, g_tbu0_cnt_refcount, g_tbu1_cnt_refcount);
 
 	mutex_unlock(&comp_mgr->tbu_sr_lock);
@@ -169,7 +270,7 @@ void dpu_comp_smmuv3_off(struct composer_manager *comp_mgr, struct dpu_composer 
 			dpu_smmu_event_request(tbu_base, dpu_smmu_disconnect_event_cmp, TBU_DISCONNECT, 0);
 		}
 	}
-	dpu_pr_info("tbu_sr_refcount=%d, tbu0_cnt_refcount=%d, g_tbu1_cnt_refcount=%d",
+	dpu_pr_debug("tbu_sr_refcount=%d, tbu0_cnt_refcount=%d, g_tbu1_cnt_refcount=%d",
 		g_tbu_sr_refcount, g_tbu0_cnt_refcount, g_tbu1_cnt_refcount);
 
 	mutex_unlock(&comp_mgr->tbu_sr_lock);
@@ -244,7 +345,7 @@ void dpu_comp_smmuv3_recovery_on(struct composer_manager *comp_mgr, struct dpu_c
 	}
 
 	if (is_offline_panel(&dpu_comp->conn_info->base))
-		dpu_comp_wch_axi_sel_set_reg(comp_mgr->dpu_base + DPU_DBCU_OFFSET);
+		dpu_comp_wch_axi_sel_set_reg(comp_mgr->dpu_base);
 
 	dpu_pr_info("tbu_sr_refcount=%d, tbu0_cnt_refcount=%d, g_tbu1_cnt_refcount=%d",
 		g_tbu_sr_refcount, g_tbu0_cnt_refcount, g_tbu1_cnt_refcount);

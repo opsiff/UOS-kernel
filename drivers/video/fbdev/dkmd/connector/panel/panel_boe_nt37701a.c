@@ -15,7 +15,8 @@
 #include "panel_drv.h"
 
 /* if test other fuction, please open:
-	"#define BIST_MODE" or "#define ENBALE_DSC" or "#define OP_INITIAL_CODE_ONLY" */
+	"#define BIST_MODE" or "#define ENABLE_DSC" or "#define OP_INITIAL_CODE_ONLY" */
+#define ENABLE_DSC
 #define NSV_ASIC
 /*******************************************************************************
  ** Power ON/OFF Sequence(sleep mode to Normal mode) begin
@@ -224,7 +225,7 @@ static char g_on_cmd11[] = {
 	0x2B, 0x00, 0x00, 0x0A, 0x8B,
 };
 
-#ifdef ENBALE_DSC
+#ifdef ENABLE_DSC
 // PPS table
 static char g_on_cmd12[] = {
 	0x91,
@@ -389,7 +390,7 @@ static struct dsi_cmd_desc g_lcd_display_on_cmds[] = {
 	{ DTYPE_DCS_LWRITE, 0, 10, WAIT_TYPE_US, sizeof(g_on_cmd9),   g_on_cmd9 },
 	{ DTYPE_DCS_LWRITE, 0, 10, WAIT_TYPE_US, sizeof(g_on_cmd10), g_on_cmd10 },
 	{ DTYPE_DCS_LWRITE, 0, 10, WAIT_TYPE_US, sizeof(g_on_cmd11), g_on_cmd11 },
-#ifdef ENBALE_DSC
+#ifdef ENABLE_DSC
 	{ DTYPE_DCS_LWRITE, 0, 10, WAIT_TYPE_US, sizeof(g_on_cmd12), g_on_cmd12 },
 #endif
 	{ DTYPE_DCS_WRITE1, 0, 10, WAIT_TYPE_US, sizeof(g_on_cmd13), g_on_cmd13 },
@@ -504,6 +505,38 @@ static struct gpio_desc g_asic_lcd_gpio_lowpower_cmds[] = {
 	{ DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 10, GPIO_AMOLED_VCC1V2_NAME, &g_gpio_amoled_vcc1v2, 0},
 };
 #endif
+
+/* IODIE START */
+static struct gpio_desc g_iodie_lcd_gpio_request_cmds[] = {
+	{ DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0, GPIO_AMOLED_VCC1V8_NAME, &g_gpio_amoled_vcc1v8, 0},
+	{ DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0, GPIO_AMOLED_VCC1V2_NAME, &g_gpio_amoled_vcc1v2, 0},
+	{ DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0, GPIO_AMOLED_VCC3V1_NAME, &g_gpio_amoled_vcc3v1, 0 },
+	{ DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0, GPIO_AMOLED_RESET_NAME, &g_gpio_amoled_reset, 0 },
+};
+
+static struct gpio_desc g_iodie_lcd_gpio_free_cmds[] = {
+	{ DTYPE_GPIO_FREE, WAIT_TYPE_MS, 0, GPIO_AMOLED_VCC1V8_NAME, &g_gpio_amoled_vcc1v8, 0},
+	{ DTYPE_GPIO_FREE, WAIT_TYPE_MS, 0, GPIO_AMOLED_VCC1V2_NAME, &g_gpio_amoled_vcc1v2, 0},
+	{ DTYPE_GPIO_FREE, WAIT_TYPE_US, 50, GPIO_AMOLED_VCC3V1_NAME, &g_gpio_amoled_vcc3v1, 0 },
+	{ DTYPE_GPIO_FREE, WAIT_TYPE_US, 50, GPIO_AMOLED_RESET_NAME, &g_gpio_amoled_reset, 0 },
+};
+
+static struct gpio_desc g_iodie_lcd_gpio_normal_cmds[] = {
+	{ DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 0, GPIO_AMOLED_VCC1V8_NAME, &g_gpio_amoled_vcc1v8, 1},
+	{ DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 2, GPIO_AMOLED_VCC1V2_NAME, &g_gpio_amoled_vcc1v2, 1},
+	{ DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 20, GPIO_AMOLED_VCC3V1_NAME, &g_gpio_amoled_vcc3v1, 1 },
+	{ DTYPE_GPIO_OUTPUT, WAIT_TYPE_US, 50, GPIO_AMOLED_RESET_NAME, &g_gpio_amoled_reset, 1 },
+	{ DTYPE_GPIO_OUTPUT, WAIT_TYPE_US, 50, GPIO_AMOLED_RESET_NAME, &g_gpio_amoled_reset, 0 },
+	{ DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 15, GPIO_AMOLED_RESET_NAME, &g_gpio_amoled_reset, 1 },
+};
+
+static struct gpio_desc g_iodie_lcd_gpio_lowpower_cmds[] = {
+	{ DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 20, GPIO_AMOLED_RESET_NAME, &g_gpio_amoled_reset, 0 },
+	{ DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 20, GPIO_AMOLED_RESET_NAME, &g_gpio_amoled_vcc3v1, 0 },
+	{ DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 10, GPIO_AMOLED_VCC1V2_NAME, &g_gpio_amoled_vcc1v2, 0},
+	{ DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 10, GPIO_AMOLED_VCC1V8_NAME, &g_gpio_amoled_vcc1v8, 0},
+};
+/* IODIE END */
 /*******************************************************************************
  ** LCD VCC
  */
@@ -561,6 +594,8 @@ static struct pinctrl_cmd_desc g_lcd_pinctrl_finit_cmds[] = {
 
 static void panel_drv_private_data_setup(struct panel_drv_private *priv, struct device_node *np)
 {
+	int ret;
+	uint32_t iodie_flag = 0;
 	if (priv->connector_info.base.fpga_flag == 1) {
 		g_gpio_amoled_reset = (uint32_t)of_get_named_gpio(np, "gpios", 0);
 		g_gpio_amoled_vcc3v1 = (uint32_t)of_get_named_gpio(np, "gpios", 1);
@@ -579,37 +614,55 @@ static void panel_drv_private_data_setup(struct panel_drv_private *priv, struct 
 		priv->gpio_lowpower_cmds = g_fpga_lcd_gpio_lowpower_cmds;
 		priv->gpio_lowpower_cmds_len = ARRAY_SIZE(g_fpga_lcd_gpio_lowpower_cmds);
 	} else {
+		ret = of_property_read_u32(np, "IoDie_flag", &iodie_flag);
+		if (ret) {
+			dpu_pr_info("get iodie_flag failed!\n");
+			iodie_flag = 0;
+		}
 		g_gpio_amoled_reset = (uint32_t)of_get_named_gpio(np, "gpios", 0);
 		g_gpio_amoled_vcc3v1 = (uint32_t)of_get_named_gpio(np, "gpios", 1);
 		g_gpio_amoled_te0 = (uint32_t)of_get_named_gpio(np, "gpios", 2);
-	#ifdef NSV_ASIC
 		g_gpio_amoled_vcc1v2 = (uint32_t)of_get_named_gpio(np, "gpios", 3);
-	#endif
-		dpu_pr_info("used gpio:[rst: %d, vcc3v1: %d, te0: %d]\n",
-			g_gpio_amoled_reset, g_gpio_amoled_vcc3v1, g_gpio_amoled_te0);
+		if (iodie_flag != 0) {
+			g_gpio_amoled_vcc1v8 = (uint32_t)of_get_named_gpio(np, "gpios", 4);
+			dpu_pr_info("used gpio:[vcc1v8:%d]\n", g_gpio_amoled_vcc1v8);
+		}
+		dpu_pr_info("used gpio:[rst: %d, vcc3v1: %d, te0: %d, vcc1v2:%d]\n",
+			g_gpio_amoled_reset, g_gpio_amoled_vcc3v1, g_gpio_amoled_te0, g_gpio_amoled_vcc1v2);
 
-		priv->gpio_request_cmds = g_asic_lcd_gpio_request_cmds;
-		priv->gpio_request_cmds_len = ARRAY_SIZE(g_asic_lcd_gpio_request_cmds);
-		priv->gpio_free_cmds = g_asic_lcd_gpio_free_cmds;
-		priv->gpio_free_cmds_len = ARRAY_SIZE(g_asic_lcd_gpio_free_cmds);
+		if (iodie_flag == 0) {
+			priv->gpio_request_cmds = g_asic_lcd_gpio_request_cmds;
+			priv->gpio_request_cmds_len = ARRAY_SIZE(g_asic_lcd_gpio_request_cmds);
+			priv->gpio_free_cmds = g_asic_lcd_gpio_free_cmds;
+			priv->gpio_free_cmds_len = ARRAY_SIZE(g_asic_lcd_gpio_free_cmds);
 
-		priv->gpio_normal_cmds = g_asic_lcd_gpio_normal_cmds;
-		priv->gpio_normal_cmds_len = ARRAY_SIZE(g_asic_lcd_gpio_normal_cmds);
-		priv->gpio_lowpower_cmds = g_asic_lcd_gpio_lowpower_cmds;
-		priv->gpio_lowpower_cmds_len = ARRAY_SIZE(g_asic_lcd_gpio_lowpower_cmds);
+			priv->gpio_normal_cmds = g_asic_lcd_gpio_normal_cmds;
+			priv->gpio_normal_cmds_len = ARRAY_SIZE(g_asic_lcd_gpio_normal_cmds);
+			priv->gpio_lowpower_cmds = g_asic_lcd_gpio_lowpower_cmds;
+			priv->gpio_lowpower_cmds_len = ARRAY_SIZE(g_asic_lcd_gpio_lowpower_cmds);
+			priv->vcc_init_cmds = g_lcd_vcc_init_cmds;
+			priv->vcc_init_cmds_len = ARRAY_SIZE(g_lcd_vcc_init_cmds);
+			priv->vcc_finit_cmds = g_lcd_vcc_finit_cmds;
+			priv->vcc_finit_cmds_len = ARRAY_SIZE(g_lcd_vcc_finit_cmds);
 
-		priv->vcc_init_cmds = g_lcd_vcc_init_cmds;
-		priv->vcc_init_cmds_len = ARRAY_SIZE(g_lcd_vcc_init_cmds);
-		priv->vcc_finit_cmds = g_lcd_vcc_finit_cmds;
-		priv->vcc_finit_cmds_len = ARRAY_SIZE(g_lcd_vcc_finit_cmds);
+			priv->vcc_enable_cmds = g_lcd_vcc_enable_cmds;
+			priv->vcc_enable_cmds_len = ARRAY_SIZE(g_lcd_vcc_enable_cmds);
+			priv->vcc_disable_cmds = g_lcd_vcc_disable_cmds;
+			priv->vcc_disable_cmds_len = ARRAY_SIZE(g_lcd_vcc_disable_cmds);
+		} else {
+			priv->gpio_request_cmds = g_iodie_lcd_gpio_request_cmds;
+			priv->gpio_request_cmds_len = ARRAY_SIZE(g_iodie_lcd_gpio_request_cmds);
+			priv->gpio_free_cmds = g_iodie_lcd_gpio_free_cmds;
+			priv->gpio_free_cmds_len = ARRAY_SIZE(g_iodie_lcd_gpio_free_cmds);
 
-		priv->vcc_enable_cmds = g_lcd_vcc_enable_cmds;
-		priv->vcc_enable_cmds_len = ARRAY_SIZE(g_lcd_vcc_enable_cmds);
-		priv->vcc_disable_cmds = g_lcd_vcc_disable_cmds;
-		priv->vcc_disable_cmds_len = ARRAY_SIZE(g_lcd_vcc_disable_cmds);
+			priv->gpio_normal_cmds = g_iodie_lcd_gpio_normal_cmds;
+			priv->gpio_normal_cmds_len = ARRAY_SIZE(g_iodie_lcd_gpio_normal_cmds);
+			priv->gpio_lowpower_cmds = g_iodie_lcd_gpio_lowpower_cmds;
+			priv->gpio_lowpower_cmds_len = ARRAY_SIZE(g_iodie_lcd_gpio_lowpower_cmds);
+		}
 
 		priv->pinctrl_init_cmds = g_lcd_pinctrl_init_cmds;
-		priv->pinctrl_init_cmds_len = ARRAY_SIZE(g_lcd_pinctrl_init_cmds);
+		priv->pinctrl_init_cmds_len = 0;
 		priv->pinctrl_finit_cmds = g_lcd_pinctrl_finit_cmds;
 		priv->pinctrl_finit_cmds_len = ARRAY_SIZE(g_lcd_pinctrl_finit_cmds);
 
@@ -620,7 +673,7 @@ static void panel_drv_private_data_setup(struct panel_drv_private *priv, struct 
 	}
 }
 
-#ifdef ENBALE_DSC
+#ifdef ENABLE_DSC
 static void dsc_config(struct dkmd_connector_info *pinfo, struct dsc_calc_info *dsc)
 {
 	// IFBC_TYPE_VESA2X_SINGLE
@@ -761,29 +814,29 @@ static void mipi_lcd_init_dsi_param(struct dkmd_connector_info *pinfo, struct mi
 		mipi->pxl_clk_rate = 20 * 1000000UL;
 	} else {
 #ifdef ENABLE_DSC
-		dpu_pr_info("[37701_brq probe] udp mipi param set dsc en\n");
+		dpu_pr_info("[37701a probe] udp mipi param set dsc en\n");
 		mipi->hsa = 32;
 		mipi->hbp = 32;
 		mipi->dpi_hsize = 248;
 		mipi->hline_time = 1024;
 		mipi->vsa = 4;
-		mipi->vbp = 12;
-		mipi->vfp = 16;
+		mipi->vbp = 87;
+		mipi->vfp = 46;
 
-		mipi->dsi_bit_clk = 672;
-		mipi->pxl_clk_rate = 168 * 1000000UL;
+		mipi->dsi_bit_clk = 701;
+		mipi->pxl_clk_rate = 224 * 1000000UL;
 #else
-		dpu_pr_info("[37701_brq probe] udp mipi param set no dsc\n");
+		dpu_pr_info("[37701a probe] udp mipi param set no dsc\n");
 		mipi->hsa = 32;
 		mipi->hbp = 32;
 		mipi->dpi_hsize = 920;
 		mipi->hline_time = 1024;
 		mipi->vsa = 4;
-		mipi->vbp = 12;
-		mipi->vfp = 16;
+		mipi->vbp = 87;
+		mipi->vfp = 46;
 
 		mipi->dsi_bit_clk = 672;
-		mipi->pxl_clk_rate = 168 * 1000000UL;
+		mipi->pxl_clk_rate = 224 * 1000000UL;
 #endif
 	}
 
@@ -811,18 +864,11 @@ static int32_t panel_of_device_setup(struct panel_drv_private *priv)
 	struct device_node *np = priv->pdev->dev.of_node;
 	struct dpu_connector *connector = NULL;
 
-	connector = get_primary_connector(pinfo);
-	if (!connector) {
-		dpu_pr_err("connector_id=%u is not available!\n", pinfo->connector_idx[PRIMARY_CONNECT_CHN_IDX]);
-		return -1;
-	}
-
 	dpu_pr_info("enter!\n");
 
 	/* Inheritance based processing */
 	panel_base_of_device_setup(priv);
 	panel_drv_private_data_setup(priv, np);
-	pinfo->ifbc_type = IFBC_TYPE_NONE;
 
 	/* 1. config base object info
 	 * would be used for framebuffer setup
@@ -840,23 +886,31 @@ static int32_t panel_of_device_setup(struct panel_drv_private *priv)
 #else
 	pinfo->base.fps = 60;
 #endif
+	pinfo->base.id = 0;
+	pinfo->base.lcd_te_idx = 0;
 
 	/* 2. config connector info
 	 * would be used for dsi & composer setup
 	 */
-#ifdef ENBALE_DSC
-	dsc_config(pinfo, &connector->dsc);
+	connector = get_primary_connector(pinfo);
+	if (!connector) {
+		dpu_pr_err("connector_id=%u is not available!\n", pinfo->connector_idx[PRIMARY_CONNECT_CHN_IDX]);
+		return -1;
+	}
+#ifdef ENABLE_DSC
+	dsc_config(pinfo, &connector->post_info[0]->dsc);
 #endif
-	mipi_lcd_init_dsi_param(pinfo, &connector->mipi);
+	mipi_lcd_init_dsi_param(pinfo, &connector->post_info[0]->mipi);
 
 	/* dsi or composer need this param */
 	pinfo->dirty_region_updt_support = 0;
+	pinfo->vsync_ctrl_type = VSYNC_IDLE_MIPI_ULPS | VSYNC_IDLE_CLK_OFF | VSYNC_IDLE_ISR_OFF;
 
 	/* 3. config panel private info
 	 * would be used for panel setup
 	 */
 	pinfo->bl_info.bl_min = 24;
-	pinfo->bl_info.bl_max = 10000;
+	pinfo->bl_info.bl_max = 4095;
 	pinfo->bl_info.bl_default = 2047;
 	priv->mipi_brightness_para_type = MIPI_BL_PARA1_DBV8_AND_PARA2_DBV0;
 

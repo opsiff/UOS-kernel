@@ -15,6 +15,7 @@
 #define COMPOSER_DFR_TE_SKIP_H
 
 #include "dpu_comp_dfr.h"
+#include "res_mgr.h"
 
 void dfr_te_skip_setup_priv_data(struct dpu_comp_dfr_ctrl *dfr_ctrl);
 void dfr_te_skip_release_priv_data(struct dpu_comp_dfr_ctrl *dfr_ctrl);
@@ -23,18 +24,15 @@ int32_t dfr_te_skip_commit(struct dpu_comp_dfr_ctrl *dfr_ctrl);
 int32_t dfr_te_skip_send_dcs_cmds(struct dpu_comp_dfr_ctrl *dfr_ctrl, struct disp_effect_params *effect_params);
 int32_t dfr_te_skip_send_dcs_cmds_by_riscv(struct dpu_comp_dfr_ctrl *dfr_ctrl, uint32_t bl_level);
 int32_t dfr_te_skip_set_safe_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl, uint32_t safe_frm_rate);
+int32_t dfr_te_skip_send_safe_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl, uint32_t safe_frm_rate);
 void dfr_te_skip_self_refresh(struct dpu_comp_dfr_ctrl *dfr_ctrl);
 void dfr_te_skip_enable_dimming(struct dpu_comp_dfr_ctrl *dfr_ctrl);
 void dfr_te_skip_disable_dimming(struct dpu_comp_dfr_ctrl *dfr_ctrl);
 void dfr_te_skip_enable_safe_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl);
 void dfr_te_skip_disable_safe_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl, int32_t disable_type);
-
-void dfr_te_skip_acpu_setup_priv_data(struct dpu_comp_dfr_ctrl *dfr_ctrl);
-void dfr_te_skip_acpu_release_priv_data(struct dpu_comp_dfr_ctrl *dfr_ctrl);
-int32_t dfr_te_skip_acpu_switch_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl, uint32_t frame_rate);
-int32_t dfr_te_skip_acpu_commit(struct dpu_comp_dfr_ctrl *dfr_ctrl);
-int32_t dfr_te_skip_acpu_set_safe_frm_rate(struct dpu_comp_dfr_ctrl *dfr_ctrl, uint32_t safe_frm_rate);
-void dfr_te_skip_acpu_exit_idle_status(struct dpu_comp_dfr_ctrl *dfr_ctrl);
-void dfr_longh_te_skip_func_register(struct dpu_comp_dfr_ctrl *dfr_ctrl);
+void dfr_te_skip_enter_idle_event(struct dpu_vsync *vsync_ctrl);
+void dfr_te_skip_power_off_sub(struct dpu_comp_dfr_ctrl *dfr_ctrl);
+void dfr_te_skip_register_ops(struct dpu_comp_dfr_ctrl *dfr_ctrl);
+void dfr_longh_te_skip_register_ops(struct dpu_comp_dfr_ctrl *dfr_ctrl);
 #endif
 

@@ -18,6 +18,7 @@
 #include "mipi_dsi_partial_update.h"
 #include "dkmd_lcd_interface.h"
 #include "panel_mgr.h"
+#include "mipi_config_utils.h"
 
 #define V_FRONT_PORCH_MAX 1023
 
@@ -29,16 +30,16 @@ static bool is_dirty_region_empty(const struct dkmd_rect *disp_rect)
 static bool is_dirty_region_valid(const struct dkmd_rect *dirty_rect,
 	const struct dkmd_object_info *pinfo, struct dpu_connector *connector)
 {
-	uint32_t dsc_slice_height = connector->dsc.dsc_info.slice_height;
+	uint32_t dsc_slice_height = connector->post_info[connector->active_idx]->dsc.dsc_info.slice_height;
+
+	/* dpu dirty_rect width should be panel width */
+	if ((dirty_rect->x != 0) || (dirty_rect->w != pinfo->xres)) {
+		dpu_pr_err("dirty_rect x or w is not panel_width for dpu!");
+		return false;
+	}
 
 	if (pinfo->dsc_en == 0) /* dsc is disable */
 		return true;
-
-	/* dsc dirty_rect width should be panel width */
-	if ((dirty_rect->x != 0) || (dirty_rect->w != pinfo->xres)) {
-		dpu_pr_err("dirty_rect x or w is not panel_width for dsc!");
-		return false;
-	}
 
 	/* dsc dirty_rect height should be align with dsc slice_height */
 	if (dsc_slice_height == 0) {
@@ -54,18 +55,36 @@ static bool is_dirty_region_valid(const struct dkmd_rect *dirty_rect,
 	return true;
 }
 
-static void get_dpu_dirty_rect(const struct dkmd_object_info *pinfo, const struct dkmd_rect *disp_rect,
-	struct dkmd_rect *dirty_rect)
+static void init_dirty_rect(struct dkmd_connector_info *pinfo, struct dkmd_rect *dirty_rect)
 {
-	if (!is_dirty_region_empty(disp_rect)) {
-		*dirty_rect = *disp_rect;
+	struct dkmd_rect active_rect = {0};
+
+	dpu_check_and_no_retval(!pinfo->get_display_rect_by_config_id, debug, "get_display_rect_by_config_id is null");
+	if (pinfo->get_display_rect_by_config_id(pinfo, pinfo->ppc_config_id_active, &active_rect) != 0) {
+		dpu_pr_err("get panel active rect failed");
 		return;
 	}
 
 	dirty_rect->x = 0;
 	dirty_rect->y = 0;
-	dirty_rect->w = pinfo->xres;
-	dirty_rect->h = pinfo->yres;
+	dirty_rect->w = active_rect.w;
+	dirty_rect->h = active_rect.h;
+}
+
+static void get_dpu_dirty_rect(const struct dkmd_object_info *pinfo, const struct dkmd_rect *disp_rect,
+	struct dkmd_rect *dirty_rect)
+{
+	struct dkmd_connector_info *conn_info = NULL;
+
+	if (!is_dirty_region_empty(disp_rect)) {
+		*dirty_rect = *disp_rect;
+		return;
+	}
+
+	conn_info = container_of(pinfo, struct dkmd_connector_info, base);
+	dpu_check_and_no_retval(!conn_info, err, "dkmd_connector_info is null");
+
+	init_dirty_rect(conn_info, dirty_rect);
 }
 
 static bool is_same_dirty_rect(const struct dkmd_rect *dirty_rect, const struct dkmd_rect *new_dirty_rect)
@@ -88,7 +107,7 @@ static void mipi_dsi_partial_update_set_reg(const struct dpu_connector *connecto
 	if (is_dual_mipi_panel(&connector->conn_info->base))
 		dirty_rect.w /= 2;
 
-	ldi_vrt_ctrl0 = (connector->mipi.vfp + connector->conn_info->base.yres - dirty_rect.h);
+	ldi_vrt_ctrl0 = (connector->post_info[connector->active_idx]->mipi.vfp + connector->conn_info->base.yres - dirty_rect.h);
 	edpi_cmd_size = dirty_rect.w;
 
 	set_reg(primay_connector->connector_base +
@@ -100,7 +119,7 @@ static void mipi_dsi_partial_update_set_reg(const struct dpu_connector *connecto
 	set_reg(primay_connector->connector_base +
 		DPU_DSI_VIDEO_VACT_NUM_ADDR(DSI_ADDR_TO_OFFSET), dirty_rect.h, 24, 0);
 
-	if (connector->mipi.color_mode != DSI_DSC24_COMPRESSED_DATA)
+	if (connector->post_info[connector->active_idx]->mipi.color_mode != DSI_DSC24_COMPRESSED_DATA)
 		set_reg(primay_connector->connector_base + DPU_DSI_EDPI_CMD_SIZE_ADDR(DSI_ADDR_TO_OFFSET), edpi_cmd_size, 16, 0);
 
 	if (is_dual_mipi_panel(&connector->conn_info->base) && primay_connector->bind_connector) {
@@ -113,28 +132,15 @@ static void mipi_dsi_partial_update_set_reg(const struct dpu_connector *connecto
 		set_reg(primay_connector->bind_connector->connector_base +
 			DPU_DSI_VIDEO_VACT_NUM_ADDR(DSI_ADDR_TO_OFFSET), dirty_rect.h, 24, 0);
 
-		if (connector->mipi.color_mode != DSI_DSC24_COMPRESSED_DATA)
+		if (connector->post_info[connector->active_idx]->mipi.color_mode != DSI_DSC24_COMPRESSED_DATA)
 			set_reg(primay_connector->bind_connector->connector_base +
 				DPU_DSI_EDPI_CMD_SIZE_ADDR(DSI_ADDR_TO_OFFSET), edpi_cmd_size, 16, 0);
 	}
 
 	dpu_pr_info("dirty_rect_origin[%d %d %u %u], dirty_rect_reg[%d %d %u %u], vfp=%u, ldi_vrt_ctrl0=%u",
 		connector->dirty_rect.x, connector->dirty_rect.y, connector->dirty_rect.w, connector->dirty_rect.h,
-		dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h, connector->mipi.vfp, ldi_vrt_ctrl0);
-}
-
-static void mipi_dsi_partial_update_set_display_region(struct dpu_connector *connector)
-{
-	struct dkmd_rect dirty_rect = connector->dirty_rect;
-
-	if (is_dual_mipi_panel(&connector->conn_info->base)) {
-		dirty_rect.x /= 2;
-		dirty_rect.w /= 2;
-	}
-
-	pipeline_next_ops_handle(connector->conn_info->conn_device, connector->conn_info,
-		LCD_SET_DISPLAY_REGION, &dirty_rect);
-	dpu_pr_debug("set display region[%d %d %u %u]", dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h);
+		dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h,
+		connector->post_info[connector->active_idx]->mipi.vfp, ldi_vrt_ctrl0);
 }
 
 /*
@@ -153,9 +159,6 @@ int32_t mipi_dsi_partial_update(struct dpu_connector *connector, const void *val
 		return 0;
 
 	get_dpu_dirty_rect(&pinfo->base, (const struct dkmd_rect *)value, &dirty_rect);
-	dpu_pr_debug("dirty_rect[%d %d %u %u] pre dirty_rect[%d %d %u %u]",
-		dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h,
-		connector->dirty_rect.x, connector->dirty_rect.y, connector->dirty_rect.w, connector->dirty_rect.h);
 
 	if (is_same_dirty_rect(&connector->dirty_rect, &dirty_rect))
 		return 0;
@@ -164,6 +167,10 @@ int32_t mipi_dsi_partial_update(struct dpu_connector *connector, const void *val
 		dpu_pr_err("dirty_rect[%d %d %u %u] is invalid!", dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h);
 		return 0;
 	}
+
+	dpu_pr_debug("dirty_rect[%d %d %u %u] pre dirty_rect[%d %d %u %u]",
+		dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h,
+		connector->dirty_rect.x, connector->dirty_rect.y, connector->dirty_rect.w, connector->dirty_rect.h);
 
 	connector->dirty_rect = dirty_rect;
 
@@ -175,13 +182,12 @@ int32_t mipi_dsi_partial_update(struct dpu_connector *connector, const void *val
 
 int32_t mipi_dsi_reset_partial_update(struct dpu_connector *connector, const void *value)
 {
-	struct dkmd_connector_info *pinfo = connector->conn_info;
 	void_unused(value);
 
 	connector->dirty_rect.x = 0;
 	connector->dirty_rect.y = 0;
-	connector->dirty_rect.w = pinfo->base.xres;
-	connector->dirty_rect.h = pinfo->base.yres;
+	connector->dirty_rect.w = 0;
+	connector->dirty_rect.h = 0;
 
 	dpu_pr_info("reset dirty_rect[%d %d %u %u]",
 		connector->dirty_rect.x, connector->dirty_rect.y, connector->dirty_rect.w, connector->dirty_rect.h);
@@ -235,15 +241,15 @@ int32_t mipi_dsi_panel_partial_ctrl_set_reg(struct dpu_connector *connector, con
 	if (is_dual_mipi_panel(&connector->conn_info->base))
 		new_rect.w /= 2;
 
-	ldi_vrt_ctrl0 = (connector->mipi.vfp + connector->conn_info->base.yres - new_rect.h);
-	dpu_pr_info("mipi.vfp %u base.yres %u ppc_config_id %u", connector->mipi.vfp,
+	ldi_vrt_ctrl0 = (connector->post_info[connector->active_idx]->mipi.vfp + connector->conn_info->base.yres - new_rect.h);
+	dpu_pr_info("mipi.vfp %u base.yres %u ppc_config_id %u", connector->post_info[connector->active_idx]->mipi.vfp,
 															connector->conn_info->base.yres, *ppc_config_id);
 
 	set_reg(DPU_DSI_LDI_DPI0_HRZ_CTRL2_ADDR(first_dsi_addr), dpu_width(new_rect.w), 13, 0);
 	set_reg(DPU_DSI_LDI_VRT_CTRL2_ADDR(first_dsi_addr), dpu_height(new_rect.h), 13, 0);
 	set_reg(DPU_DSI_VIDEO_VFP_NUM_ADDR(first_dsi_addr), ldi_vrt_ctrl0, 20, 0);
 	set_reg(DPU_DSI_VIDEO_VACT_NUM_ADDR(first_dsi_addr), new_rect.h, 24, 0);
-	if (connector->mipi.color_mode != DSI_DSC24_COMPRESSED_DATA)
+	if (connector->post_info[connector->active_idx]->mipi.color_mode != DSI_DSC24_COMPRESSED_DATA)
 		set_reg(DPU_DSI_EDPI_CMD_SIZE_ADDR(first_dsi_addr), new_rect.w, 16, 0);
 
 	if (connector->bind_connector) {
@@ -251,14 +257,14 @@ int32_t mipi_dsi_panel_partial_ctrl_set_reg(struct dpu_connector *connector, con
 		set_reg(DPU_DSI_LDI_VRT_CTRL2_ADDR(second_dsi_addr), dpu_height(new_rect.h), 13, 0);
 		set_reg(DPU_DSI_VIDEO_VFP_NUM_ADDR(second_dsi_addr), ldi_vrt_ctrl0, 20, 0);
 		set_reg(DPU_DSI_VIDEO_VACT_NUM_ADDR(second_dsi_addr), new_rect.h, 24, 0);
-		if (connector->mipi.color_mode != DSI_DSC24_COMPRESSED_DATA)
+		if (connector->post_info[connector->active_idx]->mipi.color_mode != DSI_DSC24_COMPRESSED_DATA)
 			set_reg(DPU_DSI_EDPI_CMD_SIZE_ADDR(second_dsi_addr), new_rect.w, 16, 0);
 	}
 
 	pinfo->ppc_config_id_active = *ppc_config_id;
 
 	dpu_pr_info("ppc_config_id:%d, new_rect_reg[%d %d %u %u], vfp=%u, ldi_vrt_ctrl0=%u",
-		*ppc_config_id, new_rect.x, new_rect.y, new_rect.w, new_rect.h, connector->mipi.vfp, ldi_vrt_ctrl0);
+		*ppc_config_id, new_rect.x, new_rect.y, new_rect.w, new_rect.h, connector->post_info[connector->active_idx]->mipi.vfp, ldi_vrt_ctrl0);
 
 	return 0;
 }
