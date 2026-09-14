@@ -105,3 +105,15 @@ B. 本树没有 Kconfig 定义：74 项
       SR_HIBERNATION_SUSPEND_TIME_OPP, TCP_NB_URC, THERMAL_THRESHOLD, TXGBE, TXGBEVF,
       UNIFIED_COLLECTION, UOS_INVENTION, UOS_LIGHTCHERRY, UOS_PROC, UOS_TOUCHPAD_SWITCH,
       USB_REMOTE_WAKEUP, YT6801
+
+无线整块提供者复核（2026-09-15）
+
+hisi_hci_dev_do_open：来源 android_kernel_LIO_kirin990 (5.10.116)
+  net/bluetooth/hci_core.c（四行包装 hci_dev_do_open），已移置（提交 d968dbaf9）
+
+drv_e2prom_read：以下树里都没有实现，只有 hisi_ini.h 的宏映射与调用点：
+  kernel_huawei_hepburn、android_kernel_LIO_kirin990(5.10.116)、
+  android_kernel_LIO_kirin990_103(5.10.43)、android_kernel_huawei_kirin9000、
+  HarmonyOS6_Hi36C0_Kernel、android_kernel_huawei_franklin
+  它们的 drivers/hisi/hi1103_eeprom/ 都只有 Kconfig 与 Makefile，没有 .c/.h
+  → 该提供者需要含 hisi1103_eeprom.c 的树或厂商完整源码包，否则无线整块无法链接
