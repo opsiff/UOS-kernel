@@ -175,8 +175,10 @@ struct virtio_blk_outhdr {
 	__virtio32 ioprio;
 	/* Sector (ie. 512 byte offset) */
 	__virtio64 sector;
+#ifdef CONFIG_VIRTIO_BLK_COOKIE_FE
 	/* Cookie composed with tlv */
 	char cookie[VIRTIO_BLK_HDR_COOKIE_BYTES];
+#endif
 };
 
 /* Unmap this range (only valid for write zeroes command) */

@@ -7,7 +7,9 @@
  *  IOCTL opcode for ufs queries has the following opcode after
  *  SCSI_IOCTL_GET_PCI
  */
+#ifdef CONFIG_SCSI_UFS_UNISTORE
 #define UFS_IOCTL_SCSI_CMD 0x5391
+#endif
 #define UFS_IOCTL_QUERY			0x5388
 #define UFS_DESC_SIZE_MAX		128
 #define UFS_IOCTL_VENDOR_PACKAGE	0x5389
