@@ -274,7 +274,6 @@
 #define KEY_F23			193
 #define KEY_F24			194
 
-#ifdef  CONFIG_KEYBOARD_GPIO_FUNC_KEY
 #define KEY_F26			766 /* func key for Libra */
 #endif
 
@@ -955,4 +954,3 @@
 #define SND_MAX			0x07
 #define SND_CNT			(SND_MAX+1)
 
-#endif

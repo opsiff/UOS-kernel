@@ -46,9 +46,7 @@ enum {
 
 enum tz_desc_id {
 	TZ_RETURN_FLAG      = 0x01,
-#ifdef CONFIG_DFX_DEBUG_FS
 	TZ_RETURN_BACK_FLAG = 0x04,
-#endif
 	TZ_FORCE_CLOSE_FLAG = 0x08,
 #ifdef CONFIG_DFX_DEBUG_FS
 	TZ_FORCE_OPEN_FLAG  = 0x10,
@@ -64,7 +62,6 @@ enum vendor_ctrl_desc_id {
 	VENDOR_CTRL_MAX,
 };
 
-#ifndef CONFIG_DFX_DEBUG_FS
 void delete_ufs_product_name(char *cmdline);
 #endif
 
@@ -78,6 +75,5 @@ static inline void ufs_change_vol_pre(void)
 static inline void ufs_change_vol_post(void)
 {
 }
-#endif
 
 #endif /* UAPI_UFS_H_ */
