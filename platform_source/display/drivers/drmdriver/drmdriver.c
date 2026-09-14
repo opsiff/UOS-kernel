@@ -145,6 +145,8 @@ s32 configure_dss_service_security(u32 func_id, u32 channel, u32 mode, u32 dpu_i
 	args.data3 = dpu_index;
 	args.data4 = 0;
 	res.a0 = (u32)ffa_platdrv_send_msg(&args);
+	if(args.data4 != 0)
+		pr_info("return code is a4=0x%x\n", args.data4);
 #else
 	arm_smccc_smc(func_id, channel, mode, dpu_index,
 			0, 0, 0, 0,
@@ -163,7 +165,7 @@ s32 configure_dss_service_security(u32 master_op_type,
 	u64 value;
 
 	if (mode >= MAX_COMPOSE_MODE || channel >= MAX_DSS_CHN_IDX) {
-		pr_err("%s:invalid mode=%d, channel=%u",
+		pr_err("%s:invalid mode=%u, channel=%u",
 		       __func__, mode, channel);
 		return -1;
 	}

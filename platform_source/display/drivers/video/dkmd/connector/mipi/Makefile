@@ -9,23 +9,49 @@ mipi-objs := \
 	mipi_dsi_partial_update.o \
 	mipi_dsi_lcd.o \
 	mipi_dsi_dfr.o \
+	mipi_dsi_itf.o \
+	mipi_dsi_sync.o \
+	mipi_dsi_timing_calculate.o \
 	mipi_dsi_bit_clk_upt_helper.o
 
+ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 800 820 840 900 9200))
+mipi-objs += \
+	mipi_dsi_async.o
+else
+mipi-objs += \
+	mipi_dsi_async_dummy.o
+endif
+
 ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 740 741))
+ifeq ($(chip_type),)
 mipi-objs += \
 	config/v740/mipi_config.o
+else ifeq ($(chip_type),$(filter $(chip_type), csv2 csv3))
+mipi-objs += \
+	config/v740/mipi_config_csv2.o
+endif
+else
+ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 800 820 840))
+mipi-objs += \
+	config/v8xx/mipi_config.o
+else
+ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 9200))
+mipi-objs += \
+	config/v900/mipi_config.o
 else
 mipi-objs += \
 	config/v$(CONFIG_DKMD_DPU_VERSION)/mipi_config.o
+endif
+endif
 endif
 
 ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 740 741))
 ifeq ($(chip_type),)
 mipi-objs += \
 	config/v740/mipi_config_pg.o
-else
+else ifeq ($(chip_type),$(filter $(chip_type), csv2 csv3))
 mipi-objs += \
-	config/v740/mipi_config_pg_$(chip_type).o
+	config/v740/mipi_config_pg_csv2.o
 endif
 endif
 
@@ -33,7 +59,7 @@ ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 720))
 mipi-objs += \
 	mipi_cdphy_utils_v720.o
 else
-ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 800))
+ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 800 820 840 900 9200))
 mipi-objs += \
 	mipi_cdphy_utils_v8xx.o
 else
@@ -46,19 +72,30 @@ EXTRA_CFLAGS += \
 	-I$(srctree)/include/ \
 	-I$(srctree)/arch/arm64/include/ \
 	-I$(srctree)/include/platform_include/display/dkmd/ \
+	-I$(srctree)/include/platform_include/display/ukmd/ \
+	-I$(srctree)/include/platform_include/display/linux/ \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/timeline \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/peri \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/isr \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/chrdev \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/isr \
+	-I$(srctree)/drivers/video/fbdev/ukmd/cmdlist \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/mipi \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/mipi/config \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dsc \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/spr \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/offline \
-	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dp_ctrl \
+	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dptx/dp_ctrl \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/panel \
+	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr/config \
 	-I$(srctree)/drivers/platform_drivers/ap/platform/common \
+	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/composer \
+	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/composer/cmdlist \
+	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/composer/mntn \
+	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/composer/online
 
 DS_SOC_CHIP_NAME := $(strip $(subst ", , $(CONFIG_VENDOR_CHIP_PREFIX)))
 CFLAGS_MODULE += -Wdate-time -Wextra -Wfloat-equal -Wformat=2 -Wshadow

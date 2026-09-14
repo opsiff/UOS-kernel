@@ -61,6 +61,12 @@ config DPU_DRM_GEM
 	  and it is also the only place where GPU uses DRM, directly dealing with physical buffer,
 	  linking fb and physical buffer
 
+config DPU_DRM_BRIDGE
+	tristate "Dpu DRM bridge driver support"
+    default y
+	help
+	  This feature driver supports dpu composer device driver.
+
 config DRM_DSS_IOMMU
 	tristate "Enable dss iommu"
 	default n
@@ -73,5 +79,64 @@ config DPU_FFA_SUPPORT
 	default n
 	help
 	  Hisi Dpu support ffa or not.
+
+config DPU_DKSM
+	tristate "Hisi DPU drm support DP dksm"
+	default y
+	help
+		This feature driver supports dp dksm
+
+config DPU_CONN_MANAGER
+	tristate "Hisi DPU drm support DP MANAGER"
+	depends on DPU_DKSM
+	default n
+	help
+		This feature driver supports dp manager driver
+
+config DP_DSC
+	tristate "Hisi DPU drm support DP DSC"
+	depends on DPU_DKSM
+	default n
+	help
+		This feature driver supports dp dsc
+
+config DPU_DP_CTRL
+	tristate "Hisi DPU drm support DP ctrl"
+	depends on DPU_DKSM
+	default n
+	help
+		This feature driver supports dp ctrl
+
+config DPU_HDCPTX
+	tristate "Hisi DPU drm support DP HDCPTX"
+	default y
+	help
+		This feature driver supports dp hdcptx
+		
+config DPU_DRM_DP
+	tristate "Hisi DPU drm support DP"
+	depends on DPU_DKSM
+	default n
+	help
+		This feature driver supports dp driver
+
+config DRM_DPU_VERSION
+	int "DRM DPU version"
+	depends on DPU_DRM
+	help
+	  This driver supports DPU version.
+
+config DPU_DRM_DEBUG_ENABLE
+	tristate "DPU DRM debug enable"
+	default n
+	help
+		this feature support debug config
+
+config DPU_DRM_CURSOR_PLANE
+	bool "DPU DRM cursor plane support"
+	depends on DPU_DRM
+	default y
+	help
+		Drm driver support cursor plane feature.
 
 source "platform_source/display/drivers/dpu_drm/heap/Kconfig"

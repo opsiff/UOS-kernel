@@ -8,7 +8,8 @@ dpu_device-objs := \
 	fb/dpu_fb.o \
 	fb/dpu_ion_mem.o \
 	gfx/dpu_gfx.o \
-	gfx/dpu_gfx_ion_mem.o
+	gfx/dpu_gfx_ion_mem.o \
+	dpu_dev_present_vote.o
 
 dpu_device-$(CONFIG_DRM) += \
 	drm/dpu_drm.o
@@ -22,12 +23,15 @@ dpu_device-$(CONFIG_VIRTIO_FB) += \
 
 EXTRA_CFLAGS += \
 	-I$(srctree)/include/platform_include/display/dkmd/ \
-	-I$(srctree)/drivers/video/fbdev/dkmd/cmdlist \
+	-I$(srctree)/include/platform_include/display/linux/ \
+	-I$(srctree)/drivers/video/fbdev/ukmd/cmdlist \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/chrdev \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/fence \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/timeline \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/chrdev \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/fence \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/isr \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/timeline \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/device \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr/config \
@@ -39,6 +43,8 @@ EXTRA_CFLAGS += \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/device/drm \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/device/gfx \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/composer \
+	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/composer/online \
+	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/composer/abnormal \
 	-I$(srctree)/arch/arm64/include/ \
 	-I$(srctree)/include/
 

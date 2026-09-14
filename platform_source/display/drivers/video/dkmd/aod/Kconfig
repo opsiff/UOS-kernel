@@ -1,0 +1,12 @@
+
+config DKMD_AOD_DEBUG
+	bool "support DKMD aod debug function"
+	default n
+	help
+	  This feature driver supports aod debug function.
+
+config DKMD_IOMCU_DBG
+	bool "support DKMD IOMCU debug "
+	default n
+	help
+	  This feature driver supports iomcu debug function.

@@ -1,5 +1,6 @@
 menu "display Kernel Configuration"
 
-source "platform_source/display/drivers/Kconfig"
+DISPLAY_KCONFIG_PATH := $(if-success,[ "$(BUILD_CDC_RDA)" = "true" ],platform_source/display/drivers/cdc_rda,platform_source/display/drivers)
+source "$(DISPLAY_KCONFIG_PATH)/Kconfig"
 
 endmenu

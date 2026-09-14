@@ -3,14 +3,6 @@
 # 用户态（显示 DPU、电池/充电、音频、devfreq、部分 mm/sched 厂商特性等），
 # 因此构建时关闭；待按参考树补齐源码后再逐项打开。
 # 由 build-pgx-stock.sh 读取并 scripts/config -d 应用。
-DPU_DRM
-DPU_OPR_MGR
-DPU_MIPI_DSI
-DPU_PANEL
-DPU_COMPOSER
-DPU_CMDLIST
-DRM_GEM_HEAP
-DRM_DSS_IOMMU
 GPU_GMC_GENERIC
 COUL_DRV
 COUL_PMIC6X55V200

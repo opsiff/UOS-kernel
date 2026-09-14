@@ -3,14 +3,15 @@ obj-$(CONFIG_DKMD_DPU_CONNECTOR) += spr/
 obj-$(CONFIG_DKMD_DPU_CONNECTOR) += mipi/
 obj-$(CONFIG_DKMD_DPU_CONNECTOR) += panel/
 obj-$(CONFIG_DKMD_DPU_CONNECTOR) += offline/
-obj-$(CONFIG_DKMD_DPU_DP) += dp_ctrl/
-obj-$(CONFIG_DKMD_DPU_DP) += dp/
+obj-$(CONFIG_DKMD_DPU_DP) += dptx/
 obj-$(CONFIG_DKMD_DPU_DP) += hdcptx/
 
 obj-$(CONFIG_DKMD_DPU_HDMI_RX) += hdmirx/
 obj-$(CONFIG_DKMD_DPU_DP_RX) += dprx/
 
 obj-$(CONFIG_DKMD_DPU_HDMI_TX) += hdmitx/
+
+obj-y += edid/
 
 ifneq ($(CONFIG_NORDA_DISPLAY_DRIVER_CPRO),y)
 ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter 740 741,$(CONFIG_DKMD_DPU_VERSION)))
@@ -25,7 +26,8 @@ obj-$(CONFIG_DKMD_DPU_CONNECTOR) += dkmd_connector.o
 GCOV_PROFILE := $(CONFIG_GCOV_KERNEL)
 
 dkmd_connector-objs := \
-	dpu_connector.o
+	dpu_connector.o \
+	dpu_conn_mgr_common.o
 
 ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter 740 741,$(CONFIG_DKMD_DPU_VERSION)))
 dkmd_connector-objs += \
@@ -39,18 +41,22 @@ EXTRA_CFLAGS += \
 	-I$(srctree)/include/ \
 	-I$(srctree)/arch/arm64/include/ \
 	-I$(srctree)/include/platform_include/display/dkmd/ \
+	-I$(srctree)/include/platform_include/display/linux/ \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/peri \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/isr \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/isr \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/chrdev \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/mipi \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dsc \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/spr \
-	-I$(srctree)/drivers/video/fbdev/dkmd/connector/offline
+	-I$(srctree)/drivers/video/fbdev/dkmd/connector/offline \
+	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr/dvfs
 
 ifeq ($(CONFIG_DKMD_DPU_DP),y)
 EXTRA_CFLAGS += \
-	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dp_ctrl \
+	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dptx/dp_ctrl \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector/hdcptx
 endif
 
@@ -70,6 +76,17 @@ EXTRA_CFLAGS += \
 else
 EXTRA_CFLAGS += \
 	-I$(srctree)/drivers/platform_drivers/ap/platform/$(TARGET_PRODUCT)_$(chip_type)
+endif
+
+ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 720))
+EXTRA_CFLAGS += \
+	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dptx/dp_ctrl/config/v720
+else ifeq ($(CONFIG_DKMD_DPU_VERSION),$(filter $(CONFIG_DKMD_DPU_VERSION), 740))
+EXTRA_CFLAGS += \
+	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dptx/dp_ctrl/config/v740
+else
+EXTRA_CFLAGS += \
+	-I$(srctree)/drivers/video/fbdev/dkmd/connector/dptx/dp_ctrl/config/default
 endif
 
 KERNEL_DIR = $(ANDROID_BUILD_TOP)/kernel/linux-5.10

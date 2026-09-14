@@ -1,10 +1,14 @@
 ccflags-y  += -I$(srctree)/drivers/huawei_platform/inputhub/iom7/
 #ifdef CONFIG_CONTEXTHUB_SHMEM
 ccflags-y  += -I$(srctree)/platform_source/smart/drivers/channels
+ccflags-y  += -I$(srctree)/platform_source/smart/drivers/bsp
 #endif
 
 
 obj-y += dpu_aod_device.o
+ifeq ($(CONFIG_DKMD_IOMCU_DBG),y)
+obj-y += aod_debug/aod_debug.o
+endif
 
 EXTRA_CFLAGS += -I$(srctree)/drivers/huawei_platform/inputhub/default\
 		-I$(srctree)/drivers/staging/android
@@ -14,14 +18,16 @@ EXTRA_CFLAGS += \
 	-I$(srctree)/include/ \
 	-I$(srctree)/arch/arm64/include/ \
 	-I$(srctree)/include/platform_include/display/dkmd/ \
-	-I$(srctree)/drivers/video/fbdev/dkmd/cmdlist \
+	-I$(srctree)/include/platform_include/display/linux/ \
+	-I$(srctree)/drivers/video/fbdev/ukmd/cmdlist \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/timeline \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/timeline \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/buf_sync \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/fence \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/chrdev \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/fence \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/chrdev \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/peri \
-	-I$(srctree)/drivers/video/fbdev/dkmd/dksm/isr \
+	-I$(srctree)/drivers/video/fbdev/ukmd/uksm/isr \
 	-I$(srctree)/drivers/video/fbdev/dkmd/connector \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr \
 	-I$(srctree)/drivers/video/fbdev/dkmd/dpu/begonia/res_mgr/dvfs \

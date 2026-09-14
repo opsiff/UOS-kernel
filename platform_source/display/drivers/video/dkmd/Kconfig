@@ -12,6 +12,7 @@ config DKMD_DPU_VERSION
 
 source "drivers/video/fbdev/dkmd/backlight/Kconfig"
 source "drivers/video/fbdev/dkmd/connector/Kconfig"
-source "drivers/video/fbdev/dkmd/cmdlist/Kconfig"
 source "drivers/video/fbdev/dkmd/dksm/Kconfig"
 source "drivers/video/fbdev/dkmd/dpu/begonia/Kconfig"
+source "drivers/video/fbdev/dkmd/aod/Kconfig"
+source "drivers/video/fbdev/dkmd/mdfx/Kconfig"
