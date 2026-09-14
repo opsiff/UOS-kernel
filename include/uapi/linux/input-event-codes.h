@@ -274,9 +274,7 @@
 #define KEY_F23			193
 #define KEY_F24			194
 
-#ifdef  CONFIG_KEYBOARD_GPIO_FUNC_KEY
 #define KEY_F26			766 /* func key for Libra */
-#endif
 
 #define KEY_PLAYCD		200
 #define KEY_PAUSECD		201
