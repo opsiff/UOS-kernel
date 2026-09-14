@@ -1,0 +1,19 @@
+pgx_stock 构建用源码来源审计（对照 android_kernel_huawei_kirin9000 = 5.10.43 / baltimore）
+
+一、与 kirin9000 逐字节一致，无需回修
+  platform_source/basicplatform/drivers/scsi/ufs/hufs-lib.c
+  platform_source/basicplatform/drivers/bootctrl/bootctrl.c / bootctrl.h / bootctrl_make.h / bootctrl_utility.c
+  platform_source/basicplatform/block/blk_scsi_kern.c / mas_blk_inline_crypt.c / mas_blk_tz.c / mas_blk_iosched_interface.c
+  kernel/sched/core_ctl.c：本树补的 hisi_rtg.h 包含与 kirin9000 第 30 行一致
+
+二、已改为 kirin9000 来源
+  platform_source/basicplatform/block/mas_blk_mq_tag.c      替换原 clang 汇编 blob
+  platform_source/see/drivers/bl31_hibernate/*              原先取自 kernel-pgx 并已撤销，改自 kirin9000
+
+三、kirin9000 没有，保留现有来源（待找齐厂商源码）
+  platform_source/basicplatform/block/mas_blk_busy_idle_notify.c / mas_blk_core.c / mas_blk_dump.c /
+      mas_blk_flush.c / mas_blk_iosched_ufs_mq.c / mas_blk_latency.c      来源：android_kernel_LIO_kirin990_103
+  include/platform_include/basicplatform/linux/mas/mas_blk.h 等头文件     来源：LIO 对齐 + 本树补 mas_blk_register_queue 声明
+  net/bluetooth/hci_core.c 的 hisi_hci_dev_do_open（k9000 同样没有定义，仅 pgx 有）
+  drivers/hisi/hi1103_eeprom（drv_e2prom_read，仅 pgx 有实现）
+  kernel/time/alarmtimer.c 的 poweroff alarm 守卫（k9000 无守卫，本树按 extern 声明 + 分配置定义实现）
