@@ -23,4 +23,4 @@ while read -r s; do
     "$SRC/scripts/config" --file "$OBJ/.config" -d "$s"
 done < "$SRC/arch/arm64/configs/pgx_stock_build_exceptions.txt"
 $MK olddefconfig
-exec $MK KCFLAGS="-Wno-error=strict-prototypes" -j"$(nproc)" $TARGETS
+exec $MK KCFLAGS="-Wno-error=strict-prototypes -std=gnu11" -j"$(nproc)" $TARGETS
