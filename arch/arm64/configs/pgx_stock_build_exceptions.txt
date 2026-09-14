@@ -41,3 +41,9 @@ MIPS_MEM_FREQ
 DFX_MNTN_PC
 ECRYPT_FS
 BQ40Z50_FUEL_GAUGE
+# 追加：以下三项的提供者在任何可用树里都不存在，先关掉以保证能拉到用户态
+#   HIBERNATION / HHEE_HIBERNATE : clk_suspend_resume.c 与 hhee_* 钩子各树均无实现
+#   CONNECTIVITY_HI1105          : drv_e2prom_read 仅 kernel-pgx 有实现
+HIBERNATION
+HHEE_HIBERNATE
+CONNECTIVITY_HI1105
