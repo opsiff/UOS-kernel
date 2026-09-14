@@ -102,3 +102,8 @@ DEVFREQ_DEVBW
 #   → pgx 用的是 hi11xx/hi1105 变体，其 HI1102_PLATFORM/HI1102_WIFI 来自 hi1105 的 Kconfig。
 #   本树据此改：CONNECTIVITY_HI1102 关闭（与机器一致，也避免与 hisi/ 的重复定义），
 #   CONNECTIVITY_HI1105 打开，HI1102_PLATFORM/WIFI 按机器取值设为模块。
+
+# 无线整块(hi1105 变体)的两个提供者已按 pgx 的接线补回（从备份分支恢复此前撤销的导入）：
+#   drv_e2prom_read       <- drivers/hisi/hi1103_eeprom（提交 397ae5a15）
+#   hisi_hci_dev_do_open  <- net/bluetooth/hci_core.c 包装器（提交 1f1c07966）
++CONFIG_HISI1103_EEPROM
