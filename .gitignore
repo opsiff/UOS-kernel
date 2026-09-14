@@ -1,0 +1,4 @@
+*.deb
+*.changes
+*.buildinfo
+config-5.10.97
