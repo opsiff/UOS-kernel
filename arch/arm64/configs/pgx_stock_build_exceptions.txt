@@ -82,8 +82,11 @@ DEVFREQ_DEVBW
 #   obj-$(CONFIG_CONNECTIVITY_HISI) += hisi/），机器侧由其自身 Makefile 组织，故此差异属树内机制。
 # drv_e2prom_read 只被 hi1105 变体使用（且树内无实现），本变体不涉及，故 CONNECTIVITY_HI1105 继续关闭。
 +CONFIG_CONNECTIVITY_HISI
+# 本树 source hisi/platform 与 hisi/wifi 的门控是 CONNECTIVITY_HI1102（见 connectivity/Kconfig
+# 的 if CONNECTIVITY_HI1102 分支）；机器侧由其自身 Kconfig 组织、该项为 n，因此这是树内机制差异：
++CONFIG_CONNECTIVITY_HI1102
 +CONFIG_HI1102_PLATFORM
 +CONFIG_HI1102_WIFI
-+CONFIG_HI110X_SDIO_STD_CARD_SUPPORT
-+CONFIG_HI110X_SDIO_FPGA
-+CONFIG_HI110X_SDIO_DETECT_FUNCTION
+# 机器侧的 HI110X_SDIO_STD_CARD_SUPPORT / FPGA / DETECT_FUNCTION 位于 hi11xx/hi1105/Kconfig，
+# 只由 CONNECTIVITY_HI1105 / HI1103 / HI1102A 分支 source；本树不启用这三个变体，故暂不可打开
+# （hisi 变体本身不依赖它们，HI1102_PLAT_OAL 对它们的 select 在本配置下为空操作）。
