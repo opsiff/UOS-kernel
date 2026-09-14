@@ -176,7 +176,7 @@ static int psci_cpu_suspend(u64 func_id, struct kvm_cpu_context *host_ctxt)
 			 __hyp_pa(init_params));
 }
 
-static int psci_system_suspend(u64 func_id, struct kvm_cpu_context *host_ctxt)
+static int psci_system_suspend_hyp(u64 func_id, struct kvm_cpu_context *host_ctxt)
 {
 	DECLARE_REG(unsigned long, pc, host_ctxt, 1);
 	DECLARE_REG(unsigned long, r0, host_ctxt, 2);
@@ -267,7 +267,7 @@ static unsigned long psci_1_0_handler(u64 func_id, struct kvm_cpu_context *host_
 	case PSCI_1_1_FN64_SYSTEM_RESET2:
 		return psci_forward(host_ctxt);
 	case PSCI_1_0_FN64_SYSTEM_SUSPEND:
-		return psci_system_suspend(func_id, host_ctxt);
+		return psci_system_suspend_hyp(func_id, host_ctxt);
 	default:
 		return psci_0_2_handler(func_id, host_ctxt);
 	}
