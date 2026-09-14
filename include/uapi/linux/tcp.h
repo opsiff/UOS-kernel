@@ -133,12 +133,8 @@ enum {
 #define TCP_REPAIR_ON		1
 #define TCP_REPAIR_OFF		0
 #define TCP_REPAIR_OFF_NO_WP	-1	/* Turn off without window probes */
-#ifdef CONFIG_HUAWEI_BASTET
 #define TCP_RECONN		100
-#endif
-#ifdef CONFIG_HUAWEI_TCP_QUICK_START
 #define TCP_QUICK_START 	121
-#endif
 
 struct tcp_repair_opt {
 	__u32	opt_code;

@@ -144,10 +144,8 @@
 
 #endif
 
-#ifdef CONFIG_HUAWEI_XENGINE
 #define SO_XENGINE_PROXYUID			100
 #define SO_XENGINE_SOCKFLAG			101
 #define SO_XENGINE_BINDTODEVICE		102
-#endif
 
 #endif /* __ASM_GENERIC_SOCKET_H */

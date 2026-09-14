@@ -243,7 +243,6 @@ struct binder_version {
 #define BINDER_CURRENT_PROTOCOL_VERSION 8
 #endif
 
-#ifdef CONFIG_HW_BINDER_SCHED
 #define MAX_BG_WAITING_TIME_NS 1000000000  /* bg max waiting time(ns) */
 #define MAX_CHECK_TIMEOUT_TIME_NS 100000000 /* bg timeout check(ns) */
 #define MIN_APPLICATION_UID 10000 /* min uid to conrtrol */
@@ -272,7 +271,6 @@ struct binder_sched_args {
 	int  id;
 	int status;
 };
-#endif
 /*
  * Use with BINDER_GET_NODE_DEBUG_INFO, driver reads ptr, writes to all fields.
  * Set ptr to NULL for the first call to get the info for the first node, and
@@ -620,11 +618,7 @@ enum binder_driver_command_protocol {
 	BC_TRANSLATION = _IOW('c', 21, struct flat_binder_object),
 };
 
-#ifdef CONFIG_HUAWEI_KSTATE
 bool check_binder_calling_work(int calledPid);
-#endif /* CONFIG_HUAWEI_KSTATE */
-#ifdef CONFIG_HW_CGROUP_WORKINGSET
 int workingset_wakeup_preread_binder(int pid);
-#endif
 #endif /* _UAPI_LINUX_BINDER_H */
 

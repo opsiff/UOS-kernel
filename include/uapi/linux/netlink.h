@@ -30,49 +30,28 @@
 #define NETLINK_CRYPTO		21	/* Crypto layer */
 #define NETLINK_SMC		22	/* SMC monitoring */
 
-#ifdef CONFIG_CHR_NETLINK_MODULE
 #define NETLINK_CHR_EVENT_NL 23
-#endif
 
-#ifdef CONFIG_HW_WIFIPRO
 #define NETLINK_WIFIPRO_EVENT_NL  24
-#endif
-#ifdef CONFIG_HW_DPIMARK_MODULE
 #define NETLINK_HW_DPI  25
-#endif
 #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
 
 #define NETLINK_HW_LOGCAT     29
 
-#ifdef CONFIG_HUAWEI_KSTATE
 #define NETLINK_HW_KSTATE  30 /* kstate send event to user */
-#endif
 
 #define NETLINK_HW_LOGCAT_EXT 31
 /* netd communicate with hwfilter */
-#ifdef CONFIG_HW_NETFILTER_MODULE
 #define NETLINK_HW_NF 32
-#endif
 
-#if (defined(CONFIG_HW_CPULOAD_NOTI) || defined(CONFIG_HW_VIP_THREAD) \
-	|| defined(CONFIG_HW_IAWARE_THREAD_BOOST) || defined(CONFIG_HW_RTG_SCHED))
 #define NETLINK_HW_IAWARE_CPU 33
-#endif
 
-#ifdef CONFIG_HUAWEI_EMCOM
 #define NETLINK_EMCOM 35
-#endif
-#ifdef CONFIG_HW_NETBOOSTER_MODULE
 #define NETLINK_NETBOOSTER 37
-#endif
 
-#ifdef CONFIG_HW_DC_MODULE
 #define NETLINK_HW_DC 40
-#endif
 
-#ifdef CONFIG_HW_WAUDIO_MODULE
 #define NETLINK_WIFI_AUDIO_EVENT 42 /* Huawei wifi audio event */
-#endif
 
 #define NETLINK_WIFI_EXT 44
 
@@ -84,10 +63,8 @@
 
 #define MAX_LINKS 48
 
-#ifdef CONFIG_CONNECTIVITY_HI110X
 #define NETLINK_WIFI_DFR_HISI   27
 #define NETLINK_WIFI_SDT_HISI   28
-#endif
 
 struct sockaddr_nl {
 	__kernel_sa_family_t	nl_family;	/* AF_NETLINK	*/
@@ -214,9 +191,7 @@ enum nlmsgerr_attrs {
 #define NETLINK_EXT_ACK			11
 #define NETLINK_GET_STRICT_CHK		12
 
-#ifdef CONFIG_RIL_SIM_NETLINK_MODULE
 #define NETLINK_RIL_EVENT_SIM 36
-#endif
 
 struct nl_pktinfo {
 	__u32	group;

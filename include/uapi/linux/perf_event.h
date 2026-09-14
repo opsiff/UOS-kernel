@@ -33,15 +33,9 @@ enum perf_type_id {
 	PERF_TYPE_HW_CACHE			= 3,
 	PERF_TYPE_RAW				= 4,
 	PERF_TYPE_BREAKPOINT			= 5,
-#ifdef CONFIG_ARM_DSU_PMU
 	PERF_TYPE_DSU,
-#endif
-#ifdef CONFIG_NAMTSO_PMU
 	PERF_TYPE_NAMTSO,
-#endif
-#if defined(CONFIG_DFX_PERF_STAT) || defined(CONFIG_DFX_PERF_STAT64) || defined(CONFIG_DFX_PERF_STAT_DUAL)
 	PERF_TYPE_PERF_STAT,
-#endif
 	PERF_TYPE_MAX,				/* non-ABI */
 };
 
