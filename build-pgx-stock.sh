@@ -22,6 +22,7 @@ while read -r s; do
     case "$s" in ""|\#*) continue ;; esac
     case "$s" in
     +*) "$SRC/scripts/config" --file "$OBJ/.config" -e "${s#+CONFIG_}" ;;
+    -*) "$SRC/scripts/config" --file "$OBJ/.config" -d "${s#-CONFIG_}" ;;
     *)  "$SRC/scripts/config" --file "$OBJ/.config" -d "$s" ;;
     esac
 done < "$SRC/arch/arm64/configs/pgx_stock_build_exceptions.txt"
