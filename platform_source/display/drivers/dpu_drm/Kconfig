@@ -122,6 +122,7 @@ config DPU_DRM_DP
 
 config DRM_DPU_VERSION
 	int "DRM DPU version"
+	default 800
 	depends on DPU_DRM
 	help
 	  This driver supports DPU version.
