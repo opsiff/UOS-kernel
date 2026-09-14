@@ -104,3 +104,7 @@ DEVFREQ_DEVBW
 # 无线整块最终状态(2026-09-15)：hi1105 变体因缺少两个提供者而关闭；
 # 新参考树 HarmonyOS6_Hi36C0_Kernel(5.10.97) 同样没有它们（其 hisi_ini.h / hci_interface.h 只有
 # 宏映射与声明，drivers/hisi/hi1103_eeprom 只有 Kconfig）；如后续拿到含实现的版本即可打开。
+
+# 新树 dpu_drm/Kconfig 引入的 int 符号(无默认值)，不给值会触发 Kconfig 交互提示死循环；
+# 取值取自新树自身的 defconfig：
+=CONFIG_DRM_DPU_VERSION 800
