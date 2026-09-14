@@ -6,7 +6,7 @@ ccflags-y += -I$(srctree)/block
 obj-$(CONFIG_MAS_BLK) += mas_blk_core.o mas_blk_dump.o mas_blk_latency.o mas_blk_busy_idle_notify.o \
 		mas_blk_flush.o mas_blk_iosched_ufs_mq.o mas_blk_iosched_interface.o \
 		mas_blk_busy_idle_interface.o mas_blk_core_interface.o mas_blk_dump_interface.o \
-		mas_blk_flush_interface.o mas_blk_latency_interface.o mas_blk_tz.o \
+		mas_blk_flush_interface.o mas_blk_latency_interface.o mas_blk_mq_tag.o mas_blk_tz.o \
 		mas_blk_unistore_interface.o dsm_block.o mas_blk_sysfs.o
 obj-$(CONFIG_MAS_MCQ) += mas_mcq_tag.o mas_mcq_iosched.o mas_mcq_sysfs.o
 obj-$(CONFIG_MAS_UFS_GEAR_CTRL) += mas_blk_gear_ctrl.o mas_blk_gear_ctrl_flowctrl.o mas_blk_gear_ctrl_sysfs.o
