@@ -37,6 +37,7 @@
 #include <trace/events/scsi.h>
 #include <platform_include/basicplatform/linux/hck/blk/hck_mas_ufs_gear_ctrl.h>
 #include <platform_include/basicplatform/linux/hck/ufs/hck_scsi_ufs_gear_ctrl.h>
+#include <platform_include/basicplatform/linux/hck/ufs/hck_ufs_mas_mcq.h>
 
 
 #include "scsi_debugfs.h"
