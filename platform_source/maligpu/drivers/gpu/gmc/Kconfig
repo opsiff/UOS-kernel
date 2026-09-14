@@ -1,6 +1,6 @@
 config GPU_GMC_GENERIC
 	bool "A generic framework for GPU graphical memory compression"
-	default y
+	default n
 	select ZSMALLOC
 	select ZPOOL
 	select CRYPTO
