@@ -17,3 +17,36 @@ pgx_stock 构建用源码来源审计（对照 android_kernel_huawei_kirin9000 =
   net/bluetooth/hci_core.c 的 hisi_hci_dev_do_open（k9000 同样没有定义，仅 pgx 有）
   drivers/hisi/hi1103_eeprom（drv_e2prom_read，仅 pgx 有实现）
   kernel/time/alarmtimer.c 的 poweroff alarm 守卫（k9000 无守卫，本树按 extern 声明 + 分配置定义实现）
+
+多开项对照（相对机器全量配置 config-5.10.97，共 17 项）
+
+A. 主动打开（6 项；本树源码前提，机器内核用更新版源码达成同一效果）
+  LOG_EXCEPTION / LOG_USERTYPE     提供者侧：本树 zrhung_event.c 调用 hiview_send_hisysevent 无配置守卫
+  CHR_NETLINK_MODULE               提供者侧：net/wireless/sme.c 调用 wifi_disconnect_report 无配置守卫
+  HMDFS_ANDROID / HMDFS_CRYPTO / HMDFS_XATTR_NOSECURITY_SUPPORT   hmdfs 源码前提（机器内核的 hmdfs 更新版不需要）
+  等价性：运行时默认行为一致，只是把机器侧由新版源码隐式编入的代码显式打开。
+
+B. 能力位（5 项；架构/工具链探测，无 prompt，配置层不可关）
+  ARCH_WANTS_IRQ_RAW                   arch/arm64/Kconfig:115  select
+  HAVE_MOVE_PUD                        arch/arm64/Kconfig:132  select
+  HAVE_ARCH_KFENCE                     arch/arm64/Kconfig:145  select
+  ARCH_SUPPORTS_SPECULATIVE_PAGE_FAULT arch/arm64/Kconfig:213  select
+  AS_HAS_LDAPR                         arch/arm64/Kconfig:1429 def_bool $(as-instr,.arch_extension rcpc)
+  等价性：纯能力位；其对应功能符号 SPECULATIVE_PAGE_FAULT 在本树为 n，与机器一致；零行为差。
+
+C. 不可见 / choice 默认成员（3 项；Kconfig 层不可关闭，scripts/config 对不可见符号无效）
+  CRYPTO_FIPS140               crypto/Kconfig:38  def_bool y（无 prompt，依赖 MODULES && ARM64 && ARM64_MODULE_PLTS 满足即 y）
+  EROFS_FS_ZIP_CACHE_BIPOLAR   fs/erofs_4_14/Kconfig:141  choice 的默认成员
+  MQ_IOSCHED_DEADLINE_CGROUP   Kconfig 中无带 prompt 的定义（choice 成员/不可见）
+  等价性：名义多开；对应功能仅在显式选择（挂载选项、调度器切换）时生效，默认启动路径无差异。
+
+D. 取值不同（1 项）
+  FONT_8x16=y（机器 FONT_CJK_16x16=y，而本树没有该字体驱动）→ 仅影响文本控制台字形，桌面阶段字体由用户态接管。
+
+E. 代码要求（1 项）
+  OEM_DEFINE_VERITY_FEC   drivers/md/dm-verity-target.c 无条件使用 FIRST_TIME_HASH_VERIFY（详见构建例外清单）
+
+F. 启动相关（1 项）
+  CMDLINE_FROM_BOOTLOADER 与 pgx 树语义一致（详见构建例外清单）
+
+合计 6 + 5 + 3 + 1 + 1 + 1 = 17 项，与当前多开数量一致。
