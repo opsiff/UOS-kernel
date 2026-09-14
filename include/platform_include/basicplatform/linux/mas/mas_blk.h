@@ -554,3 +554,5 @@ static inline void mas_blk_dump_fs(const struct bio *bio)
 #endif /* CONFIG_MAS_BLK */
 
 #endif /* MAS_BLK_INTERNAL_H */
+
+int mas_blk_register_queue(struct request_queue *q);

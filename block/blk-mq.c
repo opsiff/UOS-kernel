@@ -410,7 +410,7 @@ retry:
 	 * should have migrated us to an online CPU by now.
 	 */
 #ifdef CONFIG_MAS_BLK
-	mas_blk_set_data_flag(q, data, data->cmd_flags);
+	mas_blk_set_data_flag(q, data, NULL, data->cmd_flags);
 
 	if (data->q->mas_queue_ops && data->q->mas_queue_ops->mq_tag_get_fn)
 		tag = data->q->mas_queue_ops->mq_tag_get_fn(data);
