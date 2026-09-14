@@ -23,11 +23,7 @@ ifeq ($(CONFIG_CHAR_IP_PLATFORM),y)
 ifeq ($(chip_type), es)
 obj-$(CONFIG_PLAT_CLK)                  += clk-char.o
 else
-ifeq ($(CONFIG_HIBERNATION),y)
-obj-$(CONFIG_PLAT_CLK)                  += clk-char-cs.o clk_suspend_resume.o
-else
 obj-$(CONFIG_PLAT_CLK)                  += clk-char-cs.o
-endif
 endif
 endif
 
