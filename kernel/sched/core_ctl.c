@@ -27,6 +27,7 @@
 #include <linux/cpumask.h>
 #include <linux/topology.h>
 #include <linux/cpufreq.h>
+#include <linux/hisi_rtg.h>
 #include <linux/kthread.h>
 #include <linux/percpu.h>
 #include <linux/sysctl.h>
