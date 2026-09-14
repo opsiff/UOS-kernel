@@ -46,7 +46,7 @@ int bq40z50_get_battery_temp_base(void *dev_data)
 	if (!di)
 		return BQ40Z50_BATT_TEMP_ABNORMAL_LOW - 1;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_TEMP, &temp_k);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_TEMP, &temp_k);
 	if (ret) {
 		temp_c = di->cache.temp;
 	} else {
@@ -138,7 +138,7 @@ int bq40z50_get_battery_soc_base(void *dev_data)
 		return BQ40Z50_BATT_CAPACITY_FULL;
 	}
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_SOC, &soc);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_SOC, &soc);
 	if (ret)
 		soc = di->cache.soc;
 	else
@@ -157,7 +157,7 @@ int bq40z50_get_battery_vol_base(void *dev_data)
 	if (!di)
 		return (int)vol;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_VOLT, &vol);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_VOLT, &vol);
 	if (ret)
 		vol = di->cache.vol;
 	else
@@ -175,7 +175,7 @@ int bq40z50_get_cell_vbat_mv_base(struct bq40z50_device_info *di, u8 reg, u16 *v
 	if (!di || !vol_cache)
 		return (int)vol;
 
-	ret = bq40z50_read_word(di, reg, &vol);
+	ret = bq40z50_read_word_raw(di, reg, &vol);
 	if (ret)
 		vol = *vol_cache;
 	else
@@ -194,7 +194,7 @@ int bq40z50_get_battery_curr_base(void *dev_data)
 	if (!di)
 		return (int)curr;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_CURR, &curr);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_CURR, &curr);
 	if (ret)
 		curr = di->cache.curr;
 	else
@@ -213,7 +213,7 @@ int bq40z50_get_battery_avgcurr_base(void *dev_data)
 	if (!di)
 		return (int)avg_curr;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_AVRGCURR, &avg_curr);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_AVRGCURR, &avg_curr);
 	if (ret)
 		avg_curr = di->cache.avg_curr;
 	else
@@ -232,7 +232,7 @@ int bq40z50_get_battery_rm_base(void *dev_data)
 	if (!di)
 		return (int)rm;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_RM, &rm);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_RM, &rm);
 	if (ret)
 		rm = di->cache.rm;
 	else
@@ -251,7 +251,7 @@ int bq40z50_get_battery_dc_base(void *dev_data)
 	if (!di)
 		return (int)dc;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_DC, &dc);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_DC, &dc);
 	if (ret)
 		dc = di->cache.dc;
 	else
@@ -270,7 +270,7 @@ int bq40z50_get_battery_fcc_base(void *dev_data)
 	if (!di)
 		return (int)fcc;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_FCC, &fcc);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_FCC, &fcc);
 	if (ret)
 		fcc = di->cache.fcc;
 	else
@@ -289,7 +289,7 @@ int bq40z50_get_battery_cycle_base(void *dev_data)
 	if (!di)
 		return (int)cycle;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_CYCLE, &cycle);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_CYCLE, &cycle);
 	if (ret)
 		cycle = di->cache.cycle;
 	else
@@ -355,7 +355,7 @@ int bq40z50_get_desired_charging_current_base(void *dev_data)
 	if (!di)
 		return -ENODEV;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_CHARGING_CURRENT, &curr);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_CHARGING_CURRENT, &curr);
 	if (ret)
 		curr = di->cache.charge_current;
 	else
@@ -374,7 +374,7 @@ int bq40z50_get_desired_charging_voltage_base(void *dev_data)
 	if (!di)
 		return -ENODEV;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_CHARGING_VOLTAGE, &vol);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_CHARGING_VOLTAGE, &vol);
 	if (ret)
 		vol = di->cache.charge_voltage;
 	else
@@ -435,7 +435,7 @@ int bq40z50_get_battery_status_base(struct bq40z50_device_info *di)
 	if (!di)
 		return -ENODEV;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_BATTERY_STATUS, &status);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_BATTERY_STATUS, &status);
 	if (ret)
 		status = di->cache.status;
 	else
@@ -519,7 +519,7 @@ static int bq40z50_get_cell1_vbat_mv(void *dev_data)
 	if (!di)
 		return (int)vol;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_CELL1_VOLT, &vol);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_CELL1_VOLT, &vol);
 	if (ret)
 		vol = di->cache.cell1_vol;
 	else
@@ -538,7 +538,7 @@ static int bq40z50_get_cell2_vbat_mv(void *dev_data)
 	if (!di)
 		return (int)vol;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_CELL2_VOLT, &vol);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_CELL2_VOLT, &vol);
 	if (ret)
 		vol = di->cache.cell2_vol;
 	else

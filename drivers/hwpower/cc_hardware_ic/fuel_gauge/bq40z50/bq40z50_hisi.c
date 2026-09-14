@@ -105,21 +105,21 @@ static bool bq40z50_is_abnormal_low_capacity(s16 cur, u16 vol)
 
 	vol_offset = -cur * BQ40Z50_BATT_RESISTANCE / BQ40Z50_RESISTANCE_SCALE;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_CELL1_VOLT, &cell1_vol);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_CELL1_VOLT, &cell1_vol);
 	if (!ret) {
 		cell_vol = cell1_vol + vol_offset;
 		if (cell_vol < BQ40Z50_LOW_CAPACITY_CELL_VOL)
 			return true;
 	}
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_CELL2_VOLT, &cell2_vol);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_CELL2_VOLT, &cell2_vol);
 	if (!ret) {
 		cell_vol = cell2_vol + vol_offset;
 		if (cell_vol < BQ40Z50_LOW_CAPACITY_CELL_VOL)
 			return true;
 	}
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_CELL3_VOLT, &cell3_vol);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_CELL3_VOLT, &cell3_vol);
 	if (!ret) {
 		cell_vol = cell3_vol + vol_offset;
 		if (cell_vol < BQ40Z50_LOW_CAPACITY_CELL_VOL)
@@ -143,7 +143,7 @@ static int bq40z50_battery_unfiltered_soc(void *dev_data)
 		return BQ40Z50_BATT_CAPACITY_FULL;
 	}
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_SOC, &soc);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_SOC, &soc);
 	if (ret)
 		soc = di->cache.soc;
 	else
@@ -348,7 +348,7 @@ static int bq40z50_get_battery_soh(void *dev_data)
 	if (!di)
 		return (int)soh;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_SOH, &soh);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_SOH, &soh);
 	if (ret)
 		soh = di->cache.soh;
 	else
@@ -367,7 +367,7 @@ static int bq40z50_get_battery_tte(void *dev_data)
 	if (!di)
 		return (int)tte;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_TTE, &tte);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_TTE, &tte);
 	if (ret)
 		tte = di->cache.tte;
 	else
@@ -391,7 +391,7 @@ static int bq40z50_get_battery_ttf(void *dev_data)
 	if (!di)
 		return (int)ttf;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_TTF, &ttf);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_TTF, &ttf);
 	if (ret)
 		ttf = di->cache.ttf;
 	else
@@ -435,7 +435,7 @@ static int bq40z50_get_last_capacity(void *dev_data)
 	if (!di)
 		return -ENODEV;
 
-	ret = bq40z50_read_word(di, BQ40Z50_REG_LAST_SOC, &last_cap);
+	ret = bq40z50_read_word_raw(di, BQ40Z50_REG_LAST_SOC, &last_cap);
 	if (ret) {
 		hwlog_err("%s fail\n", __func__);
 		return last_cap;
