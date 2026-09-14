@@ -9,6 +9,7 @@ config DKMD_DPU_VERSION
 	depends on DKMD_ENABLE
 	help
 	  This driver supports DPU version.
+	default 800
 
 source "drivers/video/fbdev/dkmd/backlight/Kconfig"
 source "drivers/video/fbdev/dkmd/connector/Kconfig"
