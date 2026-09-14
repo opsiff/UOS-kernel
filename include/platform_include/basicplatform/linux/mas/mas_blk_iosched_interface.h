@@ -71,26 +71,42 @@ extern void ufs_mq_async_io_dispatch_work_fn(const struct work_struct *work);
 extern void __ufs_mq_complete_request_remote(const void *data);
 extern void ufs_mq_flush_plug_list(
 	struct blk_plug *plug, bool from_schedule);
-
-struct mas_ufs_sched_ds_lld;
-extern void ufs_mq_sync_burst_check_timer_expire(struct mas_ufs_sched_ds_lld *sched_ds_lld);
+extern void ufs_mq_sync_burst_check_timer_expire(unsigned long data);
 extern void ufs_mq_sync_io_dispatch_work_fn(const struct work_struct *work);
-extern void ufs_mq_write_throttle_check_timer_expire(struct mas_ufs_sched_ds_lld *sched_ds_lld);
+
+extern void ufs_mq_write_throttle_check_timer_expire(unsigned long data);
 extern void ufs_mq_write_throttle_handler(struct request_queue *q, bool level);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0))
 extern void __cfi_ufs_mq_write_throttle_check_timer_expire(struct timer_list *timer);
-extern struct mas_ufs_sched_ds_lld *ufs_mq_write_throttle_check_timer_prepare(struct timer_list *timer);
+extern unsigned long ufs_mq_write_throttle_check_timer_prepare(struct timer_list *timer);
+#else
+extern void __cfi_ufs_mq_write_throttle_check_timer_expire(unsigned long data);
+#endif
 extern void __cfi_ufs_mq_async_io_dispatch_work_fn(struct work_struct *work);
 extern void __cfi__ufs_mq_complete_request_remote(void *data);
 extern void __cfi_ufs_mq_flush_plug_list(
 	struct blk_plug *plug, bool from_schedule);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0))
 extern void __cfi_ufs_mq_sync_burst_check_timer_expire(struct timer_list *timer);
-struct mas_ufs_sched_ds_lld *ufs_mq_sync_burst_check_timer_prepare(struct timer_list *timer);
+unsigned long ufs_mq_sync_burst_check_timer_prepare(struct timer_list *timer);
+#else
+extern void __cfi_ufs_mq_sync_burst_check_timer_expire(unsigned long data);
+#endif
 extern void __cfi_ufs_mq_sync_io_dispatch_work_fn(struct work_struct *work);
 extern void __cfi_ufs_mq_io_guard_work_fn(struct work_struct *work);
 extern void ufs_mq_io_guard_work_fn(void);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0))
 blk_qc_t __cfi_ufs_mq_make_request(struct bio *bio);
-blk_qc_t ufs_mq_make_request(struct bio *bio);
+blk_qc_t ufs_mq_make_request_v5(struct bio *bio);
 struct request *__blk_mq_alloc_request(struct blk_mq_alloc_data *data);
+#else
+extern blk_qc_t __cfi_ufs_mq_make_request(
+	struct request_queue *q, struct bio *bio);
+extern blk_qc_t ufs_mq_make_request(struct request_queue *q, struct bio *bio);
+extern struct request *blk_mq_get_request(
+	struct request_queue *q, struct bio *bio,
+	unsigned int op, struct blk_mq_alloc_data *data);
+#endif
 extern void __blk_mq_requeue_request(struct request *rq);
 extern void ufs_mq_dump_request(
 	const struct request_queue *q, enum blk_dump_scene s);

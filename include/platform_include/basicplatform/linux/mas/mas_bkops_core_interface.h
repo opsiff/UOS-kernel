@@ -15,10 +15,10 @@
 #ifndef __MAS_BKOPS_CORE_INTERFACE_H__
 #define __MAS_BKOPS_CORE_INTERFACE_H__
 #include <linux/blkdev.h>
+#include <linux/mas_bkops_core.h>
 #include <linux/kernel.h>
 #include <linux/proc_fs.h>
 #include <linux/suspend.h>
-#include <platform_include/basicplatform/linux/mas/mas_bkops_core.h>
 
 extern void bkops_idle_work_func(const struct work_struct *work);
 extern void __ufs_bkops_idle_work_func(struct work_struct *work);
@@ -31,9 +31,9 @@ extern enum blk_busyidle_callback_ret __cfi_bkops_io_busyidle_notify_handler(
 extern int __cfi_bkops_pm_callback(
 	struct notifier_block *nb, unsigned long action, void *ptr);
 extern int bkops_pm_callback(
-	const struct notifier_block *self, unsigned long action, const void *ptr);
+	const struct notifier_block *nb, unsigned long action, const void *ptr);
 extern int bkops_notify_reboot(
-	const struct notifier_block *self, unsigned long code,
+	const struct notifier_block *this, unsigned long code,
 	const void *no_use);
 extern int __cfi_bkops_notify_reboot(
 	struct notifier_block *this, unsigned long code, void *no_use);

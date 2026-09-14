@@ -15,7 +15,7 @@
 #ifndef __MAS_BKOPS_SYSFS_INTERFACE_H__
 #define __MAS_BKOPS_SYSFS_INTERFACE_H__
 #include <linux/debugfs.h>
-#include <platform_include/basicplatform/linux/mas/mas_bkops_core.h>
+#include <linux/mas_bkops_core.h>
 
 extern int __cfi_mas_bkops_stat_open(struct inode *inode, struct file *filp);
 extern int mas_bkops_stat_open(const struct inode *inode, struct file *filp);

@@ -165,12 +165,12 @@ struct bkops_ops {
 
 struct mas_bkops *mas_bkops_alloc(void);
 void mas_bkops_set_status_str(
-	struct mas_bkops *bkops, u32 bkops_status_max,
-	const char **bkops_status_str);
+	struct mas_bkops *bkops, u32 bkops_stat_max,
+	const char **bkops_stat_str);
 int mas_bkops_enable(
 	struct request_queue *q, struct mas_bkops *bkops, struct dentry *pdir);
 int mas_bkops_add_debugfs(
-	struct mas_bkops *bkops, const struct dentry *parent_dir);
+	struct mas_bkops *bkops, const struct dentry *bkops_root);
 #ifdef CONFIG_MAS_DEBUG_FS
 void mas_bkops_update_dur(struct bkops_stats *bkops_stats_p);
 #endif

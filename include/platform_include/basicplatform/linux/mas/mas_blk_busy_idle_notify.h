@@ -16,7 +16,7 @@
 #define __MAS_BLK_BUSY_IDLE_NOTIFY__
 #include <linux/blkdev.h>
 
-#ifdef CONFIG_MAS_DEBUG_FS
+#if defined(CONFIG_MAS_DEBUG_FS) || defined(CONFIG_MAS_BLK_DEBUG)
 #define BLK_IDLE_100MS 100
 #define BLK_IDLE_500MS 500
 #define BLK_IDLE_1000MS 1000

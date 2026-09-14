@@ -15,10 +15,8 @@
 #ifndef __MAS_BLK_MQ_TAG_H__
 #define __MAS_BLK_MQ_TAG_H__
 #include <linux/blk_types.h>
-#include <linux/sbitmap.h>
 
 #include "blk-mq-tag.h"
-#include "blk-mq.h"
 
 void ufs_tagset_all_tag_busy_iter(
 	struct blk_mq_tags *tags, busy_tag_iter_fn *fn,

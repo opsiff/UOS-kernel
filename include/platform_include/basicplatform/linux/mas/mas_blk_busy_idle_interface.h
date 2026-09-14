@@ -20,14 +20,24 @@
 #include <linux/version.h>
 #include <linux/timer.h>
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0))
 extern void __cfi_mas_blk_busyidle_handler_latency_check_timer_expire(
 	struct timer_list *timer);
+#else
+extern void __cfi_mas_blk_busyidle_handler_latency_check_timer_expire(
+	unsigned long data);
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0))
 extern void mas_blk_busyidle_handler_latency_check_timer_expire(
 	struct timer_list *timer);
+#else
+extern void mas_blk_busyidle_handler_latency_check_timer_expire(
+	unsigned long data);
+#endif
 extern int __cfi_mas_blk_busyidle_notify_handler(
 	struct notifier_block *nb, unsigned long val, void *v);
 extern int mas_blk_busyidle_notify_handler(
-	const struct notifier_block *nb, unsigned long event, const void *v);
+	const struct notifier_block *nb, unsigned long val, const void *v);
 extern void __cfi_mas_blk_idle_notify_work(struct work_struct *work);
 extern void mas_blk_idle_notify_work(const struct work_struct *work);
 extern ssize_t __cfi_mas_queue_busyidle_enable_store(
@@ -44,7 +54,7 @@ extern void __cfi_mas_blk_busyidle_end_rq(
 	struct request *rq, blk_status_t error);
 extern void mas_blk_busyidle_end_rq(
 	const struct request *rq, blk_status_t error);
-#ifdef CONFIG_MAS_DEBUG_FS
+#if defined(CONFIG_MAS_DEBUG_FS) || defined(CONFIG_MAS_BLK_DEBUG)
 extern ssize_t mas_queue_busyidle_enable_store(
 	const struct request_queue *q, const char *page, size_t count);
 extern ssize_t mas_queue_busyidle_statistic_reset_store(
