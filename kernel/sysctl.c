@@ -162,8 +162,9 @@ extern int sysctl_ion_heap_trace_buf_reuse;
 extern int sysctl_ion_heap_buffer_min_order_in_reuse;
 extern int sysctl_ion_heap_max_zero_orders_in_reuse;
 #endif
-extern int sysctl_ion_heap_trace_heap_drain;
-extern int sysctl_ion_heap_trace_heap_shrink;
+/* 供应商 ion heap trace 模块在本地代码树中缺失，这里提供定义以便链接 */
+int sysctl_ion_heap_trace_heap_drain = 0;
+int sysctl_ion_heap_trace_heap_shrink = 0;
 
 /*
  * This is needed for proc_doulongvec_minmax of sysctl_hung_task_timeout_secs
