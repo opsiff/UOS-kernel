@@ -161,6 +161,7 @@ static int insert_packagelist_entry(const struct qstr *key, uid_t value)
 {
 	int err;
 	uid_t old_appid = hmdfs_get_appid(key->name);
+
 	if (old_appid == value)
 		return 0;
 	mutex_lock(&hmdfs_super_list_lock);
@@ -187,6 +188,7 @@ static ssize_t package_details_appid_store(struct config_item *item,
 		return ret;
 
 	ret = insert_packagelist_entry(&to_package_details(item)->name, tmp);
+
 	if (ret)
 		return ret;
 

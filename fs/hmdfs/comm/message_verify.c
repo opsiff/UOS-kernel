@@ -421,7 +421,6 @@ void hmdfs_message_verify_init(void)
  * We expect path to match following conditions:
  * a. do not end with '/' or "/." or "/.."
  * b. do not contain "/./" or "/../"
- * c. do not begin with  ".."
  */
 static bool is_path_valid(const char *name, size_t len)
 {
@@ -440,11 +439,6 @@ static bool is_path_valid(const char *name, size_t len)
 
 	if (!strncmp(name + len - 2, "/.", 2)) {
 		hmdfs_err("end with \"/.\"");
-		return false;
-	}
-
-	if (!strncmp(name, "..", 2)) {
-		hmdfs_err("begin with \"..\"");
 		return false;
 	}
 
@@ -474,19 +468,15 @@ static int hmdfs_open_message_verify(int flag, size_t len, void *data)
 	struct open_request *req = data;
 	size_t tmp_len;
 	size_t path_len;
-	unsigned int full_len;
 
 	if (flag != C_REQUEST || !data)
 		return 0;
 
-	full_len = len - sizeof(struct open_request);
-	if (le32_to_cpu(req->path_len) != full_len - 1) {
-		hmdfs_err("verify fail");
-		return -EINVAL;
-	}
-	tmp_len = strnlen(req->buf, min((unsigned int)PATH_MAX, req->path_len));
+	tmp_len = strnlen(req->buf, PATH_MAX);
 	path_len = le32_to_cpu(req->path_len);
-	if (tmp_len == PATH_MAX || path_len != tmp_len) {
+	if (tmp_len == PATH_MAX ||
+	    tmp_len != len - sizeof(struct open_request) - 1 ||
+	    path_len != tmp_len) {
 		hmdfs_err("verify fail");
 		return -EINVAL;
 	}
@@ -525,12 +515,7 @@ static int hmdfs_atomic_open_verify(int flag, size_t len, void *data)
 	req = data;
 	total_len = len - sizeof(*req);
 	max_path_size = min_t(size_t, PATH_MAX, total_len);
-	/* Each field should add 1 byte for terminator '\0' */
-	if (total_len != req->path_len + 1 + req->file_len + 1) {
-		hmdfs_err("verify fail");
-		return -EINVAL;
-	}
-	path_len = strnlen(req->buf, req->path_len);
+	path_len = strnlen(req->buf, max_path_size);
 	/* file name need 2 byte at least */
 	if (path_len == max_path_size || path_len + 3 > total_len) {
 		hmdfs_err("verify fail, len %lu, path_len %lu", len, path_len);
@@ -538,8 +523,9 @@ static int hmdfs_atomic_open_verify(int flag, size_t len, void *data)
 	}
 
 	max_file_size = min_t(size_t, NAME_MAX + 1, total_len - path_len - 1);
-	file_len = strnlen(req->buf + path_len + 1, req->file_len);
+	file_len = strnlen(req->buf + path_len + 1, max_file_size);
 	if (file_len == max_file_size ||
+	    total_len != path_len + 1 + file_len + 1 ||
 	    le32_to_cpu(req->path_len) != path_len ||
 	    le32_to_cpu(req->file_len) != file_len) {
 		hmdfs_err("verify fail total len %zu path_len %zu, decalared path len %u, file_len %zu, decalared file_len %u",
@@ -557,23 +543,18 @@ static int hmdfs_iterate_verify(int flag, size_t len, void *data)
 	struct readdir_request *tmp_request = NULL;
 	char *tmp_char = NULL;
 	size_t tmp_len = 0;
-	unsigned int full_len;
 
 	if (flag == C_REQUEST) {
 		if (data) {
 			tmp_request = data;
 			tmp_char = tmp_request->path;
-			full_len = len - sizeof(struct readdir_request);
-			if (le32_to_cpu(tmp_request->path_len) != full_len - 1) {
-				hmdfs_err("verify fail");
-				return err;
-			}
-			tmp_len = strnlen(tmp_char, min((unsigned int)PATH_MAX, tmp_request->path_len));
+			tmp_len = strnlen(tmp_char, PATH_MAX);
 		} else {
 			return err;
 		}
 
-		if (le32_to_cpu(tmp_request->path_len) != tmp_len) {
+		if (le32_to_cpu(tmp_request->path_len) != tmp_len ||
+		    len - sizeof(struct readdir_request) - 1 != tmp_len) {
 			err = -EINVAL;
 			hmdfs_err("verify fail");
 			return err;
@@ -590,7 +571,8 @@ static int hmdfs_mkdir_verify(int flag, size_t len, void *data)
 	char *tmp_char = NULL;
 	size_t tmp_path_len = 0;
 	size_t tmp_name_len = 0;
-	unsigned int full_len;
+	size_t tmp_char_path_len = 0;
+	size_t tmp_char_name_len = 0;
 
 	if (flag == C_REQUEST) {
 		if (data) {
@@ -598,26 +580,19 @@ static int hmdfs_mkdir_verify(int flag, size_t len, void *data)
 			tmp_char = tmp_request->path;
 			tmp_path_len = le32_to_cpu(tmp_request->path_len);
 			tmp_name_len = le32_to_cpu(tmp_request->name_len);
-			full_len = len - sizeof(struct mkdir_request);
-			/* Each field should add 1 byte for terminator '\0' */
-			if (full_len != tmp_path_len + 1 + tmp_name_len + 1) {
-				err = -EINVAL;
-				hmdfs_err("verify fail");
-				return err;
-			}
-			if (tmp_path_len != strnlen(tmp_char, min((unsigned int)PATH_MAX, tmp_request->path_len)) ||
-				tmp_name_len != strnlen(
-					tmp_char + tmp_path_len + 1, min((unsigned int)NAME_MAX, tmp_request->name_len))) {
-				err = -EINVAL;
-				hmdfs_err("verify fail");
-				return err;
-			}
-
-			if (!is_path_valid(tmp_char, tmp_path_len + tmp_name_len + 1)) {
-				hmdfs_err("verify fail, invalid path");
-				return -EINVAL;
-			}
+			tmp_char_path_len = strnlen(tmp_char, PATH_MAX);
+			tmp_char_name_len = strnlen(
+				tmp_char + tmp_char_path_len + 1, NAME_MAX);
 		} else {
+			return err;
+		}
+
+		if (tmp_path_len != tmp_char_path_len ||
+		    tmp_name_len != tmp_char_name_len ||
+		    len - sizeof(struct mkdir_request) !=
+			    tmp_path_len + 1 + tmp_name_len + 1) {
+			err = -EINVAL;
+			hmdfs_err("verify fail");
 			return err;
 		}
 	}
@@ -631,7 +606,8 @@ static int hmdfs_create_verify(int flag, size_t len, void *data)
 	char *tmp_char = NULL;
 	size_t tmp_path_len = 0;
 	size_t tmp_name_len = 0;
-	unsigned int full_len;
+	size_t tmp_char_path_len = 0;
+	size_t tmp_char_name_len = 0;
 
 	if (flag == C_REQUEST) {
 		if (data) {
@@ -639,21 +615,19 @@ static int hmdfs_create_verify(int flag, size_t len, void *data)
 			tmp_char = tmp_request->path;
 			tmp_path_len = le32_to_cpu(tmp_request->path_len);
 			tmp_name_len = le32_to_cpu(tmp_request->name_len);
-			full_len = len - sizeof(struct create_request);
-			/* Each field should add 1 byte for terminator '\0' */
-			if (full_len != tmp_path_len + 1 + tmp_name_len + 1) {
-				err = -EINVAL;
-				hmdfs_err("verify fail");
-				return err;
-			}
-			if (tmp_path_len != strnlen(tmp_char, min((unsigned int)PATH_MAX, tmp_request->path_len)) ||
-				tmp_name_len != strnlen(
-					tmp_char + tmp_path_len + 1, min((unsigned int)NAME_MAX, tmp_request->name_len))) {
-				err = -EINVAL;
-				hmdfs_err("verify fail");
-				return err;
-			}
+			tmp_char_path_len = strnlen(tmp_char, PATH_MAX);
+			tmp_char_name_len = strnlen(
+				tmp_char + tmp_char_path_len + 1, NAME_MAX);
 		} else {
+			return err;
+		}
+
+		if (tmp_path_len != tmp_char_path_len ||
+		    tmp_name_len != tmp_char_name_len ||
+		    len - sizeof(struct create_request) !=
+			    tmp_path_len + 1 + tmp_name_len + 1) {
+			err = -EINVAL;
+			hmdfs_err("verify fail");
 			return err;
 		}
 	}
@@ -667,7 +641,8 @@ static int hmdfs_rmdir_verify(int flag, size_t len, void *data)
 	char *tmp_char = NULL;
 	size_t tmp_path_len = 0;
 	size_t tmp_name_len = 0;
-	unsigned int full_len;
+	size_t tmp_char_path_len = 0;
+	size_t tmp_char_name_len = 0;
 
 	if (flag == C_REQUEST) {
 		if (data) {
@@ -675,24 +650,23 @@ static int hmdfs_rmdir_verify(int flag, size_t len, void *data)
 			tmp_char = tmp_request->path;
 			tmp_path_len = le32_to_cpu(tmp_request->path_len);
 			tmp_name_len = le32_to_cpu(tmp_request->name_len);
-			full_len = len - sizeof(struct rmdir_request);
-			/* Each field should add 1 byte for terminator '\0' */
-			if (full_len != tmp_path_len + 1 + tmp_name_len + 1) {
-				err = -EINVAL;
-				hmdfs_err("verify fail");
-				return err;
-			}
-			if (tmp_path_len != strnlen(tmp_char, min((unsigned int)PATH_MAX, tmp_request->path_len)) ||
-				tmp_name_len != strnlen(
-					tmp_char + tmp_path_len + 1, min((unsigned int)NAME_MAX, tmp_request->name_len))) {
-				err = -EINVAL;
-				hmdfs_err("verify fail");
-				return err;
-			}
+			tmp_char_path_len = strnlen(tmp_char, PATH_MAX);
+			tmp_char_name_len = strnlen(
+				tmp_char + tmp_char_path_len + 1, NAME_MAX);
 		} else {
 			return err;
 		}
+
+		if (tmp_path_len != tmp_char_path_len ||
+		    tmp_name_len != tmp_char_name_len ||
+		    len - sizeof(struct rmdir_request) !=
+			    tmp_path_len + 1 + tmp_name_len + 1) {
+			err = -EINVAL;
+			hmdfs_err("verify fail");
+			return err;
+		}
 	}
+
 	return err;
 }
 
@@ -703,7 +677,8 @@ static int hmdfs_unlink_verify(int flag, size_t len, void *data)
 	char *tmp_char = NULL;
 	size_t tmp_path_len = 0;
 	size_t tmp_name_len = 0;
-	unsigned int full_len;
+	size_t tmp_char_path_len = 0;
+	size_t tmp_char_name_len = 0;
 
 	if (flag == C_REQUEST) {
 		if (data) {
@@ -711,24 +686,23 @@ static int hmdfs_unlink_verify(int flag, size_t len, void *data)
 			tmp_char = tmp_request->path;
 			tmp_path_len = le32_to_cpu(tmp_request->path_len);
 			tmp_name_len = le32_to_cpu(tmp_request->name_len);
-			full_len = len - sizeof(struct unlink_request);
-			/* Each field should add 1 byte for terminator '\0' */
-			if (full_len != tmp_path_len + 1 + tmp_name_len + 1) {
-				err = -EINVAL;
-				hmdfs_err("verify fail");
-				return err;
-			}
-			if (tmp_path_len != strnlen(tmp_char, min((unsigned int)PATH_MAX, tmp_request->path_len)) ||
-				tmp_name_len != strnlen(
-					tmp_char + tmp_path_len + 1, min((unsigned int)NAME_MAX, tmp_request->name_len))) {
-				err = -EINVAL;
-				hmdfs_err("verify fail");
-				return err;
-			}
+			tmp_char_path_len = strnlen(tmp_char, PATH_MAX);
+			tmp_char_name_len = strnlen(
+				tmp_char + tmp_char_path_len + 1, NAME_MAX);
 		} else {
 			return err;
 		}
+
+		if (tmp_path_len != tmp_char_path_len ||
+		    tmp_name_len != tmp_char_name_len ||
+		    len - sizeof(struct unlink_request) !=
+			    tmp_path_len + 1 + tmp_name_len + 1) {
+			err = -EINVAL;
+			hmdfs_err("verify fail");
+			return err;
+		}
 	}
+
 	return err;
 }
 
@@ -741,7 +715,10 @@ static int hmdfs_rename_verify(int flag, size_t len, void *data)
 	size_t new_path_len = 0;
 	size_t old_name_len = 0;
 	size_t new_name_len = 0;
-	unsigned int full_len;
+	size_t buf_old_path_len = 0;
+	size_t buf_new_path_len = 0;
+	size_t buf_old_name_len = 0;
+	size_t buf_new_name_len = 0;
 
 	if (flag != C_REQUEST || !data)
 		return 0;
@@ -752,25 +729,25 @@ static int hmdfs_rename_verify(int flag, size_t len, void *data)
 	new_path_len = le32_to_cpu(req->new_path_len);
 	old_name_len = le32_to_cpu(req->old_name_len);
 	new_name_len = le32_to_cpu(req->new_name_len);
-	full_len = len - sizeof(struct rename_request);
-	/* Each field should add 1 byte for terminator '\0' */
-	if (full_len != new_name_len + 1 +
+	buf_old_path_len = strnlen(buf, PATH_MAX);
+	buf_new_path_len = strnlen(buf + buf_old_path_len + 1, PATH_MAX);
+	buf_old_name_len = strnlen(buf + buf_old_path_len + 1 +
+				   buf_new_path_len + 1, PATH_MAX);
+	buf_new_name_len = strnlen(buf + buf_old_path_len + 1 +
+				   buf_new_path_len + 1 +
+				   buf_old_name_len + 1, PATH_MAX);
+
+	if (new_name_len != buf_new_name_len ||
+	    old_name_len != buf_old_name_len ||
+	    new_path_len != buf_new_path_len ||
+	    old_path_len != buf_old_path_len ||
+	    len - sizeof(struct rename_request) != new_name_len + 1 +
 		old_name_len + 1 + new_path_len + 1 + old_path_len + 1) {
 		err = -EINVAL;
 		hmdfs_err("verify fail");
 		return err;
 	}
-	if (old_path_len != strnlen(buf, min((unsigned int)PATH_MAX, req->old_path_len)) ||
-		new_path_len != strnlen(buf + old_path_len + 1, min((unsigned int)PATH_MAX, req->new_path_len)) ||
-		old_name_len != strnlen(buf + old_path_len + 1 +
-			new_path_len + 1, min((unsigned int)PATH_MAX, req->old_name_len)) ||
-		new_name_len != strnlen(buf + old_path_len + 1 +
-			new_path_len + 1 +
-			old_name_len + 1, min((unsigned int)PATH_MAX, req->new_name_len))) {
-		err = -EINVAL;
-		hmdfs_err("verify fail");
-		return err;
-	}
+
 	return err;
 }
 
@@ -780,23 +757,18 @@ static int hmdfs_setattr_verify(int flag, size_t len, void *data)
 	struct setattr_request *tmp_request = NULL;
 	char *tmp_char = NULL;
 	size_t tmp_len = 0;
-	unsigned int full_len;
 
 	if (flag == C_REQUEST) {
 		if (data) {
 			tmp_request = data;
 			tmp_char = tmp_request->buf;
-			full_len = len - sizeof(struct setattr_request);
-			if (le32_to_cpu(tmp_request->path_len) != full_len - 1) {
-				hmdfs_err("verify fail");
-				return err;
-			}
-			tmp_len = strnlen(tmp_char, min((unsigned int)PATH_MAX, tmp_request->path_len));
+			tmp_len = strnlen(tmp_char, PATH_MAX);
 		} else {
 			return err;
 		}
 
-		if (tmp_len != len - sizeof(struct setattr_request) - 1) {
+		if (tmp_len != len - sizeof(struct setattr_request) - 1 ||
+		    le32_to_cpu(tmp_request->path_len) != tmp_len) {
 			err = -EINVAL;
 			hmdfs_err("verify fail");
 			return err;
@@ -810,19 +782,14 @@ static int hmdfs_getattr_verify(int flag, size_t len, void *data)
 {
 	struct getattr_request *req = NULL;
 	size_t tmp_len;
-	unsigned int full_len;
 
 	if (flag != C_REQUEST || !data)
 		return 0;
 
 	req = data;
-	full_len = len - sizeof(struct getattr_request);
-	if (le32_to_cpu(req->path_len) != full_len - 1) {
-		hmdfs_err("verify fail");
-		return -EINVAL;
-	}
-	tmp_len = strnlen(req->buf, min((unsigned int)PATH_MAX, req->path_len));
-	if (le32_to_cpu(req->path_len) != tmp_len) {
+	tmp_len = strnlen(req->buf, PATH_MAX);
+	if (tmp_len != len - sizeof(struct getattr_request) - 1 ||
+	    le32_to_cpu(req->path_len) != tmp_len) {
 		hmdfs_err("verify fail");
 		return -EINVAL;
 	}
@@ -837,7 +804,6 @@ static int hmdfs_getxattr_verify(int flag, size_t len, void *data)
 	size_t path_len = 0;
 	size_t name_len = 0;
 	size_t size = 0;
-	unsigned int full_len;
 
 	if (!data)
 		return 0;
@@ -847,24 +813,17 @@ static int hmdfs_getxattr_verify(int flag, size_t len, void *data)
 		path_len = le32_to_cpu(req->path_len);
 		name_len = le32_to_cpu(req->name_len);
 		size = le32_to_cpu(req->size);
-		full_len = len - sizeof(struct getxattr_request);
-		/* Each field should add 1 byte for terminator '\0' */
-		if (full_len != path_len + 1 + name_len + 1) {
-			hmdfs_err("verify fail");
-			return -EINVAL;
-		}
 		if (path_len >= PATH_MAX ||
-			path_len != strnlen(req->buf, min((unsigned int)PATH_MAX, req->path_len)) ||
-			name_len !=
-			    strnlen(req->buf + path_len + 1, min((unsigned int)XATTR_NAME_MAX, req->name_len)) ||
+		    path_len != strnlen(req->buf, PATH_MAX) ||
+		    name_len !=
+			    strnlen(req->buf + path_len + 1, XATTR_NAME_MAX) ||
 		    size > HMDFS_XATTR_SIZE_MAX)
 			return -EINVAL;
 	} else {
 		resp = data;
 		size = le32_to_cpu(resp->size);
-		if ((size > HMDFS_XATTR_SIZE_MAX) ||
-			(len != sizeof(struct getxattr_response) &&
-		    len < sizeof(struct getxattr_response) + size))
+		if (len != sizeof(struct getxattr_response) &&
+		    len < sizeof(struct getxattr_response) + size)
 			return -EINVAL;
 	}
 
@@ -877,7 +836,6 @@ static int hmdfs_setxattr_verify(int flag, size_t len, void *data)
 	size_t path_len = 0;
 	size_t name_len = 0;
 	size_t size = 0;
-	unsigned int full_len;
 
 	/* No need to verify response */
 	if (flag != C_REQUEST || !data)
@@ -887,14 +845,8 @@ static int hmdfs_setxattr_verify(int flag, size_t len, void *data)
 	path_len = le32_to_cpu(req->path_len);
 	name_len = le32_to_cpu(req->name_len);
 	size = le32_to_cpu(req->size);
-	full_len = len - sizeof(struct setxattr_request);
-	/* Each field should add 1 byte for terminator '\0' */
-	if (full_len != path_len + 1 + name_len + 1) {
-		hmdfs_err("verify fail");
-		return -EINVAL;
-	}
-	if (path_len >= PATH_MAX || path_len != strnlen(req->buf, min((unsigned int)PATH_MAX, req->path_len)) ||
-	    name_len != strnlen(req->buf + path_len + 1, min((unsigned int)XATTR_NAME_MAX, req->name_len)) ||
+	if (path_len >= PATH_MAX || path_len != strnlen(req->buf, PATH_MAX) ||
+	    name_len != strnlen(req->buf + path_len + 1, XATTR_NAME_MAX) ||
 	    len != path_len + name_len + size + 2 +
 			    sizeof(struct setxattr_request) ||
 	    size > HMDFS_XATTR_SIZE_MAX)
@@ -909,7 +861,6 @@ static int hmdfs_listxattr_verify(int flag, size_t len, void *data)
 	struct listxattr_response *resp = NULL;
 	size_t path_len = 0;
 	size_t size = 0;
-	unsigned int full_len;
 
 	if (!data)
 		return 0;
@@ -918,21 +869,15 @@ static int hmdfs_listxattr_verify(int flag, size_t len, void *data)
 		req = data;
 		path_len = le32_to_cpu(req->path_len);
 		size = le32_to_cpu(req->size);
-		full_len = len - sizeof(struct listxattr_request);
-		if (full_len != path_len + 1) {
-			hmdfs_err("verify fail");
-			return -EINVAL;
-		}
 		if (path_len >= PATH_MAX ||
-		    path_len != strnlen(req->buf, min((unsigned int)PATH_MAX, req->path_len)) ||
+		    path_len != strnlen(req->buf, PATH_MAX) ||
 		    size > HMDFS_LISTXATTR_SIZE_MAX)
 			return -EINVAL;
 	} else {
 		resp = data;
 		size = le32_to_cpu(resp->size);
-		if ((size > HMDFS_LISTXATTR_SIZE_MAX) ||
-			(len != sizeof(struct listxattr_response) &&
-		    len < sizeof(struct listxattr_response) + size))
+		if (len != sizeof(struct listxattr_response) &&
+		    len < sizeof(struct listxattr_response) + size)
 			return -EINVAL;
 	}
 
@@ -964,23 +909,18 @@ static int hmdfs_statfs_verify(int flag, size_t len, void *data)
 	struct statfs_request *tmp_request = NULL;
 	char *tmp_char = NULL;
 	size_t tmp_len = 0;
-	unsigned int full_len;
 
 	if (flag == C_REQUEST) {
 		if (data) {
 			tmp_request = data;
 			tmp_char = tmp_request->path;
-			full_len = len - sizeof(struct statfs_request);
-			if (le32_to_cpu(tmp_request->path_len) != full_len - 1) {
-				hmdfs_err("verify fail");
-				return -EINVAL;
-			}
-			tmp_len = strnlen(tmp_char, min((unsigned int)PATH_MAX, tmp_request->path_len));
+			tmp_len = strnlen(tmp_char, PATH_MAX);
 		} else {
 			return err;
 		}
 
-		if (le32_to_cpu(tmp_request->path_len) != tmp_len) {
+		if (le32_to_cpu(tmp_request->path_len) != tmp_len ||
+		    tmp_len != len - sizeof(struct statfs_request) - 1) {
 			err = -EINVAL;
 			hmdfs_err("verify fail");
 			return err;
@@ -1013,21 +953,16 @@ static int hmdfs_readpages_open_verify(int flag, size_t len, void *data)
 	struct readpages_open_request *req = NULL;
 	unsigned int size;
 	size_t tmp_len;
-	unsigned int full_len;
 
 	if (flag != C_REQUEST || !data)
 		return 0;
 
 	req = data;
 	size = le32_to_cpu(req->size);
-	full_len = len - sizeof(struct readpages_open_request);
-	if (le32_to_cpu(req->path_len) != full_len - 1) {
-		hmdfs_err("verify fail");
-		return -EINVAL;
-	}
-	tmp_len = strnlen(req->buf, min((unsigned int)PATH_MAX, req->path_len));
-	if (tmp_len != le32_to_cpu(req->path_len) ||
-		size > HMDFS_READPAGES_NR_MAX * HMDFS_PAGE_SIZE) {
+	tmp_len = strnlen(req->buf, PATH_MAX);
+	if (tmp_len + 1 != len - sizeof(*req) ||
+	    le32_to_cpu(req->path_len) != tmp_len ||
+	    size > HMDFS_READPAGES_NR_MAX * HMDFS_PAGE_SIZE) {
 		hmdfs_err("verify fail, req->size %u", size);
 		return -EINVAL;
 	}
@@ -1127,7 +1062,7 @@ int hmdfs_message_verify(struct hmdfs_peer *con, struct hmdfs_head_cmd *head,
 
 	cmd = head->operations.command;
 	if (cmd >= F_SIZE || cmd < F_OPEN || cmd == F_RESERVED_0 ||
-		(cmd >= F_RESERVED_1 && cmd <= F_RESERVED_4)) {
+	    (cmd >= F_RESERVED_1 && cmd <= F_RESERVED_4)) {
 		err = -EINVAL;
 		goto handle_bad_msg;
 	}

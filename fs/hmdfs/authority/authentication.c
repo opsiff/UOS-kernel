@@ -374,6 +374,7 @@ static void fixup_ownership_user_group(struct inode *child, struct dentry *lower
 	uid_t user_uid = multiuser_get_uid(sbi->user_id, uid);
 	gid_t user_gid = multiuser_get_uid(sbi->user_id, gid);
 
+
 	newattrs.ia_valid = ATTR_UID | ATTR_GID | ATTR_FORCE;
 	newattrs.ia_uid = KUIDT_INIT(user_uid);
 	newattrs.ia_gid = KGIDT_INIT(user_gid);
@@ -498,6 +499,7 @@ void check_and_fixup_ownership_remote(struct inode *dir,
 			 * Set appid + media_rw for local install.
 			 */
 			uid_t app_id = hmdfs_get_appid(dentry->d_name.name);
+
 			if (app_id != 0)
 				dinode->i_uid = KUIDT_INIT(app_id);
 			else

@@ -135,6 +135,7 @@ static void hmdfs_fill_merge_inode(struct inode *inode,
 		inode->i_fop = &hmdfs_dir_fops_merge;
 		set_nlink(inode, get_num_comrades(child_dentry) + 2);
 	}
+
 }
 
 static struct inode *fill_inode_merge(struct super_block *sb,
@@ -1104,12 +1105,10 @@ int do_unlink_merge(struct inode *dir, struct dentry *dentry)
 	mutex_lock(&dim->comrade_list_lock);
 	list_for_each_entry(comrade, &(dim->comrade_list), list) {
 		lo_d = comrade->lo_d;
-		dget(lo_d);
 		lo_d_dir = lock_parent(lo_d);
 		lo_i_dir = d_inode(lo_d_dir);
 		ret = vfs_unlink(lo_i_dir, lo_d, NULL); // lo_d GET
 		unlock_dir(lo_d_dir);
-		dput(lo_d);
 		if (ret)
 			break;
 	}
@@ -1173,15 +1172,11 @@ int do_rename_merge(struct inode *old_dir, struct dentry *old_dentry,
 	int ret = 0;
 	struct hmdfs_sb_info *sbi = (old_dir->i_sb)->s_fs_info;
 	struct hmdfs_dentry_info_merge *dim = hmdfs_dm(old_dentry);
-	struct hmdfs_dentry_comrade *comrade = NULL;
-	struct hmdfs_dentry_comrade *new_comrade = NULL;
+	struct hmdfs_dentry_comrade *comrade = NULL, *new_comrade = NULL;
 	struct path lo_p_new = { .mnt = NULL, .dentry = NULL };
-	struct inode *lo_i_old_dir = NULL;
-	struct inode *lo_i_new_dir = NULL;
-	struct dentry *lo_d_old_dir = NULL;
-	struct dentry *lo_d_old = NULL;
-	struct dentry *lo_d_new_dir = NULL;
-	struct dentry *lo_d_new = NULL;
+	struct inode *lo_i_old_dir = NULL, *lo_i_new_dir = NULL;
+	struct dentry *lo_d_old_dir = NULL, *lo_d_old = NULL,
+		      *lo_d_new_dir = NULL, *lo_d_new = NULL;
 	struct dentry *d_new_dir = NULL;
 	char *path_buf = kmalloc(PATH_MAX, GFP_KERNEL);
 	char *abs_path_buf = kmalloc(PATH_MAX, GFP_KERNEL);
@@ -1277,13 +1272,6 @@ int hmdfs_rename_merge(struct inode *old_dir, struct dentry *old_dentry,
 		ret = -EACCES;
 		goto rename_out;
 	}
-
-	if (hmdfs_i(old_dir)->inode_type != hmdfs_i(new_dir)->inode_type) {
-		hmdfs_err("in different view");
-		ret = -EPERM;
-		goto rename_out;
-	}
-
 	old_dir_buf = kmalloc(PATH_MAX, GFP_KERNEL);
 	new_dir_buf = kmalloc(PATH_MAX, GFP_KERNEL);
 	if (!old_dir_buf || !new_dir_buf) {
@@ -1316,6 +1304,7 @@ int hmdfs_rename_merge(struct inode *old_dir, struct dentry *old_dentry,
 	trace_hmdfs_rename_merge(old_dir, old_dentry, new_dir, new_dentry,
 				 flags);
 	ret = do_rename_merge(old_dir, old_dentry, new_dir, new_dentry, flags);
+
 	if (ret != 0)
 		d_drop(new_dentry);
 
@@ -1323,6 +1312,7 @@ int hmdfs_rename_merge(struct inode *old_dir, struct dentry *old_dentry,
 		d_invalidate(old_dentry);
 
 rename_out:
+	hmdfs_trace_rename_merge(old_dir, old_dentry, new_dir, new_dentry, ret);
 	kfree(old_dir_buf);
 	kfree(new_dir_buf);
 	return ret;

@@ -256,8 +256,7 @@ int hmdfs_adapter_generate_file_id(struct hmdfs_sb_info *sbi, const char *dir,
 	char *linkpath = NULL;
 	char *destpath = NULL;
 	uint32_t id = INVALID_FILE_ID;
-	int ret = 0;
-	int retry = 0;
+	int ret = 0, retry = 0;
 
 	linkpath = kzalloc(PATH_MAX, GFP_KERNEL);
 	destpath = kzalloc(PATH_MAX, GFP_KERNEL);

@@ -272,6 +272,9 @@ struct hmdfs_peer {
 	struct mutex p2p_get_session_lock;
 	wait_queue_head_t establish_p2p_connection_wq;
 	struct hmdfs_peer_statistics stats;
+	/* sysfs */
+	struct kobject kobj;
+	struct completion kobj_unregister;
 	/* suport loopback network */
 	__u8 loopback_connection_establish_timeout;
 	wait_queue_head_t establish_loopback_connection_wq;

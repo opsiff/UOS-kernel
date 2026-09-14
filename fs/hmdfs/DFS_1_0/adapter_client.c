@@ -326,6 +326,7 @@ int client_sendmessage_request(struct hmdfs_peer *con,
 		msg_wq->response_q,
 		(atomic_read(&msg_wq->valid) == MSG_Q_END_RECV),
 		sm->timeout * HZ);
+
 	if (time_left == -ERESTARTSYS || time_left == 0) {
 		hmdfs_err("timeout err device_id %llu, msg_id %d cmd %d",
 			  con->device_id, head.msg_id, head.operations);

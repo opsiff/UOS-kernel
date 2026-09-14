@@ -790,6 +790,7 @@ int hmdfs_send_statfs(struct hmdfs_peer *con, const char *path,
 	strncpy(req->path, path, path_len);
 
 	ret = hmdfs_sendmessage_request(con, &sm);
+
 	if (ret == -ETIME)
 		ret = -EIO;
 	if (!ret && (sm.out_len == 0 || !sm.out_buf))
@@ -837,6 +838,7 @@ static void hmdfs_update_getxattr_ret(struct getxattr_response *resp,
 				     void *value, size_t o_size, int *ret)
 {
 	ssize_t size = le32_to_cpu(resp->size);
+
 	if (o_size && o_size < size) {
 		*ret = -ERANGE;
 		return;
@@ -922,6 +924,7 @@ static void hmdfs_update_listxattr_ret(struct listxattr_response *resp,
 				       char *list, size_t o_size, ssize_t *ret)
 {
 	ssize_t size = le32_to_cpu(resp->size);
+
 	if (o_size && o_size < size) {
 		*ret = -ERANGE;
 		return;

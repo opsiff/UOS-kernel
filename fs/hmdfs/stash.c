@@ -300,6 +300,7 @@ static int hmdfs_flush_stash_file_metadata(struct hmdfs_inode_info *info)
 
 	if (strlen(cache->path) == 0) {
 		long long to_write_pgs = atomic64_read(&cache->to_write_pgs);
+
 		/* Nothing to stash. No need to flush meta data. */
 		if (to_write_pgs == 0)
 			return 0;
@@ -2037,6 +2038,7 @@ static void hmdfs_stash_del_do_cleanup(struct hmdfs_peer *conn, int evt,
 	list_for_each_entry_safe(info, next, &conn->wr_opened_inode_list,
 				 wr_opened_node) {
 		int status = READ_ONCE(info->stash_status);
+
 		if (status == HMDFS_REMOTE_INODE_STASHING) {
 			struct hmdfs_cache_info *cache = NULL;
 

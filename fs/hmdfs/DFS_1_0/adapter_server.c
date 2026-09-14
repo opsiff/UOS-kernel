@@ -208,13 +208,6 @@ void server_recv_writepages(struct hmdfs_peer *con,
 		goto out_failed;
 	}
 
-	if (req->size != head->datasize - sizeof(*head) - sizeof(*req)) {
-		hmdfs_warning("recv size %llu but data size is %lu",
-			req->size, head->datasize - sizeof(*head) - sizeof(*req));
-		err = -EINVAL;
-		goto out_failed;
-	}
-
 	hmdfs_adapter_convert_file_id_to_path(fno, pathname);
 
 	file = filp_open(pathname, O_RDWR | O_LARGEFILE, 0);
@@ -237,8 +230,8 @@ void server_recv_writepages(struct hmdfs_peer *con,
 
 	ack_data = (void *)ack_head + sizeof(struct hmdfs_adapter_head);
 
-	for (pos = 0; pos < req->size;) {
-		__u64 end = 0;
+	for (pos = 0; pos < req->size; ) {
+		int end = 0;
 
 		end = pos + sizeof(struct adapter_write_data_buffer);
 		if (end > req->size) {

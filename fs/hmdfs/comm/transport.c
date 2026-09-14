@@ -1271,21 +1271,6 @@ static int tcp_configure_socket(struct socket *sock)
 	return 0;
 }
 
-static bool is_tcp_socket(struct tcp_handle *tcp)
-{
-	if (!tcp || !tcp->sock || !tcp->sock->sk) {
-		hmdfs_err("invalid tcp handle");
-		return false;
-	}
-
-	if (tcp->sock->sk->sk_protocol != IPPROTO_TCP) {
-		hmdfs_err("invalid socket protocol");
-		return false;
-	}
-
-	return true;
-}
-
 static struct tcp_handle *tcp_alloc_handle(struct connection *conn,
 					   struct connection_init_info *info)
 {
@@ -1302,19 +1287,13 @@ static struct tcp_handle *tcp_alloc_handle(struct connection *conn,
 	tcp->connect = conn;
 	tcp->sock = sock;
 
-	if (!is_tcp_socket(tcp)) {
-		err = -EINVAL;
-		goto free_tcp;
-	}
-
 	if (!tcp_handle_is_available(tcp)) {
 		err = -EPIPE;
 		goto free_tcp;
 	}
 
-	hmdfs_info("socket fd %d, state %d, refcount %ld, protocol %d",
-		   conn->fd, sock->state, file_count(sock->file),
-		   sock->sk->sk_protocol);
+	hmdfs_info("socket fd %d, state %d, refcount %ld",
+		   conn->fd, sock->state, file_count(sock->file));
 
 	err = tcp_configure_socket(sock);
 	if (err)

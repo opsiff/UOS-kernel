@@ -129,11 +129,6 @@ static void ctrl_cmd_update_socket_handler(const char *buf, size_t len,
 		goto out;
 	}
 	memcpy(&cmd, buf, sizeof(cmd));
-	if (cmd.status != CONNECT_STAT_WAIT_REQUEST &&
-	    cmd.status != CONNECT_STAT_WAIT_RESPONSE) {
-		hmdfs_err("invalid status");
-		goto out;
-	}
 	hmdfs_info("newfd: %d, status: %d, link_type: %s, proto: %s",
 		   cmd.newfd, cmd.status,
 		   hmdfs_get_str_link_type(cmd.link_type),
@@ -441,7 +436,6 @@ static ssize_t sbi_cmd_store(struct kobject *kobj, struct sbi_attribute *attr,
 	int cmd;
 	struct hmdfs_sb_info *sbi = to_sbi(kobj);
 
-	hmdfs_info("sbi cmd store begin");
 	if (!sbi) {
 		hmdfs_info("Fatal! Empty sbi. Mount fs first");
 		return len;
@@ -458,7 +452,6 @@ static ssize_t sbi_cmd_store(struct kobject *kobj, struct sbi_attribute *attr,
 	hmdfs_info("Recved cmd: %s", cmd2str(cmd));
 	if (cmd_handler[cmd])
 		cmd_handler[cmd](buf, len, sbi);
-	hmdfs_info("sbi cmd store end");
 	return len;
 }
 
@@ -1761,12 +1754,10 @@ static struct kobj_type sbi_timeout_ktype = {
 
 void hmdfs_release_sysfs(struct hmdfs_sb_info *sbi)
 {
-	hmdfs_info("release sysfs begin");
 	kobject_put(&sbi->s_cmd_timeout_kobj);
 	wait_for_completion(&sbi->s_timeout_kobj_unregister);
 	kobject_put(&sbi->kobj);
 	wait_for_completion(&sbi->s_kobj_unregister);
-	hmdfs_info("release sysfs end");
 }
 
 int hmdfs_register_sysfs(struct hmdfs_sb_info *sbi, const char *name,
@@ -1817,6 +1808,187 @@ void hmdfs_unregister_sysfs(struct hmdfs_sb_info *sbi)
 static inline int to_sysfs_fmt_evt(unsigned int evt)
 {
 	return evt == RAW_NODE_EVT_NR ? -1 : evt;
+}
+
+static ssize_t features_show(struct kobject *kobj, struct peer_attribute *attr,
+			     char *buf)
+{
+	struct hmdfs_peer *peer = to_peer(kobj);
+
+	return fill_features(buf, peer->features);
+}
+
+static ssize_t event_show(struct kobject *kobj, struct peer_attribute *attr,
+			  char *buf)
+{
+	struct hmdfs_peer *peer = to_peer(kobj);
+
+	return snprintf(buf, PAGE_SIZE,
+			"cur_async evt %d seq %u\n"
+			"cur_sync evt %d seq %u\n"
+			"pending evt %d seq %u\n"
+			"merged evt %u\n"
+			"dup_drop evt %u %u\n"
+			"waiting evt %u %u\n"
+			"seq_tbl %u %u %u %u\n"
+			"seq_rd_idx %u\n"
+			"seq_wr_idx %u\n",
+			to_sysfs_fmt_evt(peer->cur_evt[0]),
+			peer->cur_evt_seq[0],
+			to_sysfs_fmt_evt(peer->cur_evt[1]),
+			peer->cur_evt_seq[1],
+			to_sysfs_fmt_evt(peer->pending_evt),
+			peer->pending_evt_seq,
+			peer->merged_evt,
+			peer->dup_evt[RAW_NODE_EVT_OFF],
+			peer->dup_evt[RAW_NODE_EVT_ON],
+			peer->waiting_evt[RAW_NODE_EVT_OFF],
+			peer->waiting_evt[RAW_NODE_EVT_ON],
+			peer->seq_tbl[0], peer->seq_tbl[1], peer->seq_tbl[2],
+			peer->seq_tbl[3],
+			peer->seq_rd_idx % RAW_NODE_EVT_MAX_NR,
+			peer->seq_wr_idx % RAW_NODE_EVT_MAX_NR);
+}
+
+static ssize_t stash_show(struct kobject *kobj, struct peer_attribute *attr,
+			  char *buf)
+{
+	struct hmdfs_peer *peer = to_peer(kobj);
+
+	return snprintf(buf, PAGE_SIZE,
+			"cur_ok %u\n"
+			"cur_nothing %u\n"
+			"cur_fail %u\n"
+			"total_ok %u\n"
+			"total_nothing %u\n"
+			"total_fail %u\n"
+			"ok_pages %llu\n"
+			"fail_pages %llu\n",
+			peer->stats.stash.cur_ok,
+			peer->stats.stash.cur_nothing,
+			peer->stats.stash.cur_fail,
+			peer->stats.stash.total_ok,
+			peer->stats.stash.total_nothing,
+			peer->stats.stash.total_fail,
+			peer->stats.stash.ok_pages,
+			peer->stats.stash.fail_pages);
+}
+
+static ssize_t restore_show(struct kobject *kobj, struct peer_attribute *attr,
+			    char *buf)
+{
+	struct hmdfs_peer *peer = to_peer(kobj);
+
+	return snprintf(buf, PAGE_SIZE,
+			"cur_ok %u\n"
+			"cur_fail %u\n"
+			"cur_keep %u\n"
+			"total_ok %u\n"
+			"total_fail %u\n"
+			"total_keep %u\n"
+			"ok_pages %llu\n"
+			"fail_pages %llu\n",
+			peer->stats.restore.cur_ok,
+			peer->stats.restore.cur_fail,
+			peer->stats.restore.cur_keep,
+			peer->stats.restore.total_ok,
+			peer->stats.restore.total_fail,
+			peer->stats.restore.total_keep,
+			peer->stats.restore.ok_pages,
+			peer->stats.restore.fail_pages);
+}
+
+static ssize_t rebuild_show(struct kobject *kobj, struct peer_attribute *attr,
+			    char *buf)
+{
+	struct hmdfs_peer *peer = to_peer(kobj);
+
+	return snprintf(buf, PAGE_SIZE,
+			"cur_ok %u\n"
+			"cur_fail %u\n"
+			"cur_invalid %u\n"
+			"total_ok %u\n"
+			"total_fail %u\n"
+			"total_invalid %u\n"
+			"time %u\n",
+			peer->stats.rebuild.cur_ok,
+			peer->stats.rebuild.cur_fail,
+			peer->stats.rebuild.cur_invalid,
+			peer->stats.rebuild.total_ok,
+			peer->stats.rebuild.total_fail,
+			peer->stats.rebuild.total_invalid,
+			peer->stats.rebuild.time);
+}
+
+static struct peer_attribute peer_features_attr = __ATTR_RO(features);
+static struct peer_attribute peer_event_attr = __ATTR_RO(event);
+static struct peer_attribute peer_stash_attr = __ATTR_RO(stash);
+static struct peer_attribute peer_restore_attr = __ATTR_RO(restore);
+static struct peer_attribute peer_rebuild_attr = __ATTR_RO(rebuild);
+
+static struct attribute *peer_attrs[] = {
+	&peer_features_attr.attr,
+	&peer_event_attr.attr,
+	&peer_stash_attr.attr,
+	&peer_restore_attr.attr,
+	&peer_rebuild_attr.attr,
+	NULL,
+};
+
+static ssize_t peer_attr_show(struct kobject *kobj, struct attribute *attr,
+			      char *buf)
+{
+	struct peer_attribute *peer_attr = to_peer_attr(attr);
+
+	if (!peer_attr->show)
+		return -EIO;
+	return peer_attr->show(kobj, peer_attr, buf);
+}
+
+static ssize_t peer_attr_store(struct kobject *kobj, struct attribute *attr,
+			       const char *buf, size_t len)
+{
+	struct peer_attribute *peer_attr = to_peer_attr(attr);
+
+	if (!peer_attr->store)
+		return -EIO;
+	return peer_attr->store(kobj, peer_attr, buf, len);
+}
+
+static const struct sysfs_ops peer_sysfs_ops = {
+	.show = peer_attr_show,
+	.store = peer_attr_store,
+};
+
+static void peer_sysfs_release(struct kobject *kobj)
+{
+	struct hmdfs_peer *peer = to_peer(kobj);
+
+	complete(&peer->kobj_unregister);
+}
+
+static struct kobj_type peer_ktype = {
+	.sysfs_ops = &peer_sysfs_ops,
+	.default_attrs = peer_attrs,
+	.release = peer_sysfs_release,
+};
+
+int hmdfs_register_peer_sysfs(struct hmdfs_sb_info *sbi,
+			      struct hmdfs_peer *peer)
+{
+	int err = 0;
+
+	init_completion(&peer->kobj_unregister);
+	err = kobject_init_and_add(&peer->kobj, &peer_ktype, &sbi->kobj,
+				   "peer_%llu", peer->device_id);
+	return err;
+}
+
+void hmdfs_release_peer_sysfs(struct hmdfs_peer *peer)
+{
+	kobject_del(&peer->kobj);
+	kobject_put(&peer->kobj);
+	wait_for_completion(&peer->kobj_unregister);
 }
 
 static void notify(struct hmdfs_peer *node, const void *param, size_t len)

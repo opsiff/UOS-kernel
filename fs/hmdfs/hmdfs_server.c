@@ -235,7 +235,7 @@ static int hmdfs_get_inode_by_name(struct hmdfs_peer *con, const char *filename,
 }
 
 static const char *datasl_str[] = {
-	"S0", "S1", "S2", "S3", "S4"
+	"s0", "s1", "s2", "s3", "s4"
 };
 
 static int parse_data_sec_level(const char *sl_value, size_t sl_value_len)
@@ -388,6 +388,7 @@ static struct file *get_file_by_fid_and_ver(struct hmdfs_peer *con,
 {
 	struct file *file = NULL;
 	__u64 cur_file_ver = hmdfs_server_pack_fid_ver(con, cmd);
+
 	if (file_ver != cur_file_ver) {
 		hmdfs_warning("Stale file version %llu for fid %u (ver %llu)",
 			      file_ver, file_id, cur_file_ver);
@@ -1651,8 +1652,7 @@ out:
 
 static void _gen_dir_dents_info(struct getdents_callback_real *gc)
 {
-	struct dir_entry_info *di = NULL;
-	struct dir_entry_info *tmp = NULL;
+	struct dir_entry_info *di = NULL, *tmp = NULL;
 
 	list_for_each_entry_safe(di, tmp, &gc->dir_ents, list) {
 		_do_create_dentry(gc, di);

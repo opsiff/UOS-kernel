@@ -211,6 +211,9 @@ int hmdfs_register_sysfs(struct hmdfs_sb_info *sbi, const char *name,
 			 int namelen);
 void hmdfs_unregister_sysfs(struct hmdfs_sb_info *sbi);
 void hmdfs_release_sysfs(struct hmdfs_sb_info *sbi);
+int hmdfs_register_peer_sysfs(struct hmdfs_sb_info *sbi,
+			      struct hmdfs_peer *peer);
+void hmdfs_release_peer_sysfs(struct hmdfs_peer *peer);
 int hmdfs_sysfs_init(void);
 void hmdfs_sysfs_exit(void);
 
@@ -229,5 +232,15 @@ static inline struct sbi_attribute *to_sbi_attr(struct attribute *x)
 static inline struct hmdfs_sb_info *to_sbi(struct kobject *x)
 {
 	return container_of(x, struct hmdfs_sb_info, kobj);
+}
+
+static inline struct peer_attribute *to_peer_attr(struct attribute *x)
+{
+	return container_of(x, struct peer_attribute, attr);
+}
+
+static inline struct hmdfs_peer *to_peer(struct kobject *x)
+{
+	return container_of(x, struct hmdfs_peer, kobj);
 }
 #endif

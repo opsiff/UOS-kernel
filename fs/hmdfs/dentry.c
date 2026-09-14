@@ -103,8 +103,9 @@ static int hmdfs_dev_d_revalidate(struct dentry *dentry, unsigned int flags)
 
 	info = hmdfs_i(dinode);
 	if (info->inode_type == HMDFS_LAYER_SECOND_LOCAL ||
-	    info->inode_type == HMDFS_LAYER_FIRST_DEVICE)
+	    info->inode_type == HMDFS_LAYER_FIRST_DEVICE) {
 		return 1;
+	}
 	if (info->conn && hmdfs_is_node_online(info->conn))
 		return 1;
 

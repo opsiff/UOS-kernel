@@ -876,6 +876,7 @@ static void dentry_syncer_chrdev_destroy(void)
 int dentry_syncer_init(void)
 {
 	int err = dentry_syncer_chrdev_init();
+
 	if (err) {
 		hmdfs_err("Failed to init dentry syncer cdev! errno = %d", err);
 		return err;

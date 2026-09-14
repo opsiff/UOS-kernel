@@ -45,9 +45,6 @@ hmdfs-$(CONFIG_HMDFS_LOW_LATENCY) += \
 obj-$(CONFIG_HMDFS_D2DP_TRANSPORT) += d2dp/
 
 ccflags-y += -I$(src) -Werror -Wall
-ifeq ($(USE_BISHENG_CLANG),true)
-ccflags-y += -Wno-error=unused-but-set-variable
-endif
 ccflags-$(CONFIG_HMDFS_1_0) += -DCONFIG_HMDFS_1_0
 ccflags-$(CONFIG_HMDFS_CRYPTO) += -DCONFIG_HMDFS_CRYPTO
 ccflags-$(CONFIG_HMDFS_ANDROID) += -DCONFIG_HMDFS_ANDROID

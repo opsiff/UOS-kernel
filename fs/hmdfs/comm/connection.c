@@ -83,27 +83,25 @@ static int hs_parse_crypto_data(struct connection *conn_impl, __u8 ops,
 static void hs_fill_case_sense_data(struct connection *conn_impl, __u8 ops,
 				    void *data, __u32 len)
 {
-	struct case_sense_body *body = NULL;
+	struct case_sense_body *body = (struct case_sense_body *)data;
 
 	if (len < sizeof(struct case_sense_body)) {
 		hmdfs_err("case sensitive len %u is err", len);
 		return;
 	}
-	body = (struct case_sense_body *)data;
 	body->case_sensitive = conn_impl->node->sbi->s_case_sensitive ? 1 : 0;
 }
 
 static int hs_parse_case_sense_data(struct connection *conn_impl, __u8 ops,
 				     void *data, __u32 len)
 {
-	struct case_sense_body *body = NULL;
+	struct case_sense_body *body = (struct case_sense_body *)data;
 	__u8 sensitive = conn_impl->node->sbi->s_case_sensitive ? 1 : 0;
 
 	if (len < sizeof(struct case_sense_body)) {
 		hmdfs_info("case sensitive len %u is err", len);
 		return -1;
 	}
-	body = (struct case_sense_body *)data;
 	if (body->case_sensitive != sensitive) {
 		hmdfs_err("case sensitive inconsistent, server: %u,client: %u, ops: %u",
 			  body->case_sensitive, sensitive, ops);
@@ -115,12 +113,12 @@ static int hs_parse_case_sense_data(struct connection *conn_impl, __u8 ops,
 static void hs_fill_feature_data(struct connection *conn_impl, __u8 ops,
 				 void *data, __u32 len)
 {
-	struct feature_body *body = NULL;
+	struct feature_body *body = (struct feature_body *)data;
+
 	if (len < sizeof(struct feature_body)) {
 		hmdfs_err("feature len %u is err", len);
 		return;
 	}
-	body = (struct feature_body *)data;
 	body->features = cpu_to_le64(conn_impl->node->sbi->s_features);
 	body->reserved = cpu_to_le64(0);
 }
@@ -128,13 +126,13 @@ static void hs_fill_feature_data(struct connection *conn_impl, __u8 ops,
 static int hs_parse_feature_data(struct connection *conn_impl, __u8 ops,
 				 void *data, __u32 len)
 {
-	struct feature_body *body = NULL;
+	struct feature_body *body = (struct feature_body *)data;
 
 	if (len < sizeof(struct feature_body)) {
 		hmdfs_err("feature len %u is err", len);
 		return -1;
 	}
-	body = (struct feature_body *)data;
+
 	conn_impl->node->features = le64_to_cpu(body->features);
 	return 0;
 }
@@ -1150,6 +1148,8 @@ static void hmdfs_del_peer(struct hmdfs_peer *node)
 
 	hmdfs_run_simple_evt_cb(node, NODE_EVT_DEL);
 
+	hmdfs_release_peer_sysfs(node);
+
 	flush_workqueue(node->reget_conn_wq);
 	peer_put(node);
 }
@@ -1159,7 +1159,6 @@ void hmdfs_connections_stop(struct hmdfs_sb_info *sbi)
 	struct hmdfs_peer *node = NULL;
 	struct hmdfs_peer *con_tmp = NULL;
 
-	hmdfs_info("destroy peers begin");
 	mutex_lock(&sbi->connections.node_lock);
 	list_for_each_entry_safe(node, con_tmp, &sbi->connections.node_list,
 				  list) {
@@ -1175,7 +1174,6 @@ void hmdfs_connections_stop(struct hmdfs_sb_info *sbi)
 		mutex_lock(&sbi->connections.node_lock);
 	}
 	mutex_unlock(&sbi->connections.node_lock);
-	hmdfs_info("destroy peers end");
 }
 
 void hmdfs_stop_thread(struct connection *conn)
@@ -1371,11 +1369,18 @@ static struct hmdfs_peer *add_peer_unsafe(struct hmdfs_sb_info *sbi,
 					  struct hmdfs_peer *peer2add)
 {
 	struct hmdfs_peer *peer;
+	int err;
 
 	peer = lookup_peer_by_cid_unsafe(sbi, peer2add->cid);
 	if (peer)
 		return peer;
 
+	err = hmdfs_register_peer_sysfs(sbi, peer2add);
+	if (err) {
+		hmdfs_err("register peer %llu sysfs err %d",
+			  peer2add->device_id, err);
+		return ERR_PTR(err);
+	}
 	list_add_tail(&peer2add->list, &sbi->connections.node_list);
 	peer_get(peer2add);
 	hmdfs_run_simple_evt_cb(peer2add, NODE_EVT_ADD);

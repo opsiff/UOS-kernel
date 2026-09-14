@@ -405,9 +405,8 @@ struct inode *fill_inode_remote(struct super_block *sb, struct hmdfs_peer *con,
 		remote_ino = hmdfs_sb(sb)->s_external_fs ?
 			     atomic64_inc_return(&curr_ino) : res->i_ino;
 		inode = hmdfs_iget5_locked_remote(sb, con, remote_ino);
-	} else {
+	} else
 		inode = hmdfs_iget_locked_dfs_1_0(sb, con);
-	}
 	if (!inode)
 		return ERR_PTR(-ENOMEM);
 
@@ -830,16 +829,9 @@ int hmdfs_rename_remote(struct inode *old_dir, struct dentry *old_dentry,
 		return -EINVAL;
 
 	if (hmdfs_file_type(old_dentry->d_name.name) != HMDFS_TYPE_COMMON ||
-	    hmdfs_file_type(new_dentry->d_name.name) != HMDFS_TYPE_COMMON)
+	    hmdfs_file_type(new_dentry->d_name.name) != HMDFS_TYPE_COMMON) {
 		return -EACCES;
-
-	if (hmdfs_i(old_dir)->inode_type != hmdfs_i(new_dir)->inode_type) {
-		hmdfs_err("in different view");
-		return -EPERM;
 	}
-
-	if (hmdfs_d(old_dentry)->device_id != hmdfs_d(new_dentry)->device_id)
-		return -EXDEV;
 
 	relative_old_dir_path =
 		hmdfs_get_dentry_relative_path(old_dentry->d_parent);

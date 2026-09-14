@@ -82,12 +82,8 @@ static void str2hashbuf(const unsigned char *msg, size_t len, unsigned int *buf,
 static void tea_transform(unsigned int buf[4], unsigned int const in[])
 {
 	__u32 sum = 0;
-	__u32 b0 = buf[0];
-	__u32 b1 = buf[1];
-	__u32 a = in[0];
-	__u32 b = in[1];
-	__u32 c = in[2];
-	__u32 d = in[3];
+	__u32 b0 = buf[0], b1 = buf[1];
+	__u32 a = in[0], b = in[1], c = in[2], d = in[3];
 	int n = 16;
 
 	do {
@@ -225,6 +221,7 @@ static char *hmdfs_dentry_path_raw(struct dentry *d, char *buf, int buflen)
 	int error = 0;
 	struct hmdfs_dentry_info *di = hmdfs_d(d);
 	int hmdfs_root_dentry_type = hmdfs_get_root_dentry_type(d, &root_flag);
+
 	if (hmdfs_root_dentry_type < 0)
 		return NULL;
 	if (root_flag) {
@@ -1695,6 +1692,7 @@ void hmdfs_do_load(struct hmdfs_sb_info *sbi, const char *fullname, bool server)
 	};
 	INIT_LIST_HEAD(&cb.list);
 
+
 	err = kern_path(fullname, LOOKUP_DIRECTORY, &dirpath);
 	if (err) {
 		hmdfs_info("No file path");
@@ -2527,6 +2525,7 @@ struct dentry *hmdfs_root_create(uint64_t device_id, const char *local_dst_path,
 	}
 
 	child_dentry = kern_path_create(AT_FDCWD, create_abs_path, &path, 0);
+
 	if (IS_ERR(child_dentry)) {
 		ret = child_dentry;
 		goto out;

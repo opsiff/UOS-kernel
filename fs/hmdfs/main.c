@@ -247,11 +247,12 @@ void hmdfs_put_super(struct super_block *sb)
 	struct hmdfs_sb_info *sbi = hmdfs_sb(sb);
 	struct super_block *lower_sb = sbi->lower_sb;
 
-	hmdfs_info("put super begin");
-	hmdfs_unregister_sysfs(sbi);
-	hmdfs_release_sysfs(sbi);
+	hmdfs_info("local_dst is %s, local_src is %s", sbi->local_dst,
+		   sbi->local_src);
+
 	hmdfs_fault_inject_fini(&sbi->fault_inject);
 	hmdfs_cfn_destroy(sbi);
+	hmdfs_unregister_sysfs(sbi);
 	hmdfs_connections_stop(sbi);
 	hmdfs_destroy_server_writeback(sbi);
 	hmdfs_exit_stash(sbi);
@@ -267,12 +268,12 @@ void hmdfs_put_super(struct super_block *sb)
 	kfifo_free(&sbi->notify_fifo);
 	sb->s_fs_info = NULL;
 	sbi->lower_sb = NULL;
+	hmdfs_release_sysfs(sbi);
 	/* After all access are completed */
 	hmdfs_free_sb_seq(sbi->seq);
 	kfree(sbi->s_server_statis);
 	kfree(sbi->s_client_statis);
 	kfree(sbi);
-	hmdfs_info("put super end");
 }
 
 static struct inode *hmdfs_alloc_inode(struct super_block *sb)
@@ -398,9 +399,7 @@ static int hmdfs_sync_fs(struct super_block *sb, int wait)
 	struct hmdfs_peer *con = NULL;
 	struct hmdfs_sb_info *sbi = hmdfs_sb(sb);
 	int syncfs_timeout = get_cmd_timeout(sbi, F_SYNCFS);
-	struct syncfs_item item;
-	struct syncfs_item *entry = NULL;
-	struct syncfs_item *tmp = NULL;
+	struct syncfs_item item, *entry = NULL, *tmp = NULL;
 
 	if (!wait)
 		return 0;
@@ -981,9 +980,6 @@ static int hmdfs_fill_super(struct super_block *sb, void *data, int silent)
 	sbi->s_offline_stash = true;
 	sbi->s_dentry_cache = true;
 	init_sbi_for_dentry_cache(sbi);
-
-	if (!priv->raw_data)
-		return -EINVAL;
 
 	err = hmdfs_parse_options(sbi, priv->raw_data);
 	if (err)
