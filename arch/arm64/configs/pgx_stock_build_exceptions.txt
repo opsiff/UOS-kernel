@@ -108,3 +108,7 @@ DEVFREQ_DEVBW
 # 新树 dpu_drm/Kconfig 引入的 int 符号(无默认值)，不给值会触发 Kconfig 交互提示死循环；
 # 取值取自新树自身的 defconfig：
 =CONFIG_DRM_DPU_VERSION 800
+
+# 显示栈选通开关(取自 HarmonyOS6_Hi36C0_Kernel 的 defconfig；机器配置里没有这些符号)
++CONFIG_DKMD_ENABLE
++CONFIG_UKMD_ENABLE
