@@ -9,7 +9,6 @@ struct Scsi_Host;
 struct ufs_hba;
 
 DECLARE_HCK_VH(scsi_dev_gear_ctrl_register,
-DECLARE_HCK_VH(dfa_mcq_set_en,
 		TP_PROTO(struct Scsi_Host *shost),
 		TP_ARGS(shost));
 DECLARE_HCK_VH(ufs_gear_ctrl_adjust_capbility,
