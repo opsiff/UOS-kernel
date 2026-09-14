@@ -20,13 +20,19 @@ void __cfi_ufs_mq_sync_io_dispatch_work_fn(struct work_struct *work)
 	ufs_mq_sync_io_dispatch_work_fn(work);
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0))
 void __cfi_ufs_mq_sync_burst_check_timer_expire(struct timer_list *timer)
 {
-	struct mas_ufs_sched_ds_lld *sched_ds_lld =
-		ufs_mq_sync_burst_check_timer_prepare(timer);
-	ufs_mq_sync_burst_check_timer_expire(sched_ds_lld);
+	unsigned long data;
+	data = ufs_mq_sync_burst_check_timer_prepare(timer);
+	ufs_mq_sync_burst_check_timer_expire(data);
 }
-
+#else
+void __cfi_ufs_mq_sync_burst_check_timer_expire(unsigned long data)
+{
+	ufs_mq_sync_burst_check_timer_expire(data);
+}
+#endif
 void __cfi_ufs_mq_flush_plug_list(struct blk_plug *plug, bool from_schedule)
 {
 	ufs_mq_flush_plug_list(plug, from_schedule);
@@ -47,10 +53,17 @@ void __cfi_ufs_mq_io_guard_work_fn(struct work_struct *work)
 	ufs_mq_io_guard_work_fn();
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0))
 blk_qc_t __cfi_ufs_mq_make_request(struct bio *bio)
 {
-	return ufs_mq_make_request(bio);
+	return ufs_mq_make_request_v5(bio);
 }
+#else
+blk_qc_t __cfi_ufs_mq_make_request(struct request_queue *q, struct bio *bio)
+{
+	return ufs_mq_make_request(q, bio);
+}
+#endif
 
 static inline struct blk_mq_tags *__cfi_ufs_tagset_init_tags(
 	unsigned int total_tags, unsigned int reserved_tags,
@@ -178,14 +191,19 @@ static inline void __cfi_ufs_mq_poll_enable(bool *enable)
 {
 	ufs_mq_poll_enable(enable);
 }
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0))
 void __cfi_ufs_mq_write_throttle_check_timer_expire(struct timer_list *timer)
 {
-	struct mas_ufs_sched_ds_lld *ds_lld;
-	ds_lld = ufs_mq_write_throttle_check_timer_prepare(timer);
-	ufs_mq_write_throttle_check_timer_expire(ds_lld);
+	unsigned long data;
+	data = ufs_mq_write_throttle_check_timer_prepare(timer);
+	ufs_mq_write_throttle_check_timer_expire(data);
 }
-
+#else
+void __cfi_ufs_mq_write_throttle_check_timer_expire(unsigned long data)
+{
+	ufs_mq_write_throttle_check_timer_expire(data);
+}
+#endif
 static inline void __cfi_ufs_mq_write_throttle_handler(
 	struct request_queue *q, bool level)
 {
