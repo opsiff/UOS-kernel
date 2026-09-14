@@ -38,7 +38,7 @@ ECRYPT_FS
 #   CONNECTIVITY_HI1105          : drv_e2prom_read 仅 kernel-pgx 有实现
 HIBERNATION
 HHEE_HIBERNATE
-CONNECTIVITY_HI1105
++CONFIG_CONNECTIVITY_HI1105
 # 追加：本树（与 kirin9000 同源）的调用点没有配置守卫，因此这两个提供者开关必须打开。
 # 机器自带内核在 pgx 树里用另一种方式满足；这里属提供者侧的最小偏差。
 +CONFIG_LOG_EXCEPTION
@@ -84,13 +84,21 @@ DEVFREQ_DEVBW
 +CONFIG_CONNECTIVITY_HISI
 # 本树 source hisi/platform 与 hisi/wifi 的门控是 CONNECTIVITY_HI1102（见 connectivity/Kconfig
 # 的 if CONNECTIVITY_HI1102 分支）；机器侧由其自身 Kconfig 组织、该项为 n，因此这是树内机制差异：
-+CONFIG_CONNECTIVITY_HI1102
+-CONFIG_CONNECTIVITY_HI1102
 # HI1102_PLATFORM / HI1102_WIFI 暂不可开：本树 drivers/connectivity/hisi/{platform,wifi} 的源码是
 # 5.10 之前的旧 API（do_gettimeofday、3 参 access_ok、timer 回调签名、strncpy sizeof 等），实测 656 条
 # 编译错误；kirin9000 与 kirin990(LIO) 的副本与本树同源同版本（同为 48/142 个 .c、同样引用 do_gettimeofday），
 # 换来源无法解决，只有 kernel-pgx 的副本匹配 5.10。构建规则已就位（hisi/Makefile），等拿到匹配版本的源码即可打开。
--CONFIG_HI1102_PLATFORM
--CONFIG_HI1102_WIFI
+^CONFIG_HI1102_PLATFORM
+^CONFIG_HI1102_WIFI
++CONFIG_HI110X_SDIO_STD_CARD_SUPPORT
 # 机器侧的 HI110X_SDIO_STD_CARD_SUPPORT / FPGA / DETECT_FUNCTION 位于 hi11xx/hi1105/Kconfig，
 # 只由 CONNECTIVITY_HI1105 / HI1103 / HI1102A 分支 source；本树不启用这三个变体，故暂不可打开
 # （hisi 变体本身不依赖它们，HI1102_PLAT_OAL 对它们的 select 在本配置下为空操作）。
+
+# 无线整块改按 pgx 实际使用的变体对齐（2026-09-15）：
+#   判定依据：pgx 的 drivers/connectivity/hisi/Makefile 为空且 hisi/bfgx/bfgx_dev.c 不存在，
+#   而 hi11xx/Makefile 有 obj-$(CONFIG_CONNECTIVITY_HI1105) += hi1105/，机器配置里 CONNECTIVITY_HI1105=y
+#   → pgx 用的是 hi11xx/hi1105 变体，其 HI1102_PLATFORM/HI1102_WIFI 来自 hi1105 的 Kconfig。
+#   本树据此改：CONNECTIVITY_HI1102 关闭（与机器一致，也避免与 hisi/ 的重复定义），
+#   CONNECTIVITY_HI1105 打开，HI1102_PLATFORM/WIFI 按机器取值设为模块。
