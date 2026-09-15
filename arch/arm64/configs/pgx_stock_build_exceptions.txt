@@ -33,7 +33,10 @@ HHEE_HIBERNATE
 # 无线(hi1105 变体)不可开：drv_e2prom_read 与 hisi_hci_dev_do_open 在所有可用树里都没有实现
 # （本树、kirin9000、kirin990 均缺；HarmonyOS6_Hi36C0_Kernel 同样只有声明/Kconfig，无实现），
 # 而 kernel-pgx 的实现已按要求移除，不再使用。
-+CONFIG_CONNECTIVITY_HI1105
+# 无线整块(hi1105 变体)：只剩 drv_e2prom_read 缺实现（本树、两棵 kirin990、kirin9000、HarmonyOS6、franklin 均无，
+# 它们的 drivers/hisi/hi1103_eeprom 只有 Kconfig/Makefile）。hisi_hci_dev_do_open 已从 kirin990(5.10.116) 补齐，
+# 拿到含 hisi1103_eeprom.c 的源码包即可直接打开。
+CONNECTIVITY_HI1105
 # 追加：本树（与 kirin9000 同源）的调用点没有配置守卫，因此这两个提供者开关必须打开。
 # 机器自带内核在 pgx 树里用另一种方式满足；这里属提供者侧的最小偏差。
 +CONFIG_LOG_EXCEPTION
@@ -84,8 +87,8 @@ DEVFREQ_DEVBW
 # 5.10 之前的旧 API（do_gettimeofday、3 参 access_ok、timer 回调签名、strncpy sizeof 等），实测 656 条
 # 编译错误；kirin9000 与 kirin990(LIO) 的副本与本树同源同版本（同为 48/142 个 .c、同样引用 do_gettimeofday），
 # 换来源无法解决，只有 kernel-pgx 的副本匹配 5.10。构建规则已就位（hisi/Makefile），等拿到匹配版本的源码即可打开。
-^CONFIG_HI1102_PLATFORM
-^CONFIG_HI1102_WIFI
+-CONFIG_HI1102_PLATFORM
+-CONFIG_HI1102_WIFI
 # 机器侧的 HI110X_SDIO_STD_CARD_SUPPORT / FPGA / DETECT_FUNCTION 位于 hi11xx/hi1105/Kconfig，
 # 只由 CONNECTIVITY_HI1105 / HI1103 / HI1102A 分支 source；本树不启用这三个变体，故暂不可打开
 # （hisi 变体本身不依赖它们，HI1102_PLAT_OAL 对它们的 select 在本配置下为空操作）。
@@ -149,5 +152,3 @@ DEVFREQ_DEVBW
 -CONFIG_DRMDRIVER
 
 # 无线整块验证用(临时打开)：HI1102 平台/WIFI 设为模块、SDIO 与 eeprom 打开
-+CONFIG_HI110X_SDIO_STD_CARD_SUPPORT
-+CONFIG_HISI1103_EEPROM
