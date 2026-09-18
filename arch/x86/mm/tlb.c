@@ -1002,12 +1002,6 @@ void flush_tlb_multi(const struct cpumask *cpumask,
  */
 unsigned long tlb_single_page_flush_ceiling __read_mostly = 33;
 
-static DEFINE_PER_CPU_SHARED_ALIGNED(struct flush_tlb_info, flush_tlb_info);
-
-#ifdef CONFIG_DEBUG_VM
-static DEFINE_PER_CPU(unsigned int, flush_tlb_info_idx);
-#endif
-
 static void init_flush_tlb_info(struct flush_tlb_info *info,
 				struct mm_struct *mm,
 				unsigned long start, unsigned long end,
@@ -1024,41 +1018,11 @@ static void init_flush_tlb_info(struct flush_tlb_info *info,
 	info->trim_cpumask	= 0;
 }
 
-static struct flush_tlb_info *get_flush_tlb_info(struct mm_struct *mm,
-			unsigned long start, unsigned long end,
-			unsigned int stride_shift, bool freed_tables,
-			u64 new_tlb_gen)
-{
-	struct flush_tlb_info *info = this_cpu_ptr(&flush_tlb_info);
-
-#ifdef CONFIG_DEBUG_VM
-	/*
-	 * Ensure that the following code is non-reentrant and flush_tlb_info
-	 * is not overwritten. This means no TLB flushing is initiated by
-	 * interrupt handlers and machine-check exception handlers.
-	 */
-	BUG_ON(this_cpu_inc_return(flush_tlb_info_idx) != 1);
-#endif
-
-	init_flush_tlb_info(info, mm, start, end, stride_shift, freed_tables,
-			    new_tlb_gen);
-	return info;
-}
-
-static void put_flush_tlb_info(void)
-{
-#ifdef CONFIG_DEBUG_VM
-	/* Complete reentrancy prevention checks */
-	barrier();
-	this_cpu_dec(flush_tlb_info_idx);
-#endif
-}
-
 void flush_tlb_mm_range(struct mm_struct *mm, unsigned long start,
 				unsigned long end, unsigned int stride_shift,
 				bool freed_tables)
 {
-	struct flush_tlb_info *info;
+	struct flush_tlb_info info;
 	u64 new_tlb_gen;
 	int cpu;
 
@@ -1074,8 +1038,8 @@ void flush_tlb_mm_range(struct mm_struct *mm, unsigned long start,
 	/* This is also a barrier that synchronizes with switch_mm(). */
 	new_tlb_gen = inc_mm_tlb_gen(mm);
 
-	info = get_flush_tlb_info(mm, start, end, stride_shift, freed_tables,
-				  new_tlb_gen);
+	init_flush_tlb_info(&info, mm, start, end, stride_shift, freed_tables,
+			    new_tlb_gen);
 
 	/*
 	 * flush_tlb_multi() is not optimized for the common case in which only
@@ -1083,16 +1047,15 @@ void flush_tlb_mm_range(struct mm_struct *mm, unsigned long start,
 	 * flush_tlb_func_local() directly in this case.
 	 */
 	if (cpumask_any_but(mm_cpumask(mm), cpu) < nr_cpu_ids) {
-		info->trim_cpumask = should_trim_cpumask(mm);
-		flush_tlb_multi(mm_cpumask(mm), info);
+		info.trim_cpumask = should_trim_cpumask(mm);
+		flush_tlb_multi(mm_cpumask(mm), &info);
 	} else if (mm == this_cpu_read(cpu_tlbstate.loaded_mm)) {
 		lockdep_assert_irqs_enabled();
 		local_irq_disable();
-		flush_tlb_func(info);
+		flush_tlb_func(&info);
 		local_irq_enable();
 	}
 
-	put_flush_tlb_info();
 	put_cpu();
 	mmu_notifier_arch_invalidate_secondary_tlbs(mm, start, end);
 }
@@ -1127,15 +1090,14 @@ void flush_tlb_kernel_range(unsigned long start, unsigned long end)
 	    (end - start) > tlb_single_page_flush_ceiling << PAGE_SHIFT) {
 		on_each_cpu(do_flush_tlb_all, NULL, 1);
 	} else {
-		struct flush_tlb_info *info;
+		struct flush_tlb_info info;
 
 		preempt_disable();
-		info = get_flush_tlb_info(NULL, start, end, 0, false,
-					  TLB_GENERATION_INVALID);
+		init_flush_tlb_info(&info, NULL, start, end, 0, false,
+				    TLB_GENERATION_INVALID);
 
-		on_each_cpu(do_kernel_range_flush, info, 1);
+		on_each_cpu(do_kernel_range_flush, &info, 1);
 
-		put_flush_tlb_info();
 		preempt_enable();
 	}
 }
@@ -1305,29 +1267,28 @@ EXPORT_SYMBOL_GPL(__flush_tlb_all);
 
 void arch_tlbbatch_flush(struct arch_tlbflush_unmap_batch *batch)
 {
-	struct flush_tlb_info *info;
+	struct flush_tlb_info info;
 
 	int cpu = get_cpu();
 
-	info = get_flush_tlb_info(NULL, 0, TLB_FLUSH_ALL, 0, false,
-				  TLB_GENERATION_INVALID);
+	init_flush_tlb_info(&info, NULL, 0, TLB_FLUSH_ALL, 0, false,
+			    TLB_GENERATION_INVALID);
 	/*
 	 * flush_tlb_multi() is not optimized for the common case in which only
 	 * a local TLB flush is needed. Optimize this use-case by calling
 	 * flush_tlb_func_local() directly in this case.
 	 */
 	if (cpumask_any_but(&batch->cpumask, cpu) < nr_cpu_ids) {
-		flush_tlb_multi(&batch->cpumask, info);
+		flush_tlb_multi(&batch->cpumask, &info);
 	} else if (cpumask_test_cpu(cpu, &batch->cpumask)) {
 		lockdep_assert_irqs_enabled();
 		local_irq_disable();
-		flush_tlb_func(info);
+		flush_tlb_func(&info);
 		local_irq_enable();
 	}
 
 	cpumask_clear(&batch->cpumask);
 
-	put_flush_tlb_info();
 	put_cpu();
 }
 
