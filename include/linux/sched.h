@@ -775,6 +775,17 @@ struct kmap_ctrl {
 struct task_struct_deepin {
 };
 
+#if defined(CONFIG_SMP) && defined(CONFIG_PREEMPTION)
+struct task_ipi_mask {
+	union {
+		cpumask_t		*ipi_mask_ptr;
+		unsigned long		ipi_mask_val;
+	};
+};
+#else
+struct task_ipi_mask { };
+#endif
+
 #ifdef CONFIG_DEEPIN_KABI_RESERVE
 /*
  * DEPRECATED: do not add new users of struct task_struct_extend.
@@ -1627,7 +1638,7 @@ struct task_struct {
 	randomized_struct_fields_end
 
 	DEEPIN_KABI_USE(1, struct address_space *faults_disabled_mapping)
-	DEEPIN_KABI_RESERVE(2)
+	DEEPIN_KABI_USE(2, struct task_ipi_mask __private ipi_mask)
 	DEEPIN_KABI_RESERVE(3)
 	DEEPIN_KABI_RESERVE(4)
 	DEEPIN_KABI_RESERVE(5)
