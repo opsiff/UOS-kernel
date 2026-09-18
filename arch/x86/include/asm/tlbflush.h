@@ -4,6 +4,7 @@
 
 #include <linux/mm_types.h>
 #include <linux/mmu_notifier.h>
+#include <linux/minmax.h>
 #include <linux/sched.h>
 
 #include <asm/processor.h>
@@ -186,6 +187,12 @@ extern u32 *trampoline_cr4_features;
 extern void initialize_tlbstate_and_flush(void);
 
 /*
+ * Keep stack-allocated flush_tlb_info cacheline aligned, but cap the
+ * alignment to avoid excessive stack usage on large-cacheline systems.
+ */
+#define FLUSH_TLB_INFO_ALIGN MIN(SMP_CACHE_BYTES, 64)
+
+/*
  * TLB flushing:
  *
  *  - flush_tlb_all() flushes all processes TLBs
@@ -223,7 +230,7 @@ struct flush_tlb_info {
 	u8			stride_shift;
 	u8			freed_tables;
 	u8			trim_cpumask;
-};
+} __aligned(FLUSH_TLB_INFO_ALIGN);
 
 void flush_tlb_local(void);
 void flush_tlb_one_user(unsigned long addr);
