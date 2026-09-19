@@ -2205,6 +2205,16 @@ void zap_vma_range_batched(struct mmu_gather *tlb,
 
 	VM_WARN_ON_ONCE(!tlb || tlb->mm != vma->vm_mm);
 
+	/*
+	 * Push recently faulted pages onto the LRU before we take any page
+	 * table locks below, so that the per-CPU LRU batch cannot fill up and
+	 * be drained from inside a pte-lock critical section in
+	 * do_anonymous_page().  Drain at a threshold rather than on every
+	 * call: an unconditional drain would find a batch holding a single
+	 * folio most of the time, which is what upstream removed in commit
+	 * 1aa43598c03b7 ("mm: remove unnecessary calls to lru_add_drain").
+	 */
+	lru_add_drain_min();
 	if (unlikely(!size))
 		return;
 
