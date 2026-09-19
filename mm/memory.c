@@ -1982,7 +1982,13 @@ void zap_page_range_single(struct vm_area_struct *vma, unsigned long address,
 	struct mmu_notifier_range range;
 	struct mmu_gather tlb;
 
-	lru_add_drain();
+	/*
+	 * Push recently faulted pages onto the LRU before taking any page
+	 * table locks.  Drain at a threshold rather than unconditionally: the
+	 * batch holds a single folio most of the time, and draining it every
+	 * call takes the lruvec lock for almost no work.
+	 */
+	lru_add_drain_min();
 	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, vma->vm_mm,
 				address, end);
 	hugetlb_zap_begin(vma, &range.start, &range.end);

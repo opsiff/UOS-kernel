@@ -310,7 +310,15 @@ void free_page_and_swap_cache(struct page *page)
  */
 void free_pages_and_swap_cache(struct encoded_page **pages, int nr)
 {
-	lru_add_drain();
+	/*
+	 * This runs after the page table lock has been dropped, so draining
+	 * here is what keeps the per-CPU LRU batch from filling up and being
+	 * drained from inside a pte-lock critical section in
+	 * do_anonymous_page().  Drain at a threshold: the batch holds a single
+	 * folio most of the time, and draining that every call takes the
+	 * lruvec lock for almost no work.
+	 */
+	lru_add_drain_min();
 	for (int i = 0; i < nr; i++) {
 		struct page *page = encoded_page_ptr(pages[i]);
 
