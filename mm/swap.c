@@ -740,6 +740,36 @@ void lru_add_drain(void)
 }
 
 /*
+ * Drain the local LRU add batch, but only once it has built up to @min_nr
+ * folios.
+ *
+ * Draining a batch that holds a single folio takes the lruvec lock for very
+ * little work, which is why upstream removed the lru_add_drain() calls that
+ * did exactly that (commit 1aa43598c03b7).  But *not* draining at all lets
+ * the batch reach its full size, and then folio_batch_move_lru() runs from
+ * do_anonymous_page() while the pte lock is held -- a multi-microsecond
+ * critical section.
+ *
+ * Draining at a threshold gets both: the batch never reaches PAGEVEC_SIZE, so
+ * the fault path never drains under the pte lock, and the lruvec lock is taken
+ * min_nr times less often than with a drain-every-time policy.
+ */
+unsigned int lru_add_drain_min_nr __read_mostly = 16;
+module_param_named(lru_drain_min_nr, lru_add_drain_min_nr, uint, 0644);
+
+void lru_add_drain_min(void)
+{
+	if (!lru_add_drain_min_nr)
+		return;
+
+	local_lock(&cpu_fbatches.lock);
+	if (folio_batch_count(&this_cpu_ptr(&cpu_fbatches)->lru_add) >=
+	    lru_add_drain_min_nr)
+		lru_add_drain_cpu(smp_processor_id());
+	local_unlock(&cpu_fbatches.lock);
+}
+
+/*
  * It's called from per-cpu workqueue context in SMP case so
  * lru_add_drain_cpu and invalidate_bh_lrus_cpu should run on
  * the same cpu. It shouldn't be a problem in !SMP case since

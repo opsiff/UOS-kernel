@@ -2144,6 +2144,23 @@ void zap_page_range_single_batched(struct mmu_gather *tlb,
 
 	VM_WARN_ON_ONCE(!tlb || tlb->mm != vma->vm_mm);
 
+	/*
+	 * Push recently faulted pages onto the LRU before we take any page
+	 * table locks below.  zap_page_range_single() used to call
+	 * lru_add_drain() here; commit 1aa43598c03b7 ("mm: remove unnecessary
+	 * calls to lru_add_drain") removed it because a drain that finds a
+	 * nearly empty batch takes the lruvec lock for very little work.
+	 *
+	 * Without any drain at all the per-CPU LRU batch fills up to
+	 * FOLIO_BATCH_SIZE and folio_batch_move_lru() then runs from
+	 * do_anonymous_page() while the pte lock is held, which adds a
+	 * multi-microsecond tail to the pte-lock hold time.  Drain at a
+	 * threshold instead: the batch never reaches its full size, and the
+	 * lruvec lock is taken far less often than with an unconditional
+	 * drain.
+	 */
+	lru_add_drain_min();
+
 	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, vma->vm_mm,
 				address, end);
 	hugetlb_zap_begin(vma, &range.start, &range.end);
