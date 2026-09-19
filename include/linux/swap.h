@@ -343,6 +343,7 @@ extern void lru_cache_disable(void);
 extern void lru_add_drain(void);
 extern unsigned int lru_add_drain_min_nr;
 extern void lru_add_drain_min(void);
+extern void lru_add_drain_pending(void);
 extern void lru_add_drain_cpu(int cpu);
 extern void lru_add_drain_cpu_zone(struct zone *zone);
 extern void lru_add_drain_all(void);

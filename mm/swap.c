@@ -822,6 +822,29 @@ void lru_add_drain_min(void)
 }
 
 /*
+ * Flush the local LRU add batch if it has built up to lru_add_drain_min_nr.
+ *
+ * The fault paths add folios to that batch from folio_add_lru() while holding
+ * the pte lock, and folio_batch_move_lru() runs inline once the batch is full
+ * -- a multi-microsecond pte-lock critical section.  Running this once the pte
+ * lock has been dropped keeps the batch short enough that it never fills up
+ * under the lock.
+ *
+ * The guard is a racy per-CPU read, cheap enough to run on every fault: if it
+ * reads low we skip, and if we do miss a drain the batch simply fills up and
+ * is flushed inline exactly as before.
+ */
+void lru_add_drain_pending(void)
+{
+	if (!lru_add_drain_min_nr)
+		return;
+	if (raw_cpu_read(cpu_fbatches.lru_add.nr) < lru_add_drain_min_nr)
+		return;
+
+	lru_add_drain_min();
+}
+
+/*
  * It's called from per-cpu workqueue context in SMP case so
  * lru_add_drain_cpu and invalidate_bh_lrus_cpu should run on
  * the same cpu. It shouldn't be a problem in !SMP case since
