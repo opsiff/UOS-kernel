@@ -6561,6 +6561,13 @@ vm_fault_t handle_mm_fault(struct vm_area_struct *vma, unsigned long address,
 			mem_cgroup_oom_synchronize(false);
 	}
 out:
+	/*
+	 * The fault paths add folios to the per-CPU LRU add batch from
+	 * folio_add_lru() while they hold the pte lock.  Flush a batch that has
+	 * built up here, where no page table lock is held any more, so that
+	 * folio_batch_move_lru() does not run under the pte lock.
+	 */
+	lru_add_drain_pending();
 	mm_account_fault(mm, regs, address, flags, ret);
 
 	return ret;
