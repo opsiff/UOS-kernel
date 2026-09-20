@@ -1982,7 +1982,6 @@ void zap_page_range_single(struct vm_area_struct *vma, unsigned long address,
 	struct mmu_notifier_range range;
 	struct mmu_gather tlb;
 
-	lru_add_drain();
 	mmu_notifier_range_init(&range, MMU_NOTIFY_CLEAR, 0, vma->vm_mm,
 				address, end);
 	hugetlb_zap_begin(vma, &range.start, &range.end);
@@ -5739,6 +5738,18 @@ vm_fault_t handle_mm_fault(struct vm_area_struct *vma, unsigned long address,
 			mem_cgroup_oom_synchronize(false);
 	}
 out:
+	/*
+	 * The fault paths add folios to the per-CPU LRU add batch from
+	 * folio_add_lru() while they hold the pte lock.  A batch that fills up
+	 * there is parked instead of being moved, so move it now, with no page
+	 * table lock held.
+	 *
+	 * Only the parked batch is moved.  The batch still being filled is
+	 * deliberately left alone: it is moved when it fills up, exactly as it
+	 * would have been inline, which is what keeps the number of lruvec lock
+	 * acquisitions the same as before.
+	 */
+	lru_add_drain_pending();
 	mm_account_fault(mm, regs, address, flags, ret);
 
 	return ret;
