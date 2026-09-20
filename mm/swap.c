@@ -54,6 +54,13 @@ struct cpu_fbatches {
 	 */
 	local_lock_t lock;
 	struct folio_batch lru_add;
+	/*
+	 * A full lru_add batch that has not been moved to the LRU list yet.
+	 * The fault paths fill lru_add while they hold the pte lock, so a full
+	 * batch is parked here instead of being moved to the lruvec there; the
+	 * next fault exit, or any explicit drain, moves it.
+	 */
+	struct folio_batch lru_add_deferred;
 	struct folio_batch lru_deactivate_file;
 	struct folio_batch lru_deactivate;
 	struct folio_batch lru_lazyfree;
@@ -214,10 +221,52 @@ static void folio_batch_move_lru(struct folio_batch *fbatch, move_fn_t move_fn)
 	folios_put(fbatch);
 }
 
+/*
+ * Add @folio to the lru_add batch, but do not move a full batch to the LRU
+ * list here: the fault paths fill this batch while they hold the pte lock, and
+ * folio_batch_move_lru() takes the lruvec lock and walks 31 folios, which turns
+ * into a multi-microsecond pte-lock critical section under contention.
+ *
+ * Park the full batch in cpu_fbatches.lru_add_deferred instead, and let
+ * lru_add_drain_pending() move it from handle_mm_fault(), once the last pte
+ * lock has been dropped, or an explicit drain.
+ *
+ * The stash holds one batch.  If it is still occupied when the next batch
+ * fills up, this CPU has added two batches' worth of folios without faulting
+ * or draining, so both are moved here: a folio then waits no longer than it
+ * would have without the stash, and nothing can be stranded.
+ */
+static void folio_batch_add_deferred(struct folio_batch *fbatch,
+		struct folio *folio, move_fn_t move_fn)
+{
+	struct folio_batch *stash = this_cpu_ptr(&cpu_fbatches.lru_add_deferred);
+
+	if (folio_batch_add(fbatch, folio) &&
+	    folio_may_be_lru_cached(folio) && !lru_cache_disabled())
+		return;
+
+	if (folio_batch_count(stash))
+		folio_batch_move_lru(stash, lru_add);
+
+	/*
+	 * The folio must not be batched, so the batch is flushed here after
+	 * all; it is not parked in this case.
+	 */
+	if (!folio_may_be_lru_cached(folio) || lru_cache_disabled()) {
+		folio_batch_move_lru(fbatch, move_fn);
+		return;
+	}
+
+	/* Full batch, empty stash: park it and start over. */
+	*stash = *fbatch;
+	folio_batch_init(fbatch);
+}
+
 static void __folio_batch_add_and_move(struct folio_batch __percpu *fbatch,
 		struct folio *folio, move_fn_t move_fn, bool disable_irq)
 {
 	unsigned long flags;
+	struct folio_batch *f;
 
 	folio_get(folio);
 
@@ -226,9 +275,12 @@ static void __folio_batch_add_and_move(struct folio_batch __percpu *fbatch,
 	else
 		local_lock(&cpu_fbatches.lock);
 
-	if (!folio_batch_add(this_cpu_ptr(fbatch), folio) ||
+	f = this_cpu_ptr(fbatch);
+	if (move_fn == lru_add)
+		folio_batch_add_deferred(f, folio, move_fn);
+	else if (!folio_batch_add(f, folio) ||
 			!folio_may_be_lru_cached(folio) || lru_cache_disabled())
-		folio_batch_move_lru(this_cpu_ptr(fbatch), move_fn);
+		folio_batch_move_lru(f, move_fn);
 
 	if (disable_irq)
 		local_unlock_irqrestore(&cpu_fbatches.lock_irq, flags);
@@ -393,13 +445,30 @@ void folio_activate(struct folio *folio)
 }
 #endif
 
-static void __lru_cache_activate_folio(struct folio *folio)
+/*
+ * Search a batch backwards on the optimistic assumption that the folio being
+ * activated has just been added to it.
+ */
+static bool lru_cache_activate_batch(struct folio_batch *fbatch,
+		struct folio *folio)
 {
-	struct folio_batch *fbatch;
 	int i;
 
+	for (i = folio_batch_count(fbatch) - 1; i >= 0; i--) {
+		if (fbatch->folios[i] == folio) {
+			folio_set_active(folio);
+			return true;
+		}
+	}
+	return false;
+}
+
+static void __lru_cache_activate_folio(struct folio *folio)
+{
+	struct cpu_fbatches *fbatches;
+
 	local_lock(&cpu_fbatches.lock);
-	fbatch = this_cpu_ptr(&cpu_fbatches.lru_add);
+	fbatches = this_cpu_ptr(&cpu_fbatches);
 
 	/*
 	 * Search backwards on the optimistic assumption that the folio being
@@ -410,15 +479,13 @@ static void __lru_cache_activate_folio(struct folio *folio)
 	 * a remote batch's folio active potentially hits a race where
 	 * a folio is marked active just after it is added to the inactive
 	 * list causing accounting errors and BUG_ON checks to trigger.
+	 *
+	 * A full batch can also be parked in lru_add_deferred, waiting for the
+	 * next fault exit to move it to the LRU list; a folio in it is just as
+	 * recent, so look there too.
 	 */
-	for (i = folio_batch_count(fbatch) - 1; i >= 0; i--) {
-		struct folio *batch_folio = fbatch->folios[i];
-
-		if (batch_folio == folio) {
-			folio_set_active(folio);
-			break;
-		}
-	}
+	if (!lru_cache_activate_batch(&fbatches->lru_add, folio))
+		lru_cache_activate_batch(&fbatches->lru_add_deferred, folio);
 
 	local_unlock(&cpu_fbatches.lock);
 }
@@ -693,8 +760,12 @@ static void lru_lazyfree(struct lruvec *lruvec, struct folio *folio)
 void lru_add_drain_cpu(int cpu)
 {
 	struct cpu_fbatches *fbatches = &per_cpu(cpu_fbatches, cpu);
-	struct folio_batch *fbatch = &fbatches->lru_add;
+	struct folio_batch *fbatch = &fbatches->lru_add_deferred;
 
+	if (folio_batch_count(fbatch))
+		folio_batch_move_lru(fbatch, lru_add);
+
+	fbatch = &fbatches->lru_add;
 	if (folio_batch_count(fbatch))
 		folio_batch_move_lru(fbatch, lru_add);
 
@@ -791,6 +862,43 @@ void lru_add_drain(void)
 }
 
 /*
+ * Move a parked batch to the LRU list.  Called from handle_mm_fault(), where
+ * no page table lock is held any more, and therefore also the place where the
+ * lruvec lock is taken without extending a pte-lock critical section.
+ */
+static void lru_add_drain_deferred(void)
+{
+	struct folio_batch *fbatch;
+
+	local_lock(&cpu_fbatches.lock);
+	fbatch = this_cpu_ptr(&cpu_fbatches.lru_add_deferred);
+	if (folio_batch_count(fbatch))
+		folio_batch_move_lru(fbatch, lru_add);
+	local_unlock(&cpu_fbatches.lock);
+}
+
+/*
+ * Move the parked batch, if there is one, from the fault exit.
+ *
+ * The guard is a racy per-CPU read of the parked batch count, so a fault that
+ * has nothing to flush pays one load and a compare.  Missing a flush is never
+ * worse than the status quo: the batch then fills up and is flushed inline
+ * exactly as before.
+ *
+ * A parked batch is always a full one, so there is nothing to threshold here:
+ * this takes the lruvec lock exactly as often as the inline flush it replaces
+ * did, and it never runs with the pte lock held.
+ */
+void lru_add_drain_pending(void)
+{
+	/* Annotated racy read; lru_add_drain_deferred() re-checks under the lock. */
+	if (!data_race(raw_cpu_read(cpu_fbatches.lru_add_deferred.nr)))
+		return;
+
+	lru_add_drain_deferred();
+}
+
+/*
  * It's called from per-cpu workqueue context in SMP case so
  * lru_add_drain_cpu and invalidate_bh_lrus_cpu should run on
  * the same cpu. It shouldn't be a problem in !SMP case since
@@ -829,6 +937,7 @@ static bool cpu_needs_drain(unsigned int cpu)
 
 	/* Check these in order of likelihood that they're not zero */
 	return folio_batch_count(&fbatches->lru_add) ||
+		folio_batch_count(&fbatches->lru_add_deferred) ||
 		folio_batch_count(&fbatches->lru_move_tail) ||
 		folio_batch_count(&fbatches->lru_deactivate_file) ||
 		folio_batch_count(&fbatches->lru_deactivate) ||
