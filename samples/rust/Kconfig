@@ -200,4 +200,16 @@ config SAMPLE_RUST_HOSTPROGS
 
 	  If unsure, say N.
 
+config SAMPLE_RUST_SEQOPS
+	tristate "Seq file with private context (S1)"
+	depends on DEBUG_FS
+	help
+	  Self test for the S1 seq_file private-context API: every open allocates a
+	  context and every release frees it.
+
+	  To compile this as a module, choose M here: the module will be called
+	  rust_seqops.
+
+	  If unsure, say N.
+
 endif # SAMPLES_RUST
