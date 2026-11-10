@@ -36,8 +36,6 @@
 //! infallible accessors would turn that into a runtime `build_error!` trap.
 //! See upstream report: `IoMem<0>` exposes infallible accessors.
 
-use core::sync::atomic::{fence, Ordering};
-
 use kernel::{
     alloc::flags::GFP_KERNEL,
     bindings,
@@ -47,6 +45,7 @@ use kernel::{
     io::Io,
     pci,
     prelude::*,
+    sync::barrier::{dma_mb, Full, Write},
     time::{delay::fsleep, Delta, Instant, Monotonic},
 };
 
@@ -222,7 +221,9 @@ impl NvmeSkel<'_> {
         self.bar
             .try_write32(0, regs::CC)
             .map_err(|_| out_of_bounds(regs::CC))?;
-        fence(Ordering::SeqCst);
+        // MMIO writes need a device barrier; a CPU fence does not order them on
+        // weakly ordered architectures.
+        dma_mb(Full);
         self.wait_ready(false)
     }
 
@@ -251,7 +252,7 @@ impl NvmeSkel<'_> {
         self.bar
             .try_write32(cc, regs::CC)
             .map_err(|_| out_of_bounds(regs::CC))?;
-        fence(Ordering::SeqCst);
+        dma_mb(Full);
 
         self.wait_ready(true)
     }
@@ -268,7 +269,10 @@ impl NvmeSkel<'_> {
         cmd[24..32].copy_from_slice(&(id.dma_address() as u64).to_le_bytes());
         cmd[40..44].copy_from_slice(&cns.to_le_bytes());
 
-        fence(Ordering::Release);
+        // The command must be visible to the device before the doorbell write.
+        // `dma_wmb` orders device-visible writes; `fence(Release)` does not on
+        // weakly ordered architectures (x86 TSO hides the difference).
+        dma_mb(Write);
 
         self.sq_tail = self.sq_tail.wrapping_add(1);
         self.bar
