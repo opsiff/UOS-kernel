@@ -6,7 +6,7 @@ use std::fs;
 
 // `include!` would reject the module-level `//!` docs (E0753); a path module
 // keeps the file byte-identical to the in-kernel one.
-#[path = "../block/partitions/msdos_rust.rs"]
+#[path = "../../../../../block/partitions/msdos_rust.rs"]
 mod msdos_rust;
 
 use msdos_rust::{parse, Entry, SectorReader, Writer, SECTOR_LEN};
