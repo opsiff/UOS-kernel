@@ -466,6 +466,26 @@ impl<'a> Device<device::Core<'a>> {
         to_result(unsafe { bindings::pci_enable_device_mem(self.as_raw()) })
     }
 
+    /// Disable the device.
+    ///
+    /// Pair with [`Device::enable_device_mem`]: every successful enable must be
+    /// matched by exactly one call here, on both the probe failure path and
+    /// remove. Call it after the driver has quiesced the device and released
+    /// its IRQ and queue resources, following the C pattern
+    /// (`drivers/nvme/host/pci.c:3287`); DMA and BAR teardown come afterwards,
+    /// since they do not touch the device's memory decoding.
+    ///
+    /// This is deliberately explicit, not RAII: it does not pair itself with
+    /// [`Device::enable_device_mem`], and the caller must call it exactly once
+    /// per successful enable, from the probe failure path and from remove.
+    /// The call is unconditional like the C helper, which is fine because
+    /// repeating it is a caller bug the kernel warns about (C guards the
+    /// remove path with `pci_is_enabled()`).
+    pub fn disable_device(&self) {
+        // SAFETY: `self.as_raw` is guaranteed to be a pointer to a valid `struct pci_dev`.
+        unsafe { bindings::pci_disable_device(self.as_raw()) };
+    }
+
     /// Enable bus-mastering for this device.
     #[inline]
     pub fn set_master(&self) {
