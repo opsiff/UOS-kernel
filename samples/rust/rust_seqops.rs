@@ -54,7 +54,13 @@ impl SeqFileOps for Ops {
         }
 
         // Pass 1 of the two-pass scheme: subtree sizes for the whole traversal order.
-        let mut total: KVec<u64> = KVec::with_capacity(TREE.len(), GFP_KERNEL)?;
+        //
+        // Pre-allocate and assign by *position*, not by insertion order: `total[kpos]`
+        // below is indexed with a position in `order`, so `total` must already be laid
+        // out that way. Building it with `push` while walking backwards put the first
+        // computed value at index 0 regardless of the position it describes, which made
+        // the child lookup read the wrong slot (and overflow once the last node had kids).
+        let mut total: KVec<u64> = KVec::from_elem(0u64, order.len(), GFP_KERNEL)?;
         for pos in (0..order.len()).rev() {
             let node = &TREE[order[pos] as usize];
             let mut sum = node.self_size;
@@ -66,9 +72,8 @@ impl SeqFileOps for Ops {
                     }
                 }
             }
-            total.push(sum, GFP_KERNEL)?;
+            total[pos] = sum;
         }
-        total.reverse();
 
         pr_info!("rust_seqops: opened with {} nodes\n", order.len());
         Ok((order, total))
