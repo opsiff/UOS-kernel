@@ -105,6 +105,11 @@ const _: () = assert!(CQE_SIZE == 16);
 const NVME_ADMIN_IDENTIFY: u32 = bindings::nvme_admin_opcode_nvme_admin_identify as u32;
 const NVME_ID_CNS_CTRL: u32 = bindings::NVME_ID_CNS_CTRL as u32;
 const NVME_ID_CNS_NS: u32 = bindings::NVME_ID_CNS_NS as u32;
+/// Timeout for an admin command, matching the C driver's default:
+/// admin_timeout is 60 s (core.c) and pci.c hands it to the command timeout.
+/// Exposing it as a module parameter is left to the slice that adds I/O.
+const ADMIN_TIMEOUT_MS: u64 = 60_000;
+
 /// Bound for the controller quiesce on the failure path; the device is
 /// already suspect, so this is deliberately much shorter than CAP.TO.
 const ROLLBACK_TIMEOUT_MS: u64 = 1_000;
@@ -184,13 +189,20 @@ impl NvmeSkel<'_> {
         Ok(regs::DOORBELL_BASE + self.doorbell_stride()?)
     }
 
-    fn timeout_ms(&self) -> Result<u64> {
+    /// Ready timeout, in the unit and formula the C driver uses.
+    ///
+    /// CAP.TO is documented as a 500 ms unit, but the C driver hands it to
+    /// nvme_wait_ready(), which multiplies by HZ, so the value is read as
+    /// seconds and then halved: both nvme_enable_ctrl() and nvme_disable_ctrl()
+    /// pass (CAP.TO + 1) / 2 (core.c). TO is 15 on real controllers, i.e. 8 s.
+    /// Mirror that rather than the spec, so both drivers give up together.
+    fn ready_timeout_ms(&self) -> Result<u64> {
         let to = (self.read64(regs::CAP)? >> regs::CAP_TO_SHIFT) & regs::CAP_TO_MASK;
-        Ok(if to == 0 { 5_000 } else { (to + 1) * 500 })
+        Ok(((to + 1) / 2) * 1_000)
     }
 
     fn wait_ready(&self, want_rdy: bool) -> Result {
-        let timeout_ms = self.timeout_ms()?;
+        let timeout_ms = self.ready_timeout_ms()?;
         self.wait_ready_for(want_rdy, timeout_ms)
     }
 
@@ -221,7 +233,7 @@ impl NvmeSkel<'_> {
     }
 
     fn disable(&self) -> Result {
-        let timeout_ms = self.timeout_ms()?;
+        let timeout_ms = self.ready_timeout_ms()?;
         self.disable_with_timeout(timeout_ms)
     }
 
@@ -294,7 +306,6 @@ impl NvmeSkel<'_> {
         let want_phase = ((self.cq_head / regs::ADMIN_QDEPTH as u16) & 1) == 0;
         let mut status = 0u16;
 
-        let timeout_ms = self.timeout_ms()?;
         wait_until(|| {
             let slot = self.cq_head as usize % regs::ADMIN_QDEPTH as usize;
             // SAFETY: slot is within the completion queue allocation.
@@ -302,7 +313,7 @@ impl NvmeSkel<'_> {
             let raw = u16::from_le_bytes([cqe[14], cqe[15]]);
             status = raw;
             (raw & 1 != 0) == want_phase
-        }, timeout_ms)?;
+        }, ADMIN_TIMEOUT_MS)?;
 
         self.cq_head = self.cq_head.wrapping_add(1);
         let hdbl = self.cq0_hdbl()?;
