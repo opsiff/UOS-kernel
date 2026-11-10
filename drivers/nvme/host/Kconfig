@@ -134,3 +134,22 @@ config NVME_APPLE
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called nvme-apple.
+
+config NVME_SKEL
+	tristate "Minimal Rust NVMe controller skeleton"
+	depends on RUST && PCI && BLOCK && EXPERT
+	default n
+	help
+	  Experimental Rust bring-up of an NVMe controller: admin queue,
+	  Identify Controller and Identify Namespace, reporting model, serial,
+	  firmware and capacity. It provides no I/O queues and registers no
+	  block device yet.
+
+	  This is a second driver for the same PCI class as CONFIG_BLK_DEV_NVME,
+	  so only one of the two can bind a given controller at a time. The
+	  choice is made at runtime by the PCI core (one driver per device):
+	  bind nvme_skel first, or use driver_override / unbind to hand the
+	  device over. Do not enable this on a system that needs the standard
+	  NVMe driver.
+
+	  If unsure, say N.
