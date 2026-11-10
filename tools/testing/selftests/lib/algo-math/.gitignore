@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Generated from the kernel sources by mk-math-c.sh / mk-math-rs.sh, plus the
+# binaries and logs they produce. None of this belongs in the tree.
+math_c_orig.c
+math_rs.rs
+math_c.o
+libmathrs.a
+diff
+meta-*.log
