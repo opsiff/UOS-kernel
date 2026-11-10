@@ -131,6 +131,7 @@ pub mod serdev;
 pub mod sizes;
 #[cfg(CONFIG_SOC_BUS)]
 pub mod soc;
+pub mod sort;
 #[doc(hidden)]
 pub mod std_vendor;
 pub mod str;

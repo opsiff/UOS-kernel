@@ -90,6 +90,7 @@
 #include "refcount.c"
 #include "regulator.c"
 #include "scatterlist.c"
+#include "sched.c"
 #include "security.c"
 #include "serdev.c"
 #include "signal.c"
