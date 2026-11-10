@@ -76,7 +76,7 @@ mod regs {
     pub(super) const CSTS_RDY: u32 = bindings::NVME_CSTS_RDY as u32;
     pub(super) const CSTS_CFS: u32 = bindings::NVME_CSTS_CFS as u32;
 
-    // CAP.TO is in 500 ms units; 0 means "no limit" (use the spec 5 s advice).
+    // CAP.TO as the C driver reads it: seconds, halved by the caller.
     pub(super) const CAP_TO_SHIFT: u64 = 24;
     pub(super) const CAP_TO_MASK: u64 = 0xff;
     const _: () = assert!(CAP_TO_SHIFT + 8 <= 64 && CAP_TO_MASK == 0xff);
