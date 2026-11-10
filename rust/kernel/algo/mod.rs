@@ -11,6 +11,8 @@
 //! | `sort` | `sort_r()` in `lib/sort.c` | Rust owns the algorithm; `kernel::sort` is the C-ABI facade |
 //! | [`bsearch`] | `bsearch()` in `lib/bsearch.c` | Rust implementation |
 //! | [`gcd`] | `gcd()` in `lib/math/gcd.c` | wrapper over C |
+//! | [`int_sqrt`] | `int_sqrt()` in `lib/math/int_sqrt.c` | Rust implementation |
+//! | [`lcm`] | `lcm()` / `lcm_not_zero()` in `lib/math/lcm.c` | Rust implementation over [`gcd`] |
 //! | [`hweight`] | `hweightN()` in `include/asm-generic/bitops/const_hweight.h` | intrinsic |
 //!
 //! Only [`gcd`] wraps C. `sort` is owned here and exposed through a C-ABI
@@ -53,6 +55,8 @@
 pub mod bsearch;
 pub mod gcd;
 pub mod hweight;
+pub mod int_sqrt;
+pub mod lcm;
 
 // C reaches this module only through the `extern "C"` symbols in
 // `kernel::sort`, never through the Rust API, so it stays crate-private.
@@ -121,5 +125,55 @@ mod tests {
         let cmp = |item: &Item, key: &u32| item.key.cmp(key);
         assert_eq!(bsearch::bsearch_by_key(&haystack, &4, cmp), Ok(1));
         assert_eq!(bsearch::bsearch_by_key(&haystack, &5, cmp), Err(2));
+    }
+
+    #[test]
+    fn int_sqrt_basic() {
+        assert_eq!(int_sqrt::int_sqrt(0), 0);
+        assert_eq!(int_sqrt::int_sqrt(1), 1);
+        assert_eq!(int_sqrt::int_sqrt(2), 1);
+        assert_eq!(int_sqrt::int_sqrt(3), 1);
+        assert_eq!(int_sqrt::int_sqrt(4), 2);
+        assert_eq!(int_sqrt::int_sqrt(15), 3);
+        assert_eq!(int_sqrt::int_sqrt(16), 4);
+        assert_eq!(int_sqrt::int_sqrt(17), 4);
+    }
+
+    #[test]
+    fn int_sqrt_boundaries() {
+        // The largest exact square that fits, and its neighbourhood.
+        let r = int_sqrt::int_sqrt(usize::MAX);
+        assert_eq!(r, (1usize << (usize::BITS / 2)) - 1);
+        assert_eq!(int_sqrt::int_sqrt(r * r), r);
+        assert_eq!(int_sqrt::int_sqrt(r * r - 1), r - 1);
+        assert_eq!(int_sqrt::int_sqrt(usize::MAX), r);
+    }
+
+    #[test]
+    fn lcm_basic() {
+        assert_eq!(lcm::lcm(4, 6), 12);
+        assert_eq!(lcm::lcm(6, 4), 12);
+        assert_eq!(lcm::lcm(21, 6), 42);
+        assert_eq!(lcm::lcm(7, 13), 91);
+        assert_eq!(lcm::lcm(1, 1), 1);
+    }
+
+    #[test]
+    fn lcm_zero_and_overflow() {
+        assert_eq!(lcm::lcm(0, 6), 0);
+        assert_eq!(lcm::lcm(6, 0), 0);
+        assert_eq!(lcm::lcm(0, 0), 0);
+        // Coprime operands whose product overflows: C wraps, so must we.
+        let a = usize::MAX;
+        let b = usize::MAX - 2; // gcd(a, b) == 1
+        assert_eq!(lcm::lcm(a, b), a.wrapping_mul(b));
+    }
+
+    #[test]
+    fn lcm_not_zero_basic() {
+        assert_eq!(lcm::lcm_not_zero(4, 6), 12);
+        assert_eq!(lcm::lcm_not_zero(0, 6), 6);
+        assert_eq!(lcm::lcm_not_zero(6, 0), 6);
+        assert_eq!(lcm::lcm_not_zero(0, 0), 0);
     }
 }
