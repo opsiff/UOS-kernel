@@ -57,7 +57,9 @@ static int (*const check_part[])(struct parsed_partitions *) = {
 #ifdef CONFIG_LDM_PARTITION
 	ldm_partition,		/* this must come before msdos */
 #endif
-#ifdef CONFIG_MSDOS_PARTITION
+#ifdef CONFIG_MSDOS_PARTITION_RUST
+	msdos_partition_rust,
+#elif defined(CONFIG_MSDOS_PARTITION)
 	msdos_partition,
 #endif
 #ifdef CONFIG_OSF_PARTITION
