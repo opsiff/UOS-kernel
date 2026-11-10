@@ -105,6 +105,9 @@ const _: () = assert!(CQE_SIZE == 16);
 const NVME_ADMIN_IDENTIFY: u32 = bindings::nvme_admin_opcode_nvme_admin_identify as u32;
 const NVME_ID_CNS_CTRL: u32 = bindings::NVME_ID_CNS_CTRL as u32;
 const NVME_ID_CNS_NS: u32 = bindings::NVME_ID_CNS_NS as u32;
+/// Bound for the controller quiesce on the failure path; the device is
+/// already suspect, so this is deliberately much shorter than CAP.TO.
+const ROLLBACK_TIMEOUT_MS: u64 = 1_000;
 const ID_BUF_SIZE: usize = 4096;
 const QUEUE_BUF_SIZE: usize = 4096;
 
@@ -218,13 +221,18 @@ impl NvmeSkel<'_> {
     }
 
     fn disable(&self) -> Result {
+        let timeout_ms = self.timeout_ms()?;
+        self.disable_with_timeout(timeout_ms)
+    }
+
+    /// Disable with an explicit bound, for paths where the controller is
+    /// already suspect and waiting the full timeout twice would stall probe.
+    fn disable_with_timeout(&self, timeout_ms: u64) -> Result {
         self.bar
             .try_write32(0, regs::CC)
             .map_err(|_| out_of_bounds(regs::CC))?;
-        // MMIO writes need a device barrier; a CPU fence does not order them on
-        // weakly ordered architectures.
         dma_mb(Full);
-        self.wait_ready(false)
+        self.wait_ready_for(false, timeout_ms)
     }
 
     fn enable(&self) -> Result {
@@ -417,10 +425,11 @@ fn probe_inner<'bound>(pdev: &'bound pci::Device<device::Core<'_>>) -> Result<Nv
     })();
 
     if let Err(e) = started {
-        // Quiesce the controller before the caller drops the PCI enable state,
-        // otherwise it stays enabled after probe failed.
-        if ctrl.disable().is_err() {
-            pr_warn!("nvme-rust: controller stayed enabled after a probe failure\n");
+        // The controller is suspect here, so bound the wait instead of serving
+        // it the full CAP.TO a second time: a wedged device would otherwise
+        // stall probe (and the PCI workqueue) for minutes.
+        if ctrl.disable_with_timeout(ROLLBACK_TIMEOUT_MS).is_err() {
+            pr_warn!("nvme-rust: controller did not quiesce after a probe failure\n");
         }
         return Err(e);
     }
