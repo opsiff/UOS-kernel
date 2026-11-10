@@ -35,9 +35,11 @@ void sort_nonatomic(void *base, size_t num, size_t size,
 		    swap_func_t swap_func);
 
 /*
- * Transitional: the implementation lives in rust/kernel/sort.rs, lib/sort.c
- * only forwards. Remove together with the forwarders.
+ * Transitional: with CONFIG_RUST the implementation lives in
+ * rust/kernel/algo/sort.rs and lib/sort.c forwards through these symbols.
+ * Remove together with the forwarders.
  */
+#ifdef CONFIG_RUST
 void sort_r_rs(void *base, size_t num, size_t size,
 	       cmp_r_func_t cmp_func, swap_r_func_t swap_func,
 	       const void *priv);
@@ -48,5 +50,6 @@ void sort_rs(void *base, size_t num, size_t size,
 	     cmp_func_t cmp_func, swap_func_t swap_func);
 void sort_nonatomic_rs(void *base, size_t num, size_t size,
 		       cmp_func_t cmp_func, swap_func_t swap_func);
+#endif /* CONFIG_RUST */
 
 #endif
