@@ -134,3 +134,18 @@ config NVME_APPLE
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called nvme-apple.
+
+config NVME_RUST_M1
+	tristate "Minimal Rust NVMe controller probe (M1)"
+	depends on RUST && PCI && BLOCK
+	depends on !NVME_CORE
+	default n
+	help
+	  Standalone Rust bring-up of an NVMe controller: binds the PCI device,
+	  initialises the admin queue, issues Identify Controller and prints the
+	  model, serial and capacity. It does not register a block device and
+	  does not provide I/O queues.
+
+	  This is the M1 milestone of the Rust NVMe migration and is mutually
+	  exclusive with NVME_CORE, which owns the same PCI IDs.
+

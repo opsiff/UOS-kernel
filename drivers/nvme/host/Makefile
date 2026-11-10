@@ -31,3 +31,5 @@ nvme-fc-y				+= fc.o
 nvme-tcp-y				+= tcp.o
 
 nvme-apple-y				+= apple.o
+
+obj-$(CONFIG_NVME_RUST_M1)		+= nvme_rust_m1.o
