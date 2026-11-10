@@ -134,3 +134,14 @@ config NVME_APPLE
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called nvme-apple.
+
+config NVME_SKEL
+	tristate "Minimal Rust NVMe controller skeleton"
+	depends on RUST && PCI && BLOCK
+	depends on !NVME_CORE
+	help
+	  Rust bring-up of an NVMe controller: admin queue, Identify Controller
+	  and Identify Namespace, reporting model, serial, firmware and
+	  capacity. It provides no I/O queues and registers no block device,
+	  and is mutually exclusive with NVME_CORE, which owns the same PCI
+	  class.
