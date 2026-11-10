@@ -44,10 +44,12 @@ use callback_adapters::{
 };
 
 mod file_ops;
+pub use file_ops::{SeqFileOps, SeqShow};
 use file_ops::{
     BinaryReadFile,
     BinaryReadWriteFile,
     BinaryWriteFile,
+    ContextFile,
     FileOps,
     ReadFile,
     ReadWriteFile,
@@ -551,6 +553,18 @@ impl<'data, 'dir> ScopedDir<'data, 'dir> {
     /// file is removed when the [`Scope`] that this directory belongs
     /// to is dropped.
     pub fn read_only_file<T: Writer + Send + Sync + 'static>(&self, name: &CStr, data: &'data T) {
+        self.create_file(name, data, &T::FILE_OPS)
+    }
+
+    /// Creates a read-only seq file whose per-open context is built by `SeqFileOps::open`
+    /// and dropped when the file is closed.
+    ///
+    /// S1: the file emits no data yet; traversal arrives in S2.
+    pub fn seq_file_with_context<T: SeqFileOps + Send + Sync + 'static>(
+        &self,
+        name: &CStr,
+        data: &'data T,
+    ) {
         self.create_file(name, data, &T::FILE_OPS)
     }
 
