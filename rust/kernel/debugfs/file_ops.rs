@@ -515,7 +515,17 @@ unsafe extern "C" fn ctx_next<T: SeqFileOps + Sync>(
             unsafe { *pos = p as bindings::loff_t };
             cookie(p)
         }
-        Ok(None) => core::ptr::null_mut(),
+        Ok(None) => {
+            // seq_file requires `next` to advance `*pos` even when it returns NULL;
+            // otherwise the core warns "buggy .next function ... did not update
+            // position index" (fs/seq_file.c). The output would still be right --
+            // the core falls back to `m->index++` -- so the only symptom is the
+            // warning. Advance past the position we just rejected, matching what
+            // `single_next` does for single-entry files (`++*pos; return NULL;`).
+            // SAFETY: Valid `pos` argument of seq_file.
+            unsafe { *pos = at.wrapping_add(1) as bindings::loff_t };
+            core::ptr::null_mut()
+        }
         Err(e) => unsafe { bindings::ERR_PTR(e.to_errno() as crate::ffi::c_long) },
     }
 }
