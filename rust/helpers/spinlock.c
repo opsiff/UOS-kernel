@@ -104,3 +104,17 @@ __rust_helper int rust_helper_raw_spin_trylock_irqsave(raw_spinlock_t *lock,
 	return raw_spin_trylock_irqsave(lock, *flags);
 }
 
+__rust_helper void rust_helper_raw_spin_lock_bh(raw_spinlock_t *lock)
+{
+	raw_spin_lock_bh(lock);
+}
+
+__rust_helper void rust_helper_raw_spin_unlock_bh(raw_spinlock_t *lock)
+{
+	raw_spin_unlock_bh(lock);
+}
+
+__rust_helper int rust_helper_raw_spin_trylock_bh(raw_spinlock_t *lock)
+{
+	return raw_spin_trylock_bh(lock);
+}

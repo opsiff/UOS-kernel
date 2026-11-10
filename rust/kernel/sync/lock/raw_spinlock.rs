@@ -189,3 +189,94 @@ impl<T: ?Sized> Lock<T, RawSpinLockIrqSaveBackend> {
         self.try_lock()
     }
 }
+
+/// Creates a [`RawSpinLockBh`] initialiser with the given name and a newly-created lock class.
+#[macro_export]
+macro_rules! new_raw_spinlock_bh {
+    ($inner:expr $(, $name:literal)? $(,)?) => {
+        $crate::sync::RawSpinLockBh::new(
+            $inner, $crate::optional_name!($($name)?), $crate::static_lock_class!())
+    };
+}
+pub use new_raw_spinlock_bh;
+
+/// A raw spinlock using `raw_spin_lock_bh()` / `raw_spin_unlock_bh()` (`spinlock.h:278`).
+pub type RawSpinLockBh<T> = Lock<T, RawSpinLockBhBackend>;
+
+/// A kernel `raw_spinlock_t` lock backend using `raw_spin_lock_bh()`.
+pub struct RawSpinLockBhBackend;
+
+/// A [`Guard`] acquired from locking a [`RawSpinLockBh`].
+pub type RawSpinLockBhGuard<'a, T> = Guard<'a, T, RawSpinLockBhBackend>;
+
+// SAFETY: The underlying kernel `raw_spinlock_t` object ensures mutual exclusion.
+unsafe impl Backend for RawSpinLockBhBackend {
+    type State = bindings::raw_spinlock_t;
+    type GuardState = ();
+
+    #[inline]
+    unsafe fn init(
+        ptr: *mut Self::State,
+        name: *const crate::ffi::c_char,
+        key: *mut bindings::lock_class_key,
+    ) {
+        // SAFETY: The safety requirements ensure that `ptr` is valid for writes, and `name` and
+        // `key` are valid for read indefinitely.
+        unsafe { bindings::__raw_spin_lock_init(ptr, name, key) }
+    }
+
+    #[inline]
+    unsafe fn lock(ptr: *mut Self::State) -> Self::GuardState {
+        // SAFETY: The safety requirements of this function ensure that `ptr` points to valid
+        // memory, and that it has been initialised before.
+        unsafe { bindings::raw_spin_lock_bh(ptr) }
+    }
+
+    #[inline]
+    unsafe fn unlock(ptr: *mut Self::State, _guard_state: &Self::GuardState) {
+        // SAFETY: The safety requirements of this function ensure that `ptr` is valid and that the
+        // caller is the owner of the raw spinlock.
+        unsafe { bindings::raw_spin_unlock_bh(ptr) }
+    }
+
+    #[inline]
+    unsafe fn try_lock(ptr: *mut Self::State) -> Option<Self::GuardState> {
+        // SAFETY: The `ptr` pointer is guaranteed to be valid and initialized before use.
+        let result = unsafe { bindings::raw_spin_trylock_bh(ptr) };
+
+        if result != 0 {
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    unsafe fn assert_is_held(ptr: *mut Self::State) {
+        // SAFETY: The `ptr` pointer is guaranteed to be valid and initialized before use.
+        unsafe { bindings::raw_spin_assert_is_held(ptr) }
+    }
+}
+
+impl<T: ?Sized> Lock<T, RawSpinLockBhBackend> {
+    /// Acquires the lock with bottom halves disabled (`raw_spin_lock_bh()`).
+    ///
+    /// Dropping the guard reverts **one** level of the per-CPU softirq count
+    /// (`__local_bh_enable_ip()`), exactly like the C API: if the caller (or an outer
+    /// scope) already disabled bottom halves, they stay disabled. Do not treat the guard
+    /// as "bottom halves are now enabled".
+    #[inline]
+    pub fn lock_bh(&self) -> RawSpinLockBhGuard<'_, T> {
+        self.lock()
+    }
+
+    /// Tries to acquire the lock with bottom halves disabled (`raw_spin_trylock_bh()`).
+    ///
+    /// On contention returns `None` after undoing the increment it made, so the softirq
+    /// count is left as the caller had it.
+    #[must_use = "if unused, the lock will be immediately unlocked"]
+    #[inline]
+    pub fn try_lock_bh(&self) -> Option<RawSpinLockBhGuard<'_, T>> {
+        self.try_lock()
+    }
+}

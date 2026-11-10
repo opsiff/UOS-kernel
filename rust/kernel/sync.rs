@@ -26,8 +26,8 @@ pub use condvar::{new_condvar, CondVar, CondVarTimeoutResult};
 pub use lock::global::{global_lock, GlobalGuard, GlobalLock, GlobalLockBackend, GlobalLockedBy};
 pub use lock::mutex::{new_mutex, Mutex, MutexGuard};
 pub use lock::raw_spinlock::{
-    new_raw_spinlock, new_raw_spinlock_irqsave, RawSpinLock, RawSpinLockGuard,
-    RawSpinLockIrqSave, RawSpinLockIrqSaveGuard,
+    new_raw_spinlock, new_raw_spinlock_bh, new_raw_spinlock_irqsave, RawSpinLock, RawSpinLockBh,
+    RawSpinLockBhGuard, RawSpinLockGuard, RawSpinLockIrqSave, RawSpinLockIrqSaveGuard,
 };
 pub use lock::spinlock::{
     new_spinlock,
