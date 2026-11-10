@@ -7,17 +7,21 @@
 //! and call into `sort_r_impl()` here. Keeping a single implementation avoids
 //! the C-shim layer and a Rust-side `sort()` API drifting apart.
 //!
-//! The port is literal: byte-offset addressing and the bottom-up sift-down are
-//! preserved, so comparison counts match the C version exactly.
-
-// The C version splits 64-bit swaps into two 32-bit transfers on 32-bit
-// kernels to avoid base+index+4 addressing (lib/sort.c, swap_words_64); that
-// path is not ported. Fail the build instead of silently sorting with a
-// different access pattern.
-#[cfg(not(target_pointer_width = "64"))]
-compile_error!("sort_r Rust port only supports 64-bit; the C 32-bit swap path is not ported");
+//! On 64-bit targets the port is literal: byte-offset addressing, the bottom-up
+//! sift-down and the chunk width are the same as C, so the comparison and swap
+//! counts match exactly. A 32-bit target differs in one place only: the swapper
+//! steps in 4-byte chunks, exactly as `swap_words_64()` does without
+//! CONFIG_64BIT.
+//!
+//! # Removal path
+//!
+//! The algorithm is owned by Rust now; `lib/sort.c` stays as the carrier of the
+//! C ABI and of the `EXPORT_SYMBOL()`s -- permanently, because the export
+//! mechanism available to Rust is GPL-only. Migrating call sites changes who
+//! calls, not why that file exists.
 
 use core::ffi::{c_int, c_void};
+use core::mem::size_of;
 
 use crate::bindings;
 
@@ -52,18 +56,31 @@ pub(crate) enum CmpSel {
     Wrapped(*const Wrapper),
 }
 
-/// Swap two elements using 64-bit chunks.
+/// Chunk type of the word-at-a-time swapper.
+///
+/// `swap_words_64()` splits on `#ifdef CONFIG_64BIT` (`lib/sort.c:121`): 64-bit
+/// transfers where the target has them, two 32-bit transfers otherwise, because
+/// emulating a 64-bit load costs base+index+4 addressing on most CPUs.
+/// Selecting the type the same way keeps a single implementation for every
+/// target, including x32, where CONFIG_64BIT is set while pointers are 32 bits;
+/// on a 32-bit target the only difference is the 4-byte step.
+#[cfg(CONFIG_64BIT)]
+type Word = u64;
+#[cfg(not(CONFIG_64BIT))]
+type Word = u32;
+
+/// Swap two elements in chunks of [`Word`].
 ///
 /// # Safety
 ///
-/// a/b must be valid for n bytes; n must be a multiple of 8.
+/// a/b must be valid for n bytes; n must be a multiple of `size_of::<Word>()`.
 unsafe fn swap_words_64(a: *mut u8, b: *mut u8, mut n: usize) {
     loop {
-        n -= 8;
-        let t = unsafe { core::ptr::read_unaligned(a.add(n).cast::<u64>()) };
-        let v = unsafe { core::ptr::read_unaligned(b.add(n).cast::<u64>()) };
-        unsafe { core::ptr::write_unaligned(a.add(n).cast::<u64>(), v) };
-        unsafe { core::ptr::write_unaligned(b.add(n).cast::<u64>(), t) };
+        n -= size_of::<Word>();
+        let t = unsafe { core::ptr::read_unaligned(a.add(n).cast::<Word>()) };
+        let v = unsafe { core::ptr::read_unaligned(b.add(n).cast::<Word>()) };
+        unsafe { core::ptr::write_unaligned(a.add(n).cast::<Word>(), v) };
+        unsafe { core::ptr::write_unaligned(b.add(n).cast::<Word>(), t) };
         if n == 0 {
             break;
         }
@@ -108,15 +125,16 @@ unsafe fn swap_bytes(a: *mut u8, b: *mut u8, mut n: usize) {
 
 /// Byte-offset form of is_aligned().
 fn is_aligned(base: *const c_void, size: usize, align: u8) -> bool {
-    let mut lsbits = size as u8;
-
-    #[cfg(not(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS))]
-    {
-        lsbits |= base as usize as u8;
-    }
     let _ = base;
 
-    (lsbits & (align - 1)) == 0
+    // Only the architectures without cheap unaligned access need to look at
+    // the base address (lib/sort.c:36).
+    #[cfg(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS)]
+    let base_lsbits = 0u8;
+    #[cfg(not(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS))]
+    let base_lsbits = base as usize as u8;
+
+    ((size as u8) | base_lsbits) & (align - 1) == 0
 }
 
 /// Parent of byte offset i, see parent() in lib/sort.c.
