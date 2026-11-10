@@ -31,3 +31,4 @@ nvme-fc-y				+= fc.o
 nvme-tcp-y				+= tcp.o
 
 nvme-apple-y				+= apple.o
+obj-$(CONFIG_NVME_SKEL) += nvme_skel.o
