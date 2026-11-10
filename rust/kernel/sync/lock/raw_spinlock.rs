@@ -105,7 +105,24 @@ pub use new_raw_spinlock_irqsave;
 /// Unlike [`SpinLockIrq`], this saves and restores the caller's interrupt state instead of using
 /// the nested interrupt-disable mechanism.
 ///
+/// # Interaction with `LocalInterruptDisabled`
+///
+/// This lock does not participate in the nested interrupt-disable bookkeeping used by
+/// [`LocalInterruptDisabled`]; mixing the two in one scope is a correctness hazard:
+///
+/// - `raw_spin_lock_irqsave()` records the interrupt state of *the moment of locking*, and
+///   `raw_spin_unlock_irqrestore()` restores exactly that value. It is not a nesting counter,
+///   so it cannot observe that interrupts were disabled again behind its back.
+/// - If a [`LocalInterruptDisabled`] token disables interrupts while this guard is held, the
+///   guard's drop restores the older saved state and therefore re-enables interrupts that the
+///   token still expects to be disabled.
+///
+/// The token must therefore not be acquired inside a scope guarded by this lock. Use
+/// [`SpinLockIrq`] together with `lock_with()` when a token is already present, which is what
+/// [`SpinLockIrq`] documents for the same reason.
+///
 /// [`SpinLockIrq`]: super::spinlock::SpinLockIrq
+/// [`LocalInterruptDisabled`]: crate::interrupt::LocalInterruptDisabled
 pub type RawSpinLockIrqSave<T> = Lock<T, RawSpinLockIrqSaveBackend>;
 
 /// A kernel `raw_spinlock_t` lock backend using `raw_spin_lock_irqsave()`.
