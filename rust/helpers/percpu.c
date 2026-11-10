@@ -13,12 +13,12 @@ __rust_helper void rust_helper_preempt_enable(void)
 	preempt_enable();
 }
 
-__rust_helper void *rust_helper_per_cpu_ptr(const void __percpu *ptr, unsigned int cpu)
+__rust_helper void *rust_helper_per_cpu_ptr(void __percpu *ptr, unsigned int cpu)
 {
 	return per_cpu_ptr(ptr, cpu);
 }
 
-__rust_helper u32 rust_helper_this_cpu_read_u32(const u32 __percpu *ptr)
+__rust_helper u32 rust_helper_this_cpu_read_u32(u32 __percpu *ptr)
 {
 	return this_cpu_read(*ptr);
 }
@@ -58,7 +58,7 @@ __rust_helper u32 rust_helper_this_cpu_add_return_u32(u32 __percpu *ptr, u32 val
 	return this_cpu_add_return(*ptr, val);
 }
 
-__rust_helper u64 rust_helper_this_cpu_read_u64(const u64 __percpu *ptr)
+__rust_helper u64 rust_helper_this_cpu_read_u64(u64 __percpu *ptr)
 {
 	return this_cpu_read(*ptr);
 }
