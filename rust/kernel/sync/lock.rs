@@ -14,6 +14,7 @@ use core::{cell::UnsafeCell, marker::PhantomPinned, pin::Pin};
 use pin_init::{pin_data, pin_init, PinInit, Wrapper};
 
 pub mod mutex;
+pub mod raw_spinlock;
 pub mod spinlock;
 
 pub(super) mod global;
