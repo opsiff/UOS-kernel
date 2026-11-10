@@ -208,12 +208,17 @@ impl NvmeSkel<'_> {
 
     fn wait_ready_for(&self, want_rdy: bool, timeout_ms: u64) -> Result {
         let mut fatal = false;
+        let mut gone = false;
         let mut access_error = None;
         wait_until(
             || match self.bar.try_read32(regs::CSTS) {
                 Ok(csts) => {
+                    // An all-ones read means the function is gone; the C driver
+                    // gives up immediately instead of polling until the timeout
+                    // (core.c nvme_wait_ready()).
+                    gone = csts == u32::MAX;
                     fatal = csts & regs::CSTS_CFS != 0;
-                    (csts & regs::CSTS_RDY != 0) == want_rdy || fatal
+                    (csts & regs::CSTS_RDY != 0) == want_rdy || fatal || gone
                 }
                 Err(_) => {
                     access_error = Some(out_of_bounds(regs::CSTS));
@@ -224,6 +229,10 @@ impl NvmeSkel<'_> {
         )?;
         if let Some(err) = access_error {
             return Err(err);
+        }
+        if gone {
+            pr_err!("nvme-rust: CSTS reads all ones, controller is gone\n");
+            return Err(ENODEV);
         }
         if fatal {
             pr_err!("nvme-rust: CSTS.CFS set, controller reports fatal status\n");
