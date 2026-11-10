@@ -184,6 +184,10 @@ impl NvmeSkel<'_> {
 
     fn wait_ready(&self, want_rdy: bool) -> Result {
         let timeout_ms = self.timeout_ms()?;
+        self.wait_ready_for(want_rdy, timeout_ms)
+    }
+
+    fn wait_ready_for(&self, want_rdy: bool, timeout_ms: u64) -> Result {
         let mut fatal = false;
         let mut access_error = None;
         wait_until(
@@ -297,51 +301,73 @@ impl NvmeSkel<'_> {
     }
 }
 
-impl<'a> pci::Driver for NvmeSkel<'a> {
-    type IdInfo = ();
-    type Data<'bound> = NvmeSkel<'bound>;
+/// Undoes the PCI enable state when probe fails partway.
+///
+/// `probe()` returns `Result: PinInit`, so its body runs immediately and an
+/// error there never reaches `unbind()`. Without this, a failed probe leaves
+/// the device enabled and leaks the enable count until reboot.
+struct ProbeGuard<'b, 'a> {
+    pdev: &'b pci::Device<device::Core<'a>>,
+    armed: bool,
+}
 
-    const ID_TABLE: pci::IdTable<Self::IdInfo> = &NVME_TABLE;
+impl<'b, 'a> ProbeGuard<'b, 'a> {
+    fn new(pdev: &'b pci::Device<device::Core<'a>>) -> Self {
+        Self { pdev, armed: true }
+    }
 
-    fn probe<'bound>(
-        pdev: &'bound pci::Device<device::Core<'_>>,
-        _info: Option<&'bound Self::IdInfo>,
-    ) -> impl PinInit<Self::Data<'bound>, Error> + 'bound {
-        let dev = pdev.as_ref();
+    /// Keep the device enabled: teardown now belongs to `unbind()`.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
 
-        pdev.enable_device_mem()?;
-        pdev.set_master();
+}
 
-        // Map the whole BAR: like the C transport, do not assume its size.
-        let bar = pdev.iomap_region(0, c"nvme_skel")?;
+impl Drop for ProbeGuard<'_, '_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.pdev.disable_device();
+        }
+    }
+}
 
-        let mut ctrl = NvmeSkel {
-            bar,
-            asq: CoherentBox::zeroed_slice(dev, QUEUE_BUF_SIZE, GFP_KERNEL)?.into(),
-            acq: CoherentBox::zeroed_slice(dev, QUEUE_BUF_SIZE, GFP_KERNEL)?.into(),
-            sq_tail: 0,
-            cq_head: 0,
-        };
+/// Bring the controller up and report what it says about itself.
+///
+/// Split out of `probe()` so a failure after `CC.EN` was set can quiesce the
+/// controller before the PCI enable state is dropped: leaving `CC.EN` set after
+/// a failed probe would keep the device running for nobody.
+fn probe_inner<'bound>(pdev: &'bound pci::Device<device::Core<'_>>) -> Result<NvmeSkel<'bound>> {
+    let dev = pdev.as_ref();
 
-        // Log the mapped BAR length: without it an early failure gives no clue
-        // that the size assumption was the problem.
-        let bar_len = pdev.resource_len(0)?;
-        dev_info!(
-            dev,
-            "nvme-rust: BAR len={:#x} CAP={:#x}\n",
-            bar_len,
-            ctrl.read64(regs::CAP)?
-        );
+    pdev.set_master();
 
+    // Map the whole BAR: like the C transport, do not assume its size.
+    let bar = pdev.iomap_region(0, c"nvme_skel")?;
+
+    let mut ctrl = NvmeSkel {
+        bar,
+        asq: CoherentBox::zeroed_slice(dev, QUEUE_BUF_SIZE, GFP_KERNEL)?.into(),
+        acq: CoherentBox::zeroed_slice(dev, QUEUE_BUF_SIZE, GFP_KERNEL)?.into(),
+        sq_tail: 0,
+        cq_head: 0,
+    };
+
+    // Log the mapped BAR length: without it an early failure gives no clue
+    // that a size assumption was the problem.
+    let bar_len = pdev.resource_len(0)?;
+    dev_info!(
+        dev,
+        "nvme-rust: BAR len={:#x} CAP={:#x}\n",
+        bar_len,
+        ctrl.read64(regs::CAP)?
+    );
+
+    let started = (|| -> Result<()> {
         ctrl.disable()?;
         ctrl.enable()?;
 
         let id: Coherent<[u8]> = CoherentBox::zeroed_slice(dev, ID_BUF_SIZE, GFP_KERNEL)?.into();
-        ctrl.submit_identify(&id, NVME_ID_CNS_CTRL, 0)
-            .map_err(|e| {
-                pdev.disable_device();
-                e
-            })?;
+        ctrl.submit_identify(&id, NVME_ID_CNS_CTRL, 0)?;
 
         // SAFETY: the controller wrote the identify payload into id and the
         // command completed.
@@ -353,13 +379,9 @@ impl<'a> pci::Driver for NvmeSkel<'a> {
             cstr(&id.sn),
             cstr(&id.fr),
         );
-        let ns: Coherent<[u8]> =
-            CoherentBox::zeroed_slice(dev, ID_BUF_SIZE, GFP_KERNEL)?.into();
-        ctrl.submit_identify(&ns, NVME_ID_CNS_NS, 1)
-            .map_err(|e| {
-                pdev.disable_device();
-                e
-            })?;
+
+        let ns: Coherent<[u8]> = CoherentBox::zeroed_slice(dev, ID_BUF_SIZE, GFP_KERNEL)?.into();
+        ctrl.submit_identify(&ns, NVME_ID_CNS_NS, 1)?;
 
         // SAFETY: the namespace identify payload was written by the controller.
         let ns = unsafe { &*ns.as_ptr().cast::<bindings::nvme_id_ns>() };
@@ -367,16 +389,12 @@ impl<'a> pci::Driver for NvmeSkel<'a> {
         let flbas = (ns.flbas & bindings::NVME_NS_FLBAS_LBA_MASK as u8) as usize;
         let shift = ns.lbaf[flbas].ds as u32;
         // The controller supplies this shift; a hostile or broken device could
-        // hand us 64+ and make the multiply below panic or wrap.
+        // hand us 64+ and make the shift below panic or wrap.
         if shift >= 64 {
             pr_err!("nvme-rust: LBA shift {} out of range\n", shift);
-            pdev.disable_device();
             return Err(EIO);
         }
-        let capacity = nsze.checked_shl(shift).ok_or(EIO).map_err(|e| {
-            pdev.disable_device();
-            e
-        })?;
+        let capacity = nsze.checked_shl(shift).ok_or(EIO)?;
 
         dev_info!(
             dev,
@@ -386,9 +404,40 @@ impl<'a> pci::Driver for NvmeSkel<'a> {
             1u64 << shift
         );
 
-        Ok(ctrl)
+        Ok(())
+    })();
+
+    if let Err(e) = started {
+        // Quiesce the controller before the caller drops the PCI enable state,
+        // otherwise it stays enabled after probe failed.
+        if ctrl.disable().is_err() {
+            pr_warn!("nvme-rust: controller stayed enabled after a probe failure\n");
+        }
+        return Err(e);
     }
 
+    Ok(ctrl)
+}
+
+impl<'a> pci::Driver for NvmeSkel<'a> {
+    type IdInfo = ();
+    type Data<'bound> = NvmeSkel<'bound>;
+
+    const ID_TABLE: pci::IdTable<Self::IdInfo> = &NVME_TABLE;
+
+    fn probe<'bound>(
+        pdev: &'bound pci::Device<device::Core<'_>>,
+        _info: Option<&'bound Self::IdInfo>,
+    ) -> impl PinInit<Self::Data<'bound>, Error> + 'bound {
+        pdev.enable_device_mem()?;
+
+        // Probe errors never reach `unbind()`, so this guard is the only thing
+        // that undoes the PCI enable when a later step fails.
+        let mut guard = ProbeGuard::new(pdev);
+        let ctrl = probe_inner(pdev)?;
+        guard.disarm();
+        Ok(ctrl)
+    }
     fn unbind<'bound>(
         pdev: &'bound pci::Device<device::Core<'_>>,
         this: Pin<&Self::Data<'bound>>,
