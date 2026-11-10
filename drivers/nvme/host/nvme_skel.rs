@@ -286,6 +286,84 @@ impl NvmeSkel<'_> {
         self.wait_ready(true)
     }
 
+    /// Issue Identify Controller and Identify Namespace and report the result.
+    ///
+    /// While `CC.EN` is set no DMA memory may be released, so both buffers live
+    /// for the whole body and every return path that still holds one stops the
+    /// controller first. The `id` allocation is the exception: it fails before
+    /// any buffer exists, so there is nothing to release yet.
+    ///
+    /// The stops are bounded (`ROLLBACK_TIMEOUT_MS`): reaching them means the
+    /// controller already misbehaved, and a full `CAP.TO` wait on the PCI probe
+    /// workqueue would only stall recovery.
+    ///
+    /// Do not turn the `identify_commands()` call below into `?`. It has to stay
+    /// a plain `if` so the stop runs while `id` and `ns` are still alive; `?`
+    /// would propagate straight to the caller, skip the stop, and break the
+    /// invariant without any compiler or test complaint.
+    fn identify(&mut self, dev: &device::Device<device::Bound>) -> Result {
+        let id: Coherent<[u8]> = CoherentBox::zeroed_slice(dev, ID_BUF_SIZE, GFP_KERNEL)?.into();
+        let ns: Coherent<[u8]> = match CoherentBox::zeroed_slice(dev, ID_BUF_SIZE, GFP_KERNEL) {
+            Ok(ns) => ns.into(),
+            Err(e) => {
+                let _ = self.disable_with_timeout(ROLLBACK_TIMEOUT_MS);
+                return Err(e);
+            }
+        };
+
+        // Not `?`: see the note above.
+        let r = self.identify_commands(dev, &id, &ns);
+        if r.is_err() {
+            let _ = self.disable_with_timeout(ROLLBACK_TIMEOUT_MS);
+        }
+        r
+    }
+
+    fn identify_commands(
+        &mut self,
+        dev: &device::Device<device::Bound>,
+        id: &Coherent<[u8]>,
+        ns: &Coherent<[u8]>,
+    ) -> Result {
+        self.submit_identify(id, NVME_ID_CNS_CTRL, 0)?;
+
+        // SAFETY: the controller wrote the identify payload into id and the
+        // command completed.
+        let id = unsafe { &*id.as_ptr().cast::<bindings::nvme_id_ctrl>() };
+        dev_info!(
+            dev,
+            "nvme-rust: model='{}' serial='{}' fw='{}'\n",
+            cstr(&id.mn),
+            cstr(&id.sn),
+            cstr(&id.fr),
+        );
+
+        self.submit_identify(ns, NVME_ID_CNS_NS, 1)?;
+
+        // SAFETY: the namespace identify payload was written by the controller.
+        let ns = unsafe { &*ns.as_ptr().cast::<bindings::nvme_id_ns>() };
+        let nsze = u64::from_le(ns.nsze);
+        let flbas = (ns.flbas & bindings::NVME_NS_FLBAS_LBA_MASK as u8) as usize;
+        let shift = ns.lbaf[flbas].ds as u32;
+        // The controller supplies this shift; a hostile or broken device could
+        // hand us 64+ and make the shift below panic or wrap.
+        if shift >= 64 {
+            pr_err!("nvme-rust: LBA shift {} out of range\n", shift);
+            return Err(EIO);
+        }
+        let capacity = nsze.checked_shl(shift).ok_or(EIO)?;
+
+        dev_info!(
+            dev,
+            "nvme-rust: capacity {} bytes ({} LBAs of {} bytes)\n",
+            capacity,
+            nsze,
+            1u64 << shift
+        );
+
+        Ok(())
+    }
+
     fn submit_identify(&mut self, id: &Coherent<[u8]>, cns: u32, nsid: u32) -> Result {
         let slot = self.sq_tail as usize % regs::ADMIN_QDEPTH as usize;
 
@@ -360,9 +438,9 @@ impl<'b, 'a> ProbeGuard<'b, 'a> {
 
     /// Stop the device now instead of at drop time.
     ///
-    /// Used on the failure path so bus mastering is off before the DMA buffers
-    /// are released: the C teardown also disables the device first and unmaps
-    /// afterwards.
+    /// Called on the failure path so bus mastering is off before the caller
+    /// frame releases the DMA buffers; the C teardown also disables the device
+    /// first and unmaps afterwards (drivers/nvme/host/pci.c:3288,3292).
     fn disable_now(&mut self) {
         if self.armed {
             self.armed = false;
@@ -384,10 +462,17 @@ impl Drop for ProbeGuard<'_, '_> {
 /// Split out of `probe()` so a failure after `CC.EN` was set can quiesce the
 /// controller before the PCI enable state is dropped: leaving `CC.EN` set after
 /// a failed probe would keep the device running for nobody.
+///
+/// The controller and its DMA buffers are built in slots owned by `probe()`,
+/// never in this frame. A failure here returns while the buffers are still
+/// alive, so `probe()` can turn bus mastering off before they are freed.
 fn probe_inner<'bound>(
     pdev: &'bound pci::Device<device::Core<'_>>,
     guard: &mut ProbeGuard<'_, '_>,
-) -> Result<NvmeSkel<'bound>> {
+    asq: &mut Option<CoherentBox<[u8]>>,
+    acq: &mut Option<CoherentBox<[u8]>>,
+    ctrl: &mut Option<NvmeSkel<'bound>>,
+) -> Result {
     let dev = pdev.as_ref();
 
     pdev.set_master();
@@ -395,13 +480,20 @@ fn probe_inner<'bound>(
     // Map the whole BAR: like the C transport, do not assume its size.
     let bar = pdev.iomap_region(0, c"nvme_skel")?;
 
-    let mut ctrl = NvmeSkel {
+    // Fill the slots one at a time: if the second allocation fails, the first
+    // buffer must still be released after `disable_device()`, which only
+    // holds if it lives in the caller's frame.
+    *asq = Some(CoherentBox::zeroed_slice(dev, QUEUE_BUF_SIZE, GFP_KERNEL)?);
+    *acq = Some(CoherentBox::zeroed_slice(dev, QUEUE_BUF_SIZE, GFP_KERNEL)?);
+
+    *ctrl = Some(NvmeSkel {
         bar,
-        asq: CoherentBox::zeroed_slice(dev, QUEUE_BUF_SIZE, GFP_KERNEL)?.into(),
-        acq: CoherentBox::zeroed_slice(dev, QUEUE_BUF_SIZE, GFP_KERNEL)?.into(),
+        asq: asq.take().unwrap().into(),
+        acq: acq.take().unwrap().into(),
         sq_tail: 0,
         cq_head: 0,
-    };
+    });
+    let ctrl = ctrl.as_mut().unwrap();
 
     // Log the mapped BAR length: without it an early failure gives no clue
     // that a size assumption was the problem.
@@ -416,46 +508,7 @@ fn probe_inner<'bound>(
     let started = (|| -> Result<()> {
         ctrl.disable()?;
         ctrl.enable()?;
-
-        let id: Coherent<[u8]> = CoherentBox::zeroed_slice(dev, ID_BUF_SIZE, GFP_KERNEL)?.into();
-        ctrl.submit_identify(&id, NVME_ID_CNS_CTRL, 0)?;
-
-        // SAFETY: the controller wrote the identify payload into id and the
-        // command completed.
-        let id = unsafe { &*id.as_ptr().cast::<bindings::nvme_id_ctrl>() };
-        dev_info!(
-            dev,
-            "nvme-rust: model='{}' serial='{}' fw='{}'\n",
-            cstr(&id.mn),
-            cstr(&id.sn),
-            cstr(&id.fr),
-        );
-
-        let ns: Coherent<[u8]> = CoherentBox::zeroed_slice(dev, ID_BUF_SIZE, GFP_KERNEL)?.into();
-        ctrl.submit_identify(&ns, NVME_ID_CNS_NS, 1)?;
-
-        // SAFETY: the namespace identify payload was written by the controller.
-        let ns = unsafe { &*ns.as_ptr().cast::<bindings::nvme_id_ns>() };
-        let nsze = u64::from_le(ns.nsze);
-        let flbas = (ns.flbas & bindings::NVME_NS_FLBAS_LBA_MASK as u8) as usize;
-        let shift = ns.lbaf[flbas].ds as u32;
-        // The controller supplies this shift; a hostile or broken device could
-        // hand us 64+ and make the shift below panic or wrap.
-        if shift >= 64 {
-            pr_err!("nvme-rust: LBA shift {} out of range\n", shift);
-            return Err(EIO);
-        }
-        let capacity = nsze.checked_shl(shift).ok_or(EIO)?;
-
-        dev_info!(
-            dev,
-            "nvme-rust: capacity {} bytes ({} LBAs of {} bytes)\n",
-            capacity,
-            nsze,
-            1u64 << shift
-        );
-
-        Ok(())
+        ctrl.identify(dev)
     })();
 
     if let Err(e) = started {
@@ -470,7 +523,7 @@ fn probe_inner<'bound>(
         return Err(e);
     }
 
-    Ok(ctrl)
+    Ok(())
 }
 
 impl<'a> pci::Driver for NvmeSkel<'a> {
@@ -485,12 +538,27 @@ impl<'a> pci::Driver for NvmeSkel<'a> {
     ) -> impl PinInit<Self::Data<'bound>, Error> + 'bound {
         pdev.enable_device_mem()?;
 
+        // These slots are declared before `guard` on purpose: locals drop in
+        // reverse order, so the guard turns bus mastering off first and the DMA
+        // buffers are only released afterwards (drivers/nvme/host/pci.c:3288).
+        let mut asq: Option<CoherentBox<[u8]>> = None;
+        let mut acq: Option<CoherentBox<[u8]>> = None;
+        let mut ctrl: Option<NvmeSkel<'bound>> = None;
+
         // Probe errors never reach `unbind()`, so this guard is the only thing
         // that undoes the PCI enable when a later step fails.
         let mut guard = ProbeGuard::new(pdev);
-        let ctrl = probe_inner(pdev, &mut guard)?;
-        guard.disarm();
-        Ok(ctrl)
+        match probe_inner(pdev, &mut guard, &mut asq, &mut acq, &mut ctrl) {
+            Ok(()) => {
+                guard.disarm();
+                // `probe_inner` fills the slot before it can return `Ok`.
+                Ok(ctrl.take().expect("probe_inner succeeded without a controller"))
+            }
+            Err(e) => {
+                guard.disable_now();
+                Err(e)
+            }
+        }
     }
     fn unbind<'bound>(
         pdev: &'bound pci::Device<device::Core<'_>>,
