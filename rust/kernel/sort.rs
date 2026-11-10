@@ -2,10 +2,12 @@
 
 //! C ABI facade for the heapsort implementation in `kernel::algo::sort`.
 //!
-//! Only the transitional `*_rs` symbols live here: they decode the C calling
-//! convention (the 0..3 swap sentinels, the callback pointers and the opaque
-//! `priv`) and hand everything to the single Rust implementation. Delete this
-//! file once every C caller uses the Rust API directly.
+//! This is C's permanent way in. `lib/sort.c` cannot call the Rust API: it goes
+//! through these `extern "C"` symbols, and it keeps doing so, because the four
+//! exports it carries are plain `EXPORT_SYMBOL()` while Rust's automatic export
+//! is GPL-only (see the `algo` module documentation). The symbols decode the C
+//! calling convention (the 0..3 swap sentinels, the callback pointers and the
+//! opaque `priv`) and hand everything to the single Rust implementation.
 
 use core::ffi::{c_int, c_void};
 
@@ -18,11 +20,15 @@ type CmpFunc = unsafe extern "C" fn(*const c_void, *const c_void) -> c_int;
 /// swap_func_t, see include/linux/sort.h.
 type SwapFunc = unsafe extern "C" fn(*mut c_void, *mut c_void, c_int);
 
-/// sort_r(), temporary Rust symbol (see the transition list).
+/// sort_r(), C ABI entry point.
 ///
 /// # Safety
 ///
-/// See sort_r_impl(). cmp must be non-NULL, as required by the C API.
+/// See sort_r_impl().
+///
+/// `cmp` must be non-NULL, as the C API requires: C would call through it and
+/// oops, while here `cmp_from_ptr()` fails the NULL check and the kernel
+/// panics with a diagnostic instead of taking a NULL call.
 #[no_mangle]
 pub unsafe extern "C" fn sort_r_rs(
     base: *mut c_void,
@@ -37,11 +43,15 @@ pub unsafe extern "C" fn sort_r_rs(
     unsafe { sort_r_impl(base, num, size, &cmp, &swap, priv_, false) }
 }
 
-/// sort_r_nonatomic(), temporary Rust symbol.
+/// sort_r_nonatomic(), C ABI entry point.
 ///
 /// # Safety
 ///
 /// See sort_r_impl().
+///
+/// `cmp` must be non-NULL, as the C API requires: C would call through it and
+/// oops, while here `cmp_from_ptr()` fails the NULL check and the kernel
+/// panics with a diagnostic instead of taking a NULL call.
 #[no_mangle]
 pub unsafe extern "C" fn sort_r_nonatomic_rs(
     base: *mut c_void,
@@ -56,11 +66,15 @@ pub unsafe extern "C" fn sort_r_nonatomic_rs(
     unsafe { sort_r_impl(base, num, size, &cmp, &swap, priv_, true) }
 }
 
-/// sort(), temporary Rust symbol.
+/// sort(), C ABI entry point.
 ///
 /// # Safety
 ///
 /// See sort_r_impl().
+///
+/// `cmp` is `cmp_func_t`, which C may leave NULL; `sort()` would then call a
+/// NULL pointer and oops. The wrapper form keeps the `None` and the comparison
+/// callback fails on it later, i.e. a panic instead of a NULL call.
 #[no_mangle]
 pub unsafe extern "C" fn sort_rs(
     base: *mut c_void,
@@ -79,11 +93,15 @@ pub unsafe extern "C" fn sort_rs(
     unsafe { sort_r_impl(base, num, size, &cmp, &swap, priv_, false) }
 }
 
-/// sort_nonatomic(), temporary Rust symbol.
+/// sort_nonatomic(), C ABI entry point.
 ///
 /// # Safety
 ///
 /// See sort_r_impl().
+///
+/// `cmp` is `cmp_func_t`, which C may leave NULL; `sort()` would then call a
+/// NULL pointer and oops. The wrapper form keeps the `None` and the comparison
+/// callback fails on it later, i.e. a panic instead of a NULL call.
 #[no_mangle]
 pub unsafe extern "C" fn sort_nonatomic_rs(
     base: *mut c_void,
