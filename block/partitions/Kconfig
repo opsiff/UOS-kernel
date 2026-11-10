@@ -124,6 +124,35 @@ config MSDOS_PARTITION
 	help
 	  Say Y here.
 
+config MSDOS_PARTITION_RUST
+	bool "PC BIOS (MSDOS partition tables) support in Rust"
+	depends on MSDOS_PARTITION
+	depends on RUST
+	# The Rust parser does not implement the second pass over BSD disklabels,
+	# Solaris x86 VTOC, Unixware slices or Minix sub-partitions. Turning any of
+	# them on would silently drop those partitions, so they must stay off.
+	depends on !BSD_DISKLABEL && !SOLARIS_X86_PARTITION && !UNIXWARE_DISKLABEL
+	depends on !MINIX_SUBPARTITION
+	# Hard dependency on msdos.c, on purpose: an AIX label makes the Rust
+	# parser return -2 and the shim hands the disk back to msdos_partition(),
+	# which dispatches to aix_partition(). Dropping MSDOS_PARTITION, or
+	# deleting msdos.c, breaks the build and loses AIX disks. Remove this
+	# note and the -2 path only after aix_partition() has been ported.
+	help
+	  Build the MS-DOS partition table parser in Rust instead of using the
+	  C implementation in msdos.c.
+
+	  The parse result is intended to be identical to the C parser; this
+	  option exists so the two can be compared on real disks and in a
+	  differential test harness before the C implementation is removed.
+
+	  Not yet supported: the BSD disklabel, Solaris x86, Unixware slice and
+	  Minix sub-partitions (those options must stay disabled), and the AIX
+	  label hand-off (AIX disks go back to the C parser, so msdos.c is
+	  required and cannot be deleted yet).
+
+	  If unsure, say N.
+
 config BSD_DISKLABEL
 	bool "BSD disklabel (FreeBSD partition tables) support"
 	depends on PARTITION_ADVANCED && MSDOS_PARTITION
