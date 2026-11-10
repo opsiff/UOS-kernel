@@ -2,6 +2,8 @@
 
 //! Kernel page allocation and management.
 
+pub mod folio;
+
 use crate::{
     alloc::{
         AllocError,

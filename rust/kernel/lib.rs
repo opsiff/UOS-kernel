@@ -109,6 +109,7 @@ pub mod of;
 #[cfg(CONFIG_PM_OPP)]
 pub mod opp;
 pub mod page;
+pub mod page_table_check;
 #[cfg(CONFIG_PCI)]
 pub mod pci;
 pub mod pid_namespace;

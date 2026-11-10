@@ -218,9 +218,20 @@ void __page_table_check_ptes_set(struct mm_struct *mm, unsigned long addr,
 	page_table_check_pte_flags(pte);
 
 	for (i = 0; i < nr; i++)
-		__page_table_check_pte_clear(mm, addr + PAGE_SIZE * i, ptep_get(ptep + i));
-	if (pte_user_accessible_page(mm, addr, pte) && !pte_special(pte))
+#ifdef CONFIG_RUST
+		__page_table_check_pte_clear_rs(mm, addr + PAGE_SIZE * i,
+						ptep_get(ptep + i));
+#else
+		__page_table_check_pte_clear(mm, addr + PAGE_SIZE * i,
+					     ptep_get(ptep + i));
+#endif
+	if (pte_user_accessible_page(mm, addr, pte) && !pte_special(pte)) {
+#ifdef CONFIG_RUST
+		__page_table_check_set_rs(pte_pfn(pte), nr, pte_write(pte));
+#else
 		page_table_check_set(pte_pfn(pte), nr, pte_write(pte));
+#endif
+	}
 }
 EXPORT_SYMBOL(__page_table_check_ptes_set);
 
@@ -291,4 +302,38 @@ void __page_table_check_pte_clear_range(struct mm_struct *mm,
 		}
 		pte_unmap(ptep - PTRS_PER_PTE);
 	}
+}
+
+/*
+ * Accessors for the page_ext payload. The layout stays private to this file;
+ * Rust reaches it through these functions only (no offset math, no copies).
+ */
+unsigned int page_table_check_anon_count(void *data)
+{
+	return atomic_read(&((struct page_table_check *)data)->anon_map_count);
+}
+
+unsigned int page_table_check_file_count(void *data)
+{
+	return atomic_read(&((struct page_table_check *)data)->file_map_count);
+}
+
+int page_table_check_anon_inc(void *data)
+{
+	return atomic_inc_return(&((struct page_table_check *)data)->anon_map_count);
+}
+
+int page_table_check_file_inc(void *data)
+{
+	return atomic_inc_return(&((struct page_table_check *)data)->file_map_count);
+}
+
+int page_table_check_anon_dec(void *data)
+{
+	return atomic_dec_return(&((struct page_table_check *)data)->anon_map_count);
+}
+
+int page_table_check_file_dec(void *data)
+{
+	return atomic_dec_return(&((struct page_table_check *)data)->file_map_count);
 }
