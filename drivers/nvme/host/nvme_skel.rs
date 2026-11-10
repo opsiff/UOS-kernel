@@ -338,6 +338,17 @@ impl<'b, 'a> ProbeGuard<'b, 'a> {
         self.armed = false;
     }
 
+    /// Stop the device now instead of at drop time.
+    ///
+    /// Used on the failure path so bus mastering is off before the DMA buffers
+    /// are released: the C teardown also disables the device first and unmaps
+    /// afterwards.
+    fn disable_now(&mut self) {
+        if self.armed {
+            self.armed = false;
+            self.pdev.disable_device();
+        }
+    }
 }
 
 impl Drop for ProbeGuard<'_, '_> {
@@ -353,7 +364,10 @@ impl Drop for ProbeGuard<'_, '_> {
 /// Split out of `probe()` so a failure after `CC.EN` was set can quiesce the
 /// controller before the PCI enable state is dropped: leaving `CC.EN` set after
 /// a failed probe would keep the device running for nobody.
-fn probe_inner<'bound>(pdev: &'bound pci::Device<device::Core<'_>>) -> Result<NvmeSkel<'bound>> {
+fn probe_inner<'bound>(
+    pdev: &'bound pci::Device<device::Core<'_>>,
+    guard: &mut ProbeGuard<'_, '_>,
+) -> Result<NvmeSkel<'bound>> {
     let dev = pdev.as_ref();
 
     pdev.set_master();
@@ -431,6 +445,8 @@ fn probe_inner<'bound>(pdev: &'bound pci::Device<device::Core<'_>>) -> Result<Nv
         if ctrl.disable_with_timeout(ROLLBACK_TIMEOUT_MS).is_err() {
             pr_warn!("nvme-rust: controller did not quiesce after a probe failure\n");
         }
+        // Stop bus mastering before the DMA buffers are dropped.
+        guard.disable_now();
         return Err(e);
     }
 
@@ -452,7 +468,7 @@ impl<'a> pci::Driver for NvmeSkel<'a> {
         // Probe errors never reach `unbind()`, so this guard is the only thing
         // that undoes the PCI enable when a later step fails.
         let mut guard = ProbeGuard::new(pdev);
-        let ctrl = probe_inner(pdev)?;
+        let ctrl = probe_inner(pdev, &mut guard)?;
         guard.disarm();
         Ok(ctrl)
     }
