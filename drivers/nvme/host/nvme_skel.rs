@@ -47,6 +47,7 @@ use kernel::{
     io::Io,
     pci,
     prelude::*,
+    time::{delay::fsleep, Delta, Instant, Monotonic},
 };
 
 mod regs {
@@ -109,16 +110,20 @@ const ID_BUF_SIZE: usize = 4096;
 const QUEUE_BUF_SIZE: usize = 4096;
 
 fn wait_until(mut cond: impl FnMut() -> bool, timeout_ms: u64) -> Result {
-    // Roughly 2k spins per millisecond; the loop is only a backstop so a
-    // broken controller cannot hang the probe forever.
-    let iters = timeout_ms.saturating_mul(2_000).max(1);
-    for _ in 0..iters {
+    // A deadline, not an iteration count: register reads are not constant time,
+    // and probe runs in process context, so spinning both mismeasures the
+    // timeout and burns the CPU for no reason.
+    let start = Instant::<Monotonic>::now();
+    let timeout = Delta::from_millis(timeout_ms as i64);
+    loop {
         if cond() {
             return Ok(());
         }
-        core::hint::spin_loop();
+        if start.elapsed() >= timeout {
+            return Err(ETIMEDOUT);
+        }
+        fsleep(Delta::from_micros(50));
     }
-    Err(ETIMEDOUT)
 }
 
 /// Error for a register access that falls outside the mapped BAR.
