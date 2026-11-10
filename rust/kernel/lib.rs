@@ -44,6 +44,7 @@ extern crate self as kernel;
 pub use ffi;
 
 pub mod acpi;
+pub mod algo;
 pub mod alloc;
 #[cfg(CONFIG_AUXILIARY_BUS)]
 pub mod auxiliary;
@@ -131,6 +132,7 @@ pub mod serdev;
 pub mod sizes;
 #[cfg(CONFIG_SOC_BUS)]
 pub mod soc;
+pub mod sort;
 #[doc(hidden)]
 pub mod std_vendor;
 pub mod str;

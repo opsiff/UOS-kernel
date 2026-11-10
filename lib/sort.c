@@ -1,18 +1,55 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * A fast, small, non-recursive O(n log n) sort for the Linux kernel
+ * The heapsort implementation lives in rust/kernel/algo/sort.rs.  This file is
+ * its permanent C ABI: the four entry points are exported with plain
+ * EXPORT_SYMBOL() and Rust's automatic export is GPL-only, so the exports stay
+ * here (see rust/kernel/algo/mod.rs).  With CONFIG_RUST=n the original C
+ * implementation below is used instead, so a kernel without Rust support still
+ * links.
  *
- * This performs n*log2(n) + 0.37*n + o(n) comparisons on average,
- * and 1.5*n*log2(n) + O(n) in the (very contrived) worst case.
- *
- * Quicksort manages n*log2(n) - 1.26*n for random inputs (1.63*n
- * better) at the expense of stack usage and much larger code to avoid
- * quicksort's O(n^2) worst case.
+ * sort_r() heapsorts @num elements of @size bytes at @base.  Comparison is
+ * @cmp_func(base + i, base + j, @priv); @swap_func, when non-NULL, replaces the
+ * default memory copy.  sort_r_nonatomic() additionally calls cond_resched()
+ * while sorting.  The original documentation lived here; it is preserved in the
+ * Rust implementation.
  */
 
 #include <linux/types.h>
 #include <linux/export.h>
 #include <linux/sort.h>
+
+#ifdef CONFIG_RUST
+
+void sort_r(void *base, size_t num, size_t size,
+	    cmp_r_func_t cmp_func, swap_r_func_t swap_func, const void *priv)
+{
+	sort_r_rs(base, num, size, cmp_func, swap_func, priv);
+}
+EXPORT_SYMBOL(sort_r);
+
+void sort_r_nonatomic(void *base, size_t num, size_t size,
+		      cmp_r_func_t cmp_func, swap_r_func_t swap_func,
+		      const void *priv)
+{
+	sort_r_nonatomic_rs(base, num, size, cmp_func, swap_func, priv);
+}
+EXPORT_SYMBOL(sort_r_nonatomic);
+
+void sort(void *base, size_t num, size_t size,
+	  cmp_func_t cmp_func, swap_func_t swap_func)
+{
+	sort_rs(base, num, size, cmp_func, swap_func);
+}
+EXPORT_SYMBOL(sort);
+
+void sort_nonatomic(void *base, size_t num, size_t size,
+		    cmp_func_t cmp_func, swap_func_t swap_func)
+{
+	sort_nonatomic_rs(base, num, size, cmp_func, swap_func);
+}
+EXPORT_SYMBOL(sort_nonatomic);
+
+#else /* !CONFIG_RUST */
 
 /**
  * is_aligned - is this pointer & size okay for word-wide copying?
@@ -120,10 +157,10 @@ static void swap_bytes(void *a, void *b, size_t n)
  * a pointer, but small integers make for the smallest compare
  * instructions.
  */
-#define SWAP_WORDS_64 (swap_r_func_t)0
-#define SWAP_WORDS_32 (swap_r_func_t)1
-#define SWAP_BYTES    (swap_r_func_t)2
-#define SWAP_WRAPPER  (swap_r_func_t)3
+#define SWAP_WORDS_64 ((swap_r_func_t)0)
+#define SWAP_WORDS_32 ((swap_r_func_t)1)
+#define SWAP_BYTES    ((swap_r_func_t)2)
+#define SWAP_WRAPPER  ((swap_r_func_t)3)
 
 struct wrapper {
 	cmp_func_t cmp;
@@ -355,3 +392,5 @@ void sort_nonatomic(void *base, size_t num, size_t size,
 	return __sort_r(base, num, size, _CMP_WRAPPER, SWAP_WRAPPER, &w, true);
 }
 EXPORT_SYMBOL(sort_nonatomic);
+
+#endif /* CONFIG_RUST */
