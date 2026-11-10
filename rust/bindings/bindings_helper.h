@@ -87,6 +87,7 @@
 #include <linux/sched.h>
 #include <linux/security.h>
 #include <linux/serdev.h>
+#include <linux/shrinker.h>
 #include <linux/slab.h>
 #include <linux/sys_soc.h>
 #include <linux/task_work.h>
@@ -150,6 +151,15 @@ const vm_flags_t RUST_CONST_HELPER_VM_HUGETLB = VM_HUGETLB;
 const vm_flags_t RUST_CONST_HELPER_VM_SYNC = VM_SYNC;
 const vm_flags_t RUST_CONST_HELPER_VM_ARCH_1 = VM_ARCH_1;
 const vm_flags_t RUST_CONST_HELPER_VM_WIPEONFORK = VM_WIPEONFORK;
+/* bindgen evaluates a macro only when a real C expression references it, so
+ * these keep SHRINKER_* (plain BIT() expansions) in the generated bindings.
+ */
+const unsigned int RUST_CONST_HELPER_SHRINKER_REGISTERED = SHRINKER_REGISTERED;
+const unsigned int RUST_CONST_HELPER_SHRINKER_ALLOCATED = SHRINKER_ALLOCATED;
+const unsigned int RUST_CONST_HELPER_SHRINKER_NUMA_AWARE = SHRINKER_NUMA_AWARE;
+const unsigned int RUST_CONST_HELPER_SHRINKER_MEMCG_AWARE = SHRINKER_MEMCG_AWARE;
+const unsigned int RUST_CONST_HELPER_SHRINKER_NONSLAB = SHRINKER_NONSLAB;
+
 const vm_flags_t RUST_CONST_HELPER_VM_DONTDUMP = VM_DONTDUMP;
 const vm_flags_t RUST_CONST_HELPER_VM_SOFTDIRTY = VM_SOFTDIRTY;
 const vm_flags_t RUST_CONST_HELPER_VM_MIXEDMAP = VM_MIXEDMAP;
