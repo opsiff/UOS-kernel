@@ -172,6 +172,16 @@ config SAMPLE_RUST_DRIVER_SERDEV
 
 	  If unsure, say N.
 
+config SAMPLE_RUST_PERCPU
+	tristate "Per-CPU variables and raw spinlocks"
+	help
+	  This option builds the Rust per-CPU variable and raw spinlock sample.
+
+	  To compile this as a module, choose M here:
+	  the module will be called rust_percpu.
+
+	  If unsure, say N.
+
 config SAMPLE_RUST_SOC
 	tristate "SoC Driver"
 	select SOC_BUS

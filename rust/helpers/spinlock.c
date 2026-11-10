@@ -51,3 +51,70 @@ __rust_helper int rust_helper_spin_trylock_irq_disable(spinlock_t *lock)
 {
 	return spin_trylock_irq_disable(lock);
 }
+
+__rust_helper void rust_helper___raw_spin_lock_init(raw_spinlock_t *lock,
+						    const char *name,
+						    struct lock_class_key *key)
+{
+#ifdef CONFIG_DEBUG_SPINLOCK
+	__raw_spin_lock_init(lock, name, key, LD_WAIT_SPIN);
+#else /* !CONFIG_DEBUG_SPINLOCK */
+	raw_spin_lock_init(lock);
+#endif /* CONFIG_DEBUG_SPINLOCK */
+}
+
+__rust_helper void rust_helper_raw_spin_lock(raw_spinlock_t *lock)
+{
+	raw_spin_lock(lock);
+}
+
+__rust_helper void rust_helper_raw_spin_unlock(raw_spinlock_t *lock)
+{
+	raw_spin_unlock(lock);
+}
+
+__rust_helper int rust_helper_raw_spin_trylock(raw_spinlock_t *lock)
+{
+	return raw_spin_trylock(lock);
+}
+
+__rust_helper void rust_helper_raw_spin_assert_is_held(raw_spinlock_t *lock)
+{
+	lockdep_assert_held(lock);
+}
+
+__rust_helper unsigned long rust_helper_raw_spin_lock_irqsave(raw_spinlock_t *lock)
+{
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(lock, flags);
+
+	return flags;
+}
+
+__rust_helper void rust_helper_raw_spin_unlock_irqrestore(raw_spinlock_t *lock,
+							  unsigned long flags)
+{
+	raw_spin_unlock_irqrestore(lock, flags);
+}
+
+__rust_helper int rust_helper_raw_spin_trylock_irqsave(raw_spinlock_t *lock,
+						       unsigned long *flags)
+{
+	return raw_spin_trylock_irqsave(lock, *flags);
+}
+
+__rust_helper void rust_helper_raw_spin_lock_bh(raw_spinlock_t *lock)
+{
+	raw_spin_lock_bh(lock);
+}
+
+__rust_helper void rust_helper_raw_spin_unlock_bh(raw_spinlock_t *lock)
+{
+	raw_spin_unlock_bh(lock);
+}
+
+__rust_helper int rust_helper_raw_spin_trylock_bh(raw_spinlock_t *lock)
+{
+	return raw_spin_trylock_bh(lock);
+}
