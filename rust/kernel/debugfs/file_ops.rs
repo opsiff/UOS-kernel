@@ -389,7 +389,7 @@ impl<T: BinaryWriter + BinaryReader + Sync> BinaryReadWriteFile<T> for T {
 }
 
 // ---------------------------------------------------------------------------
-// S2: traversal. C: fs/seq_file.c:58 seq_open(), :353 seq_release(),
+// Traversal. C: fs/seq_file.c:58 seq_open(), :353 seq_release(),
 // include/linux/seq_file.h:31 struct seq_operations, :38 SEQ_SKIP.
 // ---------------------------------------------------------------------------
 
