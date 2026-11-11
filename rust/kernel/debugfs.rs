@@ -559,7 +559,9 @@ impl<'data, 'dir> ScopedDir<'data, 'dir> {
     /// Creates a read-only seq file whose per-open context is built by `SeqFileOps::open`
     /// and dropped when the file is closed.
     ///
-    /// S1: the file emits no data yet; traversal arrives in S2.
+    /// Reads are served by the `seq_file` traversal, which calls `SeqFileOps::start`,
+    /// `SeqFileOps::next`, and `SeqFileOps::show` to produce the file's contents and
+    /// `SeqFileOps::stop` when it is done with a position.
     pub fn seq_file_with_context<T: SeqFileOps + Send + Sync + 'static>(
         &self,
         name: &CStr,
