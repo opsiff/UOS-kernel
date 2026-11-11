@@ -27,17 +27,23 @@ unsafe fn anon_or_bug(page: *mut bindings::page) -> bool {
     }
 }
 
-/// Applies `f` to the page_ext payload of `pgcnt` consecutive pages from `pfn`.
+/// Applies `f` to the page_ext payload of `pgcnt` consecutive pages from `page`.
 ///
-/// C counterpart: `for_each_page_ext()` (mm/page_table_check.c:82, :111).
+/// C counterpart: `for_each_page_ext()` (mm/page_table_check.c:78, :113, :139),
+/// which walks the pfn range starting at `page`.
 ///
 /// # Safety
 ///
-/// `pfn..pfn + pgcnt` must be valid and page_ext must be initialized.
-unsafe fn for_each_ptc<F: FnMut(*mut core::ffi::c_void)>(pfn: usize, pgcnt: usize, mut f: F) {
+/// `page..page + pgcnt` must be a valid range of the vmemmap and page_ext must
+/// be initialized.
+unsafe fn for_each_ptc<F: FnMut(*mut core::ffi::c_void)>(
+    page: *mut bindings::page,
+    pgcnt: usize,
+    mut f: F,
+) {
     for i in 0..pgcnt {
         // SAFETY: the range was validated by the caller.
-        let p = unsafe { bindings::pfn_to_page(pfn + i) };
+        let p = unsafe { page.add(i) };
         // SAFETY: valid page, page_ext initialized.
         let ext = unsafe { bindings::page_ext_get(p) };
         if ext.is_null() {
@@ -68,7 +74,7 @@ pub unsafe fn clear(pfn: usize, pgcnt: usize) {
 
     // SAFETY: forwarded from the caller.
     unsafe {
-        for_each_ptc(pfn, pgcnt, |data| {
+        for_each_ptc(page, pgcnt, |data| {
             if anon {
                 if bindings::ptc_file_read(data) != 0 {
                     panic!("page_table_check: anon page has file mappings");
@@ -105,7 +111,7 @@ pub unsafe fn set(pfn: usize, pgcnt: usize, rw: bool) {
 
     // SAFETY: forwarded from the caller.
     unsafe {
-        for_each_ptc(pfn, pgcnt, |data| {
+        for_each_ptc(page, pgcnt, |data| {
             if anon {
                 if bindings::ptc_file_read(data) != 0 {
                     panic!("page_table_check: anon page has file mappings");
@@ -132,24 +138,21 @@ pub unsafe fn set(pfn: usize, pgcnt: usize, rw: bool) {
 /// # Safety
 ///
 /// `page` must be valid and about to be (re)allocated or freed.
-pub unsafe fn zero(page: *mut bindings::page, _order: u32) {
+pub unsafe fn zero(page: *mut bindings::page, order: u32) {
     // SAFETY: forwarded from the caller.
     let _ = unsafe { anon_or_bug(page) };
-    // SAFETY: valid page.
-    let ext = unsafe { bindings::page_ext_get(page) };
-    if ext.is_null() {
-        return;
-    }
-    // SAFETY: live payload.
-    let data = unsafe { bindings::ptc_data(ext) };
-    // SAFETY: live payload, atomic reads.
-    if unsafe { bindings::ptc_anon_read(data) } != 0
-        || unsafe { bindings::ptc_file_read(data) } != 0
-    {
-        panic!("page_table_check: counters not zero on alloc/free");
-    }
-    // SAFETY: paired with page_ext_get().
-    unsafe { bindings::page_ext_put(ext) };
+    // The C hook checks every page of the block: `1 << order` in
+    // __page_table_check_zero() (mm/page_table_check.c:139). Checking only the
+    // head page leaves a stale count on a tail page undetected.
+    // SAFETY: forwarded from the caller; `page` heads `1 << order` pages.
+    unsafe {
+        for_each_ptc(page, 1usize << order, |data| {
+            // SAFETY: live payload, atomic reads.
+            if bindings::ptc_anon_read(data) != 0 || bindings::ptc_file_read(data) != 0 {
+                panic!("page_table_check: counters not zero on alloc/free");
+            }
+        })
+    };
 }
 
 /// C hook replacement for `page_table_check_pte_clear()` (single entry).
@@ -178,8 +181,13 @@ pub extern "C" fn __page_table_check_pte_clear_rs(
 }
 
 /// C hook replacement for `page_table_check_set()` (batch, keeps `pgcnt`).
+///
+/// `pgcnt` is `unsigned int` in include/linux/page_table_check.h:31, so the
+/// extern signature must be 32-bit: on a big-endian 64-bit target the upper half
+/// of the register is otherwise undefined and `for_each_ptc()` walks off the
+/// block.
 #[no_mangle]
-pub extern "C" fn __page_table_check_set_rs(pfn: usize, pgcnt: usize, rw: bool) {
+pub extern "C" fn __page_table_check_set_rs(pfn: usize, pgcnt: u32, rw: bool) {
     // SAFETY: called from the C hook after it validated the pte range.
-    unsafe { set(pfn, pgcnt, rw) };
+    unsafe { set(pfn, pgcnt as usize, rw) };
 }
