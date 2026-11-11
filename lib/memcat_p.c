@@ -7,6 +7,15 @@
  * array, which is also NULL-terminated. Nomenclature is inspired by
  * memset_p() and memcat() found elsewhere in the kernel source tree.
  */
+#ifdef CONFIG_RUST
+void **__memcat_p_rs(void **a, void **b);
+
+void **__memcat_p(void **a, void **b)
+{
+	return __memcat_p_rs(a, b);
+}
+EXPORT_SYMBOL_GPL(__memcat_p);
+#else /* !CONFIG_RUST */
 void **__memcat_p(void **a, void **b)
 {
 	void **p = a, **new;
@@ -31,4 +40,4 @@ void **__memcat_p(void **a, void **b)
 	return new;
 }
 EXPORT_SYMBOL_GPL(__memcat_p);
-
+#endif /* CONFIG_RUST */
