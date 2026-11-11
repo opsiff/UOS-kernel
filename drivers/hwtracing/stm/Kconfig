@@ -11,6 +11,29 @@ config STM
 
 if STM
 
+config STM_POLICY_ATTRS
+	bool
+	depends on RUST
+	default y
+	help
+	  Merge the per-protocol attributes into the STM policy node types.
+	  The merge now lives in Rust (rust/kernel/memcat.rs): the C
+	  implementation was converted by commit 41f70a90 ("rust: lib:
+	  memcat_p: port the merge helper to Rust") and removed together
+	  with lib/memcat_p.c in the following commit.
+
+	  CONFIG_STM_PROTO_SYS_T depends on this symbol. This symbol has no
+	  prompt: it evaluates to y exactly when CONFIG_RUST is enabled, and
+	  a value written into .config is discarded on the next syncconfig.
+	  With CONFIG_RUST=n it evaluates to n, so CONFIG_STM_PROTO_SYS_T is
+	  not selectable and both symbols are absent from .config rather than
+	  being silently kept enabled. CONFIG_STM_PROTO_BASIC is not
+	  affected: p_basic.c has no .policy_attr and never enters the merge
+	  path. The STM core, the configfs policy nodes and the trace
+	  sources that carry no policy attributes are unaffected. With
+	  CONFIG_RUST=n there is no C implementation of the merge left to
+	  fall back to.
+
 config STM_PROTO_BASIC
 	tristate "Basic STM framing protocol driver"
 	default STM
@@ -28,6 +51,7 @@ config STM_PROTO_BASIC
 
 config STM_PROTO_SYS_T
 	tristate "MIPI SyS-T STM framing protocol driver"
+	depends on STM_POLICY_ATTRS
 	default STM
 	help
 	  This is an implementation of MIPI SyS-T protocol to be used

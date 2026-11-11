@@ -197,6 +197,9 @@ static struct configfs_attribute *stp_policy_node_attrs[] = {
 static const struct config_item_type stp_policy_type;
 static const struct config_item_type stp_policy_node_type;
 
+#if IS_ENABLED(CONFIG_STM_POLICY_ATTRS)
+void **__memcat_p_rs(void **a, void **b);
+
 const struct config_item_type *
 get_policy_node_type(struct configfs_attribute **attrs)
 {
@@ -208,7 +211,9 @@ get_policy_node_type(struct configfs_attribute **attrs)
 	if (!type)
 		return NULL;
 
-	merged = memcat_p(stp_policy_node_attrs, attrs);
+	merged = (struct configfs_attribute **)
+		 __memcat_p_rs((void **)stp_policy_node_attrs,
+			       (void **)attrs);
 	if (!merged) {
 		kfree(type);
 		return NULL;
@@ -218,6 +223,7 @@ get_policy_node_type(struct configfs_attribute **attrs)
 
 	return type;
 }
+#endif
 
 static struct config_group *
 stp_policy_node_make(struct config_group *group, const char *name)

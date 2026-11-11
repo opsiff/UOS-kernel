@@ -410,11 +410,13 @@ int stm_register_protocol(const struct stm_protocol_driver *pdrv)
 	if (!pe)
 		goto unlock;
 
+#if IS_ENABLED(CONFIG_STM_POLICY_ATTRS)
 	if (pdrv->policy_attr) {
 		pe->node_type = get_policy_node_type(pdrv->policy_attr);
 		if (!pe->node_type)
 			goto unlock;
 	}
+#endif
 
 	list_add_tail(&pe->entry, &stm_pdrv_head);
 	pe->pdrv = pdrv;

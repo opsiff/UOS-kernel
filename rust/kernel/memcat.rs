@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! C ABI for the merge helper in `lib/memcat_p.c`.
+//! Entry point for the C side's STM policy attribute merge.
 
 use core::ffi::c_void;
 use core::ptr;
@@ -12,8 +12,8 @@ use crate::alloc::KVec;
 ///
 /// # Safety
 ///
-/// `p` must point to a NULL-terminated array. Like `lib/memcat_p.c:16-19`, this
-/// reads `*p` at increasing indices and never checks `p` itself for NULL.
+/// `p` must point to a NULL-terminated array. This reads `*p` at increasing
+/// indices and never checks `p` itself for NULL.
 unsafe fn count(p: *const *mut c_void) -> usize {
     let mut n = 0;
 
@@ -29,15 +29,15 @@ unsafe fn count(p: *const *mut c_void) -> usize {
 /// the allocation fails.
 ///
 /// The allocation is `(count(a) + count(b) + 1) * size_of::<*mut c_void>()`
-/// bytes from `Kmalloc`, i.e. the same memory `kmalloc_array()` returns in
-/// `lib/memcat_p.c:23`; it is meant to be released by C with `kfree()`.
+/// bytes from `Kmalloc`, i.e. the same memory the former C implementation's
+/// `kmalloc_array()` returned; it is meant to be released by C with `kfree()`.
 ///
 /// # Safety
 ///
 /// `a` and `b` must be non-NULL and point to NULL-terminated arrays. Their
 /// elements are copied, never dereferenced. A NULL `a` or `b` is undefined
-/// behavior here exactly as in C, which dereferences `*p` without checking the
-/// array pointer.
+/// behavior here exactly as in the former C implementation, which dereferenced
+/// `*p` without checking the array pointer.
 #[no_mangle]
 pub unsafe extern "C" fn __memcat_p_rs(
     a: *mut *mut c_void,

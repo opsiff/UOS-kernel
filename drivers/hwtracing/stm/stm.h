@@ -11,6 +11,7 @@
 #define _STM_STM_H_
 
 #include <linux/configfs.h>
+#include <linux/kconfig.h>
 
 struct stp_policy;
 struct stp_policy_node;
@@ -57,8 +58,10 @@ void stp_policy_node_get_ranges(struct stp_policy_node *policy_node,
 				unsigned int *mstart, unsigned int *mend,
 				unsigned int *cstart, unsigned int *cend);
 
+#if IS_ENABLED(CONFIG_STM_POLICY_ATTRS)
 const struct config_item_type *
 get_policy_node_type(struct configfs_attribute **attrs);
+#endif
 
 struct stm_output {
 	spinlock_t		lock;
