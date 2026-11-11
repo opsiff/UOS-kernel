@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! Self test for S2: traversal (start/next/stop/show) over a small node tree.
+//! Self test for traversal (start/next/stop/show) over a small node tree.
 //!
 //! Mirrors the gcov shape: `open` walks the tree once to compute the traversal order and
 //! per-node subtree sizes; `show` only prints. One node is named with a `skip` prefix and
@@ -14,7 +14,7 @@ module! {
     type: RustSeqOps,
     name: "rust_seqops",
     authors: ["Rust for Linux Contributors"],
-    description: "S2 seq_file traversal self test",
+    description: "seq_file traversal self test",
     license: "GPL",
 }
 
