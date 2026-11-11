@@ -31,6 +31,17 @@ config SAMPLE_RUST_MINIMAL
 
 	  If unsure, say N.
 
+config SAMPLE_RUST_SHRINKER
+	tristate "Shrinker"
+	help
+	  This option builds a sample that registers a shrinker with the
+	  memory reclaim path.
+
+	  To compile this as a module, choose M here:
+	  the module will be called rust_shrinker.
+
+	  If unsure, say N.
+
 config SAMPLE_RUST_MISC_DEVICE
 	tristate "Misc device"
 	help
