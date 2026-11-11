@@ -11,11 +11,25 @@
 #include <linux/jump_label.h>
 
 extern struct static_key_true page_table_check_disabled;
+
+/* Counter accessors for the private page_ext payload. */
+unsigned int page_table_check_anon_count(void *data);
+unsigned int page_table_check_file_count(void *data);
+int page_table_check_anon_inc(void *data);
+int page_table_check_file_inc(void *data);
+int page_table_check_anon_dec(void *data);
+int page_table_check_file_dec(void *data);
 extern struct page_ext_operations page_table_check_ops;
 
 void __page_table_check_zero(struct page *page, unsigned int order);
 void __page_table_check_pte_clear(struct mm_struct *mm, unsigned long addr,
 				  pte_t pte);
+#ifdef CONFIG_RUST
+/* Rust implementation of the PTE clear hook; the static key stays in C. */
+void __page_table_check_pte_clear_rs(struct mm_struct *mm, unsigned long addr,
+				     pte_t pte);
+void __page_table_check_set_rs(unsigned long pfn, unsigned int pgcnt, bool rw);
+#endif
 void __page_table_check_pmd_clear(struct mm_struct *mm, unsigned long addr,
 				  pmd_t pmd);
 void __page_table_check_pud_clear(struct mm_struct *mm, unsigned long addr,
@@ -52,7 +66,11 @@ static inline void page_table_check_pte_clear(struct mm_struct *mm,
 	if (static_branch_likely(&page_table_check_disabled))
 		return;
 
+#ifdef CONFIG_RUST
+	__page_table_check_pte_clear_rs(mm, addr, pte);
+#else
 	__page_table_check_pte_clear(mm, addr, pte);
+#endif
 }
 
 static inline void page_table_check_pmd_clear(struct mm_struct *mm,
