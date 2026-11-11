@@ -121,17 +121,6 @@ __rust_helper int rust_helper_ptc_file_dec(void *data)
 {
 	return page_table_check_file_dec(data);
 }
-#endif
-
-__rust_helper unsigned long rust_helper_pte_pfn(pte_t pte)
-{
-	return pte_pfn(pte);
-}
-
-__rust_helper bool rust_helper_pte_write(pte_t pte)
-{
-	return pte_write(pte);
-}
 
 /*
  * Both guards from __page_table_check_pte_clear() (mm/page_table_check.c:150-156)
@@ -147,5 +136,16 @@ __rust_helper bool rust_helper_page_table_check_should_check(struct mm_struct *m
 		return false;
 
 	return pte_user_accessible_page(mm, addr, pte) && !pte_special(pte);
+}
+#endif
+
+__rust_helper unsigned long rust_helper_pte_pfn(pte_t pte)
+{
+	return pte_pfn(pte);
+}
+
+__rust_helper bool rust_helper_pte_write(pte_t pte)
+{
+	return pte_write(pte);
 }
 
