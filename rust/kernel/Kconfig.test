@@ -94,4 +94,14 @@ config RUST_ALGO_KUNIT_TEST
 
 	  If unsure, say N.
 
+config RUST_MEMCAT_KUNIT_TEST
+	bool "KUnit tests for the Rust memcat_p() implementation" if !KUNIT_ALL_TESTS
+	default KUNIT_ALL_TESTS
+	help
+	  This option enables KUnit tests for the Rust implementation of
+	  memcat_p(). These are only for development and testing, not for
+	  regular kernel use cases.
+
+	  If unsure, say N.
+
 endif
